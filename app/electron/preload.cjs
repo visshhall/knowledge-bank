@@ -71,6 +71,18 @@ contextBridge.exposeInMainWorld("kb", {
 
   /** Resolve to the app version, e.g. "0.6.1" (shown top-right). */
   appVersion: () => ipcRenderer.invoke("app:version"),
+  // v0.9 app updates (updater.cjs)
+  updateCheck: (online) => ipcRenderer.invoke("update:check", online),
+  updateState: () => ipcRenderer.invoke("update:state"),
+  updateDownload: () => ipcRenderer.invoke("update:download"),
+  updateInstall: (installerPath) => ipcRenderer.invoke("update:install", installerPath),
+  updateSettings: (next) => ipcRenderer.invoke("update:settings", next),
+  onUpdate: (kind, handler) => {
+    const channel = kind === "progress" ? "update:progress" : "update:found";
+    const listener = (_e, data) => handler(data);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
 
   /** Open the reports folder in File Explorer. */
   openReports: () => ipcRenderer.invoke("shell:openReports"),

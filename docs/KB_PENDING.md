@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.8.3 (same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.9.0 (eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 15 November 2026
 
 ---
@@ -13,7 +13,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.8.3.exe`; check files marked "Already in the bank" really are copies (Keep anyway if not, and tell Claude)
+- [ ] Install `KnowledgeBank-Setup-0.9.0.exe` (future versions install themselves from Setup → App updates)
+- [ ] (0.8.3) check files marked "Already in the bank" really are copies (Keep anyway if not, and tell Claude)
 - [ ] (0.8.2 checks) open Library: unrelated files show "Not cybersecurity" — check none of your security PDFs was set aside (use Keep anyway if one was, and tell Claude its name)
 - [ ] Setup → Graphics card → "Test and tune speed"; report the words/s and the "% on graphics card"
 - [ ] Remove a file that sits in a watched folder; confirm it does not come back after 3+ minutes
@@ -109,18 +110,20 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
-## Next to build (chosen by the owner 15 Nov 2026 — waiting for his go-ahead)
-- [ ] Weak articles rewritten automatically (when the fact check removes many lines)
-- [ ] App updates itself (check, download, install in one click)
-- [ ] More file types: Word (.docx), PowerPoint (.pptx), saved web pages, text, Markdown
-- [ ] Better search: filters (file, topic, scanned/text) and better ranking
-- [ ] Built for 1,000+ PDFs: performance tuning, bank size shown, clean-up button
-- [ ] Edit topics by hand: rename, merge, split, move a point
-- [ ] Replace old versions: an updated PDF takes over from its older version automatically
-- [ ] Clean junk pages and lines: covers, blank pages, "follow/like/repost" pages, contents/index pages, repeated headers/footers/watermarks
-- [ ] Real names for files: title read from content for numeric downloads (display only; files on disk untouched)
-- [ ] Garbled text detection: broken-font pages re-read by OCR automatically
-- [ ] Automatic categories per file (SIEM, EDR, Cloud, Network, Malware, Identity, Email…) with a Library filter
+## v0.9.0 — Eleven chosen improvements ✅ delivered
+- [x] Weak articles rewritten automatically (one stricter retry, better version kept)
+- [x] App updates itself (Downloads/Desktop installer or GitHub release; verified; silent install + reopen)
+- [x] More file types: Word, PowerPoint, web pages, text, Markdown
+- [x] Better search: filters, phrase/heading ranking, close matches, file/topic chips, rank fusion in Ctrl+K
+- [x] Big libraries: 1,000-file test, float16 meaning cache (980 → 190 MB), SQLite tuning, Storage card + Clean up
+- [x] Edit topics by hand: rename, merge, move points, split into a new topic
+- [x] Replace old versions automatically
+- [x] Clean junk pages and lines (one-time clean of existing banks without renumbering)
+- [x] Real names for files
+- [x] Garbled text re-read by OCR
+- [x] Automatic categories + Library filters
+- [ ] Owner checks: Library titles/categories look right; one hand edit; an update via Setup → App updates
+- [ ] Idea: store meaning-vectors as float16 on disk too (halves the bank size; needs a format marker)
 
 ## v0.8.3 — Same content never added twice ✅ delivered
 - [x] Paragraphs already in another file are not added again (fingerprint match; short lines kept)

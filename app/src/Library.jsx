@@ -32,8 +32,11 @@ const STATUS_TEXT = {
 };
 
 export default function Library() {
-  const [lib, reloadLib] = usePoll("/library", 4000);
   const [imp, reloadImp] = usePoll("/import/status", 1500);
+  // v0.9 (big libraries): the file list refreshes every 4 s while importing,
+  // every 20 s otherwise.
+  const [lib, reloadLib] = usePoll("/library", imp?.state === "running" ? 4000 : 20000);
+  const [shown, setShown] = useState(150); // rows drawn; "Show more" adds 150
   const [notice, setNotice] = useState(null); // {kind: "ok"|"error", text}
   const [dragging, setDragging] = useState(false);
 
@@ -57,7 +60,7 @@ export default function Library() {
       parts.push(
         `${r.removed_before} you removed before (skipped — pick the file itself with Add files to bring it back)`
       );
-    if (r.unsupported) parts.push(`${r.unsupported} not a PDF, image or spreadsheet (ignored)`);
+    if (r.unsupported) parts.push(`${r.unsupported} of a type the app can't read (ignored)`);
     if (r.errors?.length) parts.push(`${r.errors.length} couldn't be opened: ${r.errors.slice(0, 2).join("; ")}`);
     setNotice({ kind: r.errors?.length ? "error" : "ok", text: parts.join(" · ") + "." });
     reloadLib();
@@ -92,16 +95,28 @@ export default function Library() {
     reloadLib();
   }
 
-  const sources = lib?.sources ?? [];
-  const failed = sources.filter((s) => s.status === "failed").length;
-  const setAside = sources.filter((s) => s.status === "set_aside").length;
+  const allSources = lib?.sources ?? [];
+  // v0.9 Library filters: name/title text, category, status.
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("");
+  const [state, setState] = useState("");
+  const categories = [...new Set(allSources.flatMap((s) => s.categories ?? []))].sort();
+  const sources = allSources.filter(
+    (s) =>
+      (!q || `${s.title ?? ""} ${s.file_name}`.toLowerCase().includes(q.toLowerCase())) &&
+      (!cat || (s.categories ?? []).includes(cat)) &&
+      (!state || s.status === state)
+  );
+  const failed = allSources.filter((s) => s.status === "failed").length;
+  const setAside = allSources.filter((s) => s.status === "set_aside").length;
 
   return (
     <div className="library">
       <header className="page-head">
         <h1>Library</h1>
         <p className="lede">
-          Add PDFs, screenshots, diagrams and spreadsheets (Excel or CSV). Your original files are only read — never moved,
+          Add PDFs, Word and PowerPoint files, saved web pages, text and Markdown, screenshots and spreadsheets (Excel
+          or CSV). Your original files are only read — never moved,
           changed or copied.
         </p>
       </header>
@@ -119,7 +134,7 @@ export default function Library() {
         <span className="drop-icon" aria-hidden="true">
           <Icon name="upload" size={26} />
         </span>
-        <p className="drop-title">Drop PDFs, images, spreadsheets or whole folders here</p>
+        <p className="drop-title">Drop documents, slides, images, spreadsheets or whole folders here</p>
         <div className="actions">
           <button className="primary" onClick={async () => addPaths(await kb.pickFiles())}>
             <Icon name="file" size={18} />
@@ -150,14 +165,14 @@ export default function Library() {
         </p>
       )}
 
-      <SearchPanel hasData={sources.some((s) => s.passages > 0)} />
+      <SearchPanel categories={categories} hasData={allSources.some((s) => s.passages > 0)} />
 
       <WatchedFolders />
 
       <section className="card file-list" aria-label="Files in the bank">
         <div className="section-head">
           <h2>
-            Files <span className="count">{formatCount(sources.length)}</span>
+            Files <span className="count">{formatCount(allSources.length)}</span>
           </h2>
           <RelevanceSwitch setAside={setAside} />
           {failed > 0 && (
@@ -167,8 +182,41 @@ export default function Library() {
             </button>
           )}
         </div>
-        {sources.length === 0 ? (
+        {allSources.length > 0 && (
+          <div className="lib-filters">
+            <input
+              type="search"
+              placeholder="Filter by name…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              aria-label="Filter files by name"
+            />
+            <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Category">
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select value={state} onChange={(e) => setState(e.target.value)} aria-label="Status">
+              <option value="">All statuses</option>
+              <option value="extracted">In the bank</option>
+              <option value="set_aside">Set aside</option>
+              <option value="pending">Waiting</option>
+              <option value="failed">Failed</option>
+            </select>
+            {(q || cat || state) && (
+              <span className="muted small">
+                {sources.length} of {allSources.length}
+              </span>
+            )}
+          </div>
+        )}
+        {allSources.length === 0 ? (
           <p className="muted">No files yet. Add some above to start building the bank.</p>
+        ) : sources.length === 0 ? (
+          <p className="muted">No files match these filters.</p>
         ) : (
           <table>
             <thead>
@@ -184,11 +232,21 @@ export default function Library() {
               </tr>
             </thead>
             <tbody>
-              {sources.map((s) => (
+              {sources.slice(0, shown).map((s) => (
                 <tr key={s.id} className={`st-${s.status}`}>
                   <td className="file-cell" title={s.original_path}>
-                    <span className="file-name">{s.file_name}</span>
+                    <span className="file-name">{s.title || s.file_name}</span>
+                    {s.categories?.length > 0 && (
+                      <span className="cat-chips">
+                        {s.categories.map((c) => (
+                          <span key={c} className="cat-chip">
+                            {c}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                     <span className="file-meta">
+                      {s.title ? `${s.file_name} · ` : ""}
                       {formatBytes(s.size_bytes)}
                       {s.status === "extracted" && s.relevance?.repeats_skipped > 0 &&
                         ` · ${formatCount(s.relevance.repeats_skipped)} paragraph${s.relevance.repeats_skipped === 1 ? "" : "s"} already in the bank, not added again`}
@@ -208,7 +266,9 @@ export default function Library() {
                     <span className={`status status-${s.status}`}>
                       {s.status === "set_aside" && s.relevance?.verdict === "duplicate"
                         ? "Already in the bank"
-                        : STATUS_TEXT[s.status]}
+                        : s.status === "set_aside" && s.relevance?.verdict === "replaced"
+                          ? "Older version"
+                          : STATUS_TEXT[s.status]}
                     </span>
                   </td>
                   <td className="num">{s.page_count ?? "—"}</td>
@@ -237,6 +297,11 @@ export default function Library() {
               ))}
             </tbody>
           </table>
+        )}
+        {sources.length > shown && (
+          <button className="secondary show-more" onClick={() => setShown(shown + 150)}>
+            Show more ({formatCount(sources.length - shown)} not shown)
+          </button>
         )}
       </section>
     </div>
@@ -336,10 +401,18 @@ export function ImportProgress({ status }) {
  * Search box + results. Waits 250 ms after the last keystroke before
  * searching (no request per letter). Matches are highlighted using the
  * engine's marker characters, split into <mark> elements — no raw HTML.
+ * v0.9 ("better search"): filters for kind of text (typed / scanned /
+ * picture) and category, plus clickable chips for the files and topics with
+ * the most hits (click to narrow to one, click again to clear). When no
+ * passage has every word, close matches are shown and labelled as such.
  */
-function SearchPanel({ hasData }) {
+function SearchPanel({ hasData, categories = [] }) {
   const [q, setQ] = useState("");
   const [res, setRes] = useState(null);
+  const [kind, setKind] = useState("");
+  const [category, setCategory] = useState("");
+  const [file, setFile] = useState(null); // {id, name}
+  const [topic, setTopic] = useState(null); // {id, name}
 
   useEffect(() => {
     if (!q.trim()) {
@@ -347,11 +420,27 @@ function SearchPanel({ hasData }) {
       return undefined;
     }
     const id = setTimeout(async () => {
-      const r = await kb.get("/search", { q });
+      const params = { q };
+      if (kind) params.kind = kind;
+      if (category) params.category = category;
+      if (file) params.source_id = file.id;
+      if (topic) params.topic_id = topic.id;
+      const r = await kb.get("/search", params);
       if (!r.error) setRes(r);
     }, 250);
     return () => clearTimeout(id);
-  }, [q]);
+  }, [q, kind, category, file, topic]);
+
+  const chip = (item, active, set) => (
+    <button
+      key={item.id}
+      className={`facet ${active ? "on" : ""}`}
+      onClick={() => set(active ? null : { id: item.id, name: item.name })}
+      title={active ? "Show all again" : "Only this one"}
+    >
+      {item.name} <span className="muted">{item.count}</span>
+    </button>
+  );
 
   return (
     <section className="card search" aria-label="Search">
@@ -371,18 +460,56 @@ function SearchPanel({ hasData }) {
           spellCheck="false"
         />
       </div>
+      {hasData && (
+        <div className="lib-filters search-filters">
+          <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind of text">
+            <option value="">All text</option>
+            <option value="text">Typed text</option>
+            <option value="scanned">Scanned pages</option>
+            <option value="picture">Text in pictures</option>
+          </select>
+          {categories.length > 0 && (
+            <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+          {file && chip({ ...file, count: "×" }, true, setFile)}
+          {topic && chip({ ...topic, count: "×" }, true, setTopic)}
+        </div>
+      )}
       {res && (
         <div className="results">
           <p className="muted small">
             {res.total === 0
-              ? "No passage contains all of these words."
-              : `${formatCount(res.total)} passage${res.total === 1 ? "" : "s"} — showing the best ${res.results.length}`}
+              ? "Nothing found — try fewer or different words, or clear a filter."
+              : res.partial
+                ? `No passage has every word — showing ${res.results.length} close match${res.results.length === 1 ? "" : "es"} with some of them.`
+                : `${formatCount(res.total)} passage${res.total === 1 ? "" : "s"} — showing the best ${res.results.length}`}
           </p>
+          {!file && res.facets?.files?.length > 1 && (
+            <div className="facets">
+              <span className="muted small">Files:</span>
+              {res.facets.files.slice(0, 8).map((f) => chip(f, false, setFile))}
+            </div>
+          )}
+          {!topic && res.facets?.topics?.length > 1 && (
+            <div className="facets">
+              <span className="muted small">Topics:</span>
+              {res.facets.topics.slice(0, 8).map((t) => chip(t, false, setTopic))}
+            </div>
+          )}
           <ol>
             {res.results.map((r) => (
               <li key={r.passage_id}>
                 <p className="where">
                   {r.file_name} <span className="muted">· page {r.page_number}</span>
+                  {r.section && <span className="muted"> · {r.section}</span>}
+                  {r.topic_title && <span className="muted"> · topic: {r.topic_title}</span>}
                 </p>
                 <p className="snippet">
                   <Highlighted text={r.snippet} />

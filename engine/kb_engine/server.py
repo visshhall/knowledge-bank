@@ -80,7 +80,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, config, datapages, db, distill, gpu, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, config, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -240,6 +240,61 @@ def library_add(body: AddPathsRequest) -> dict:
     return importer.add_paths(body.paths, picked=True)
 
 
+# --- v0.9: editing topics by hand (topicedit.py) ---------------------------------
+
+class RenameRequest(BaseModel):
+    topic_id: int
+    title: str
+
+
+class MergeRequest(BaseModel):
+    topic_id: int
+    others: list[int]
+
+
+class MovePointsRequest(BaseModel):
+    topic_id: int
+    points: list[int]
+    to_topic_id: int | None = None
+    title: str | None = None
+
+
+@app.get("/storage", dependencies=[Depends(require_token)])
+def storage_report() -> dict:
+    """v0.9: disk space used by the bank and what a clean-up would free."""
+    return storage.report()
+
+
+@app.post("/storage/cleanup", dependencies=[Depends(require_token)])
+def storage_cleanup() -> dict:
+    return storage.start_cleanup()
+
+
+@app.get("/topics/names", dependencies=[Depends(require_token)])
+def topics_names() -> dict:
+    return {"topics": topicedit.topic_list()}
+
+
+@app.post("/topics/rename", dependencies=[Depends(require_token)])
+def topics_rename(body: RenameRequest) -> dict:
+    return topicedit.rename(body.topic_id, body.title)
+
+
+@app.post("/topics/merge", dependencies=[Depends(require_token)])
+def topics_merge(body: MergeRequest) -> dict:
+    return topicedit.merge(body.topic_id, body.others)
+
+
+@app.post("/topics/move", dependencies=[Depends(require_token)])
+def topics_move(body: MovePointsRequest) -> dict:
+    return topicedit.move_points(body.topic_id, body.points, body.to_topic_id or 0)
+
+
+@app.post("/topics/split", dependencies=[Depends(require_token)])
+def topics_split(body: MovePointsRequest) -> dict:
+    return topicedit.split(body.topic_id, body.points, body.title or "")
+
+
 @app.get("/gpu/status", dependencies=[Depends(require_token)])
 def gpu_status() -> dict:
     """v0.8.2: graphics card, model split, speeds, advice (Setup screen)."""
@@ -307,8 +362,11 @@ def set_watch(body: WatchRequest) -> dict:
 
 
 @app.get("/search", dependencies=[Depends(require_token)])
-def search_passages(q: str = "") -> dict:
-    return search.search(q)
+def search_passages(q: str = "", source_id: int | None = None, topic_id: int | None = None,
+                    kind: str | None = None, category: str | None = None) -> dict:
+    """Word search with v0.9 filters (file, topic, kind of text, category)."""
+    return search.search(q, source_id=source_id, topic_id=topic_id, kind=kind or None,
+                         category=category or None)
 
 
 # ---------------------------------------------------------------------------

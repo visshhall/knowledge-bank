@@ -60,12 +60,14 @@ from pathlib import Path
 
 import pymupdf
 
-from . import chunking, db, ocr, relevance
+from . import chunking, cleaning, db, ocr, relevance, titles
 
 PDF_EXTENSIONS = {".pdf"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 TABLE_EXTENSIONS = {".xlsx", ".xlsm", ".csv"}   # spreadsheets (v0.6)
-SUPPORTED_EXTENSIONS = PDF_EXTENSIONS | IMAGE_EXTENSIONS | TABLE_EXTENSIONS
+# v0.9: Word, PowerPoint, saved web pages, text and Markdown (officefiles.py)
+DOC_EXTENSIONS = {".docx", ".pptx", ".html", ".htm", ".txt", ".md", ".markdown"}
+SUPPORTED_EXTENSIONS = PDF_EXTENSIONS | IMAGE_EXTENSIONS | TABLE_EXTENSIONS | DOC_EXTENSIONS
 
 # Spreadsheet safety limits: a sheet bigger than this is cut (with a note),
 # so one giant export can't stall the import or flood the bank.
@@ -174,6 +176,8 @@ def _file_type(path: Path) -> str:
         return "pdf"
     if ext in TABLE_EXTENSIONS:
         return "table"
+    if ext in DOC_EXTENSIONS:
+        return "doc"
     return "image"
 
 
@@ -330,6 +334,169 @@ def _retire(conn, sid: int) -> None:
                          "WHERE id = ? AND status = 'written'", (t,))
 
 
+def _name_key(name: str) -> str:
+    """'RDP Guide v2 (final).pdf' → 'rdp guide' — for comparing versions."""
+    stem = Path(name).stem.lower()
+    stem = re.sub(r"\b(v|ver|version|rev)\s*\d+(\.\d+)*\b|\b(final|draft|copy|updated|new|latest|old)\b", " ", stem)
+    stem = re.sub(r"\(\d+\)|\b\d{1,4}([-_.]\d{1,2}){0,2}\b|[^a-z]+", " ", stem)
+    return re.sub(r"\s+", " ", stem).strip()
+
+
+def _replace_older(sid: int) -> bool:
+    """
+    v0.9: after a file is read, check whether it is a NEWER VERSION of a
+    file already in the bank (see OLD_SHARE_*). If so:
+      1. the old file is retired (status 'set_aside', reason "older version —
+         replaced by <new>", replaced_by = new id; Keep anyway restores it),
+      2. the new file is queued to be read again, now in full: its paragraphs
+         that were skipped as "already in the bank" belonged to the old file,
+         so they must be stored in the new one before the old one goes.
+    RETURNS True when the new file was re-queued.
+    """
+    matches = _last_matches.pop(sid, {})
+    if not matches or not dedupe_on():
+        return False
+    import difflib
+    with db.connect() as conn:
+        me = conn.execute("SELECT file_name, title FROM sources WHERE id = ?", (sid,)).fetchone()
+        for old_id, shared in sorted(matches.items(), key=lambda kv: -kv[1]):
+            old = conn.execute("SELECT file_name, title, status, keep_anyway FROM sources WHERE id = ?",
+                               (old_id,)).fetchone()
+            if not old or old["status"] != "extracted" or old["keep_anyway"]:
+                continue
+            real = conn.execute("SELECT COUNT(*) FROM passages WHERE source_id = ? AND "
+                                "length(text) - length(replace(text, ' ', '')) >= ?",
+                                (old_id, MIN_REPEAT_WORDS - 1)).fetchone()[0]
+            if not real:
+                continue
+            share = shared / real
+            a = _name_key(me["title"] or me["file_name"])
+            b = _name_key(old["title"] or old["file_name"])
+            alike = bool(a and b and (a == b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.75))
+            if share >= (OLD_SHARE_SAME_NAME if alike else OLD_SHARE_ANY_NAME):
+                info = {"verdict": "replaced", "replaced_by": sid,
+                        "reason": f"older version — replaced by {me['title'] or me['file_name']} "
+                                  f"({round(share * 100)}% of its content is in the newer file)"}
+                conn.execute("UPDATE sources SET relevance_json = ?, replaced_by = ? WHERE id = ?",
+                             (json.dumps(info), sid, old_id))
+                _retire(conn, old_id)
+                conn.execute("UPDATE sources SET status = 'pending' WHERE id = ?", (sid,))
+                return True
+    return False
+
+
+def _name_and_tag(sid: int) -> None:
+    """
+    v0.9: give a file with an unhelpful name ("1733744110377.pdf") a title
+    read from its content, and tag every file with up to 2 categories.
+    Display only: the file on disk is never renamed. Never fails an import.
+    """
+    try:
+        with db.connect() as conn:
+            src = conn.execute("SELECT file_name, original_path, file_type FROM sources WHERE id = ?",
+                               (sid,)).fetchone()
+            first = conn.execute("SELECT section FROM passages WHERE source_id = ? AND section IS NOT NULL "
+                                 "ORDER BY page_number, ordinal LIMIT 1", (sid,)).fetchone()
+            page1 = conn.execute("SELECT text FROM pages WHERE source_id = ? ORDER BY page_number LIMIT 1",
+                                 (sid,)).fetchone()
+            sample = " ".join(r[0] for r in conn.execute(
+                "SELECT text FROM passages WHERE source_id = ? ORDER BY page_number, ordinal LIMIT 80", (sid,)))
+        if not src:
+            return
+        title = None
+        if titles.needs_title(src["file_name"]):
+            meta = None
+            if src["file_type"] == "pdf":
+                try:
+                    with pymupdf.open(src["original_path"]) as d:
+                        meta = (d.metadata or {}).get("title")
+                except Exception:
+                    meta = None
+            title = titles.guess_title(src["file_name"], meta, first[0] if first else None,
+                                       page1[0] if page1 else None)
+        cats = titles.categorise(sample)
+        with db.connect() as conn:
+            conn.execute("UPDATE sources SET title = ?, categories = ? WHERE id = ?",
+                         (title, json.dumps(cats), sid))
+    except Exception as exc:
+        _set(last_error=f"naming a file failed: {exc}")
+
+
+def name_existing() -> int:
+    """v0.9, once per bank: titles and categories for files already imported."""
+    if db.get_setting("titles_done"):
+        return 0
+    with db.connect() as conn:
+        ids = [r[0] for r in conn.execute("SELECT id FROM sources WHERE status = 'extracted'")]
+    for sid in ids:
+        _name_and_tag(sid)
+    db.set_setting("titles_done", True)
+    return len(ids)
+
+
+def clean_existing() -> int:
+    """
+    v0.9, once per bank: remove passages of files imported before junk
+    cleaning existed that are pure junk — passages on blank / promotion /
+    contents / cover pages, page-number or promo-only passages, gibberish
+    passages, and passages made only of lines repeated at the top/bottom of
+    most pages. In the remaining passages, header/footer/page-number/promo
+    lines are taken out IN PLACE — passages are NOT renumbered, so topics and
+    article citations stay valid.
+    Topics that lose passages are marked 'stale'; empty topics are removed.
+    RETURNS how many passages were removed.
+    """
+    if db.get_setting("junk_cleaned"):
+        return 0
+    removed = trimmed = 0
+    with db.connect() as conn:
+        sids = [r[0] for r in conn.execute("SELECT id FROM sources WHERE status = 'extracted' AND file_type = 'pdf'")]
+        for sid in sids:
+            pages = conn.execute("SELECT page_number, text FROM pages WHERE source_id = ? ORDER BY page_number",
+                                 (sid,)).fetchall()
+            boiler = cleaning.boilerplate([p["text"] for p in pages])
+            junk_pages = {p["page_number"] for p in pages
+                          if cleaning.clean_page(p["text"], p["page_number"], len(pages), boiler)[1]}
+            doomed = []
+            for row in conn.execute("SELECT id, page_number, text FROM passages WHERE source_id = ?", (sid,)).fetchall():
+                t = row["text"]
+                lines = [l.strip() for l in t.splitlines() if l.strip()]
+                only_boiler = boiler and lines and all(
+                    len(l.split()) <= 12 and cleaning._norm(l) in boiler for l in lines)
+                if ((row["page_number"] in junk_pages and not t.startswith("[Image"))
+                        or cleaning.is_junk_passage(t) or only_boiler or cleaning.is_garbled(t)):
+                    doomed.append(row["id"])
+                    continue
+                # Same passage id, junk lines taken out (headers, footers,
+                # page numbers, promo lines) — citations stay valid.
+                kept = [l for l in t.splitlines()
+                        if not (l.strip() and len(l.split()) <= 15 and (
+                            cleaning._PAGE_NO.match(l.strip())
+                            or (cleaning._PROMO.search(l) and len(l.split()) <= 15)
+                            or (boiler and len(l.split()) <= 12 and cleaning._norm(l.strip()) in boiler)))]
+                new = "\n".join(kept).strip()
+                if new and new != t:
+                    conn.execute("UPDATE passages SET text = ?, token_count = ?, content_hash = ? WHERE id = ?",
+                                 (new, chunking.approx_tokens(new), chunking.fingerprint(new), row["id"]))
+                    trimmed += 1
+            if not doomed:
+                continue
+            touched = {r[0] for r in conn.execute(
+                "SELECT DISTINCT topic_id FROM topic_passages WHERE passage_id IN (%s)" % ",".join("?" * len(doomed)),
+                doomed)}
+            conn.execute("DELETE FROM passages WHERE id IN (%s)" % ",".join("?" * len(doomed)), doomed)
+            for t in touched:
+                left = conn.execute("SELECT COUNT(*) FROM topic_passages WHERE topic_id = ?", (t,)).fetchone()[0]
+                if left == 0:
+                    conn.execute("DELETE FROM topics WHERE id = ?", (t,))
+                else:
+                    conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
+                                 "WHERE id = ? AND status = 'written'", (t,))
+            removed += len(doomed)
+    db.set_setting("junk_cleaned", True)
+    return removed + trimmed
+
+
 def check_existing_duplicates() -> int:
     """
     v0.8.2, once per bank: files imported earlier whose paragraphs are
@@ -424,7 +591,7 @@ def library(limit: int = 2000) -> list[dict]:
             """
             SELECT s.id, s.file_name, s.original_path, s.file_type, s.size_bytes,
                    s.page_count, s.status, s.error, s.added_at, s.processed_at,
-                   s.relevance_json, s.keep_anyway,
+                   s.relevance_json, s.keep_anyway, s.title, s.categories, s.replaced_by,
                    (SELECT COUNT(*) FROM passages p WHERE p.source_id = s.id)          AS passages,
                    (SELECT COUNT(*) FROM pages g WHERE g.source_id = s.id AND g.ocr_used = 1) AS ocr_pages,
                    (SELECT COUNT(*) FROM images i WHERE i.source_id = s.id)            AS images,
@@ -442,6 +609,10 @@ def library(limit: int = 2000) -> list[dict]:
             d["relevance"] = json.loads(d.pop("relevance_json") or "null")
         except ValueError:
             d["relevance"] = None
+        try:  # v0.9 categories
+            d["categories"] = json.loads(d.get("categories") or "[]")
+        except ValueError:
+            d["categories"] = []
         out.append(d)
     return out
 
@@ -654,6 +825,8 @@ def _process_source(source: dict) -> None:
             page_count = _extract_pdf(sid, path)
         elif source["file_type"] == "table":
             page_count = _extract_table(sid, path)
+        elif source["file_type"] == "doc":
+            page_count = _extract_doc(sid, path)
         else:
             page_count = _extract_image(sid, path)
         duplicate = _dup_verdict(sid)
@@ -665,6 +838,9 @@ def _process_source(source: dict) -> None:
                 "processed_at = datetime('now') WHERE id = ?",
                 (page_count, sid),
             )
+        _name_and_tag(sid)  # v0.9: readable title + categories
+        if _replace_older(sid):
+            return  # re-queued to be read again in full (see _replace_older)
         if source["file_type"] == "table":
             # A spreadsheet becomes its own calculated topic at once — no AI
             # needed, visible on the Topics screen straight after import (v0.8).
@@ -678,6 +854,7 @@ def _process_source(source: dict) -> None:
         # the row (so it is never imported again and can be kept with one
         # click), drop any text.
         _dups.pop(sid, None)
+        _stats.pop(sid, None)
         with db.connect() as conn:
             conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))
             conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
@@ -712,6 +889,15 @@ def _process_source(source: dict) -> None:
 MIN_REPEAT_WORDS = 8
 NEW_SHARE_TO_KEEP = 0.05
 _dups: dict[int, dict] = {}   # source id → {"on", "new", "repeat", "matches": {sid: n}}
+_last_matches: dict[int, dict] = {}  # after a read: which files its repeats came from (v0.9)
+
+# v0.9 "Replace old versions automatically": an existing file is treated as
+# an OLDER VERSION of a newly read file when most of its paragraphs reappear
+# in the new one — at least OLD_SHARE_SAME_NAME when the names/titles look
+# alike ("Guide v1" / "Guide v2", "Playbook" / "Playbook (final)"), or
+# OLD_SHARE_ANY_NAME when they don't (numeric LinkedIn downloads).
+OLD_SHARE_SAME_NAME = 0.6
+OLD_SHARE_ANY_NAME = 0.85
 
 
 def dedupe_on() -> bool:
@@ -720,6 +906,7 @@ def dedupe_on() -> bool:
 
 
 def _dup_start(sid: int) -> None:
+    _stats.pop(sid, None)  # fresh junk/garbled counts for this read
     with db.connect() as conn:
         row = conn.execute("SELECT keep_anyway FROM sources WHERE id = ?", (sid,)).fetchone()
     _dups[sid] = {"on": dedupe_on() and not (row and row["keep_anyway"]),
@@ -750,11 +937,13 @@ def _dup_verdict(sid: int) -> dict | None:
     d = _dups.pop(sid, None)
     if not d:
         return None
+    _last_matches[sid] = dict(d["matches"]) if d["on"] else {}
     total = d["new"] + d["repeat"]
     with db.connect() as conn:
         row = conn.execute("SELECT relevance_json FROM sources WHERE id = ?", (sid,)).fetchone()
         info = json.loads(row["relevance_json"] or "{}") if row else {}
         info["repeats_skipped"] = d["repeat"]
+        info.update(_stats.pop(sid, {}))  # v0.9: junk pages / garbled pages
         conn.execute("UPDATE sources SET relevance_json = ? WHERE id = ?", (json.dumps(info), sid))
         if not d["on"] or total == 0 or d["repeat"] == 0 or d["new"] / total >= NEW_SHARE_TO_KEEP:
             return None
@@ -766,14 +955,23 @@ def _dup_verdict(sid: int) -> dict | None:
 
 
 def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
-                image_records: list[dict], sections: dict | None = None) -> None:
+                image_records: list[dict], sections: dict | None = None,
+                clean: tuple[int, set] | None = None) -> None:
     """
     sections: one dict per document carried page to page, so each passage
     records the document part it belongs to (chunking.split_with_sections).
     Save one page (text + passages + embedded-image records) in a single
     transaction, so a crash can never leave a page half-stored.
     image_records: [{"sha256", "ocr_text"}] for pictures found on this page.
+    clean (v0.9): (page count, boilerplate lines) — PDF pages are cleaned by
+    cleaning.clean_page before cutting passages; a junk page (blank, promo,
+    contents, cover) stores its text but gives no passages.
     """
+    passage_text = text
+    if clean is not None:
+        passage_text, junk = cleaning.clean_page(text, page_number, clean[0], clean[1])
+        if junk:
+            _count(sid, "junk_pages", junk)
     with db.connect() as conn:
         cur = conn.execute(
             "INSERT INTO pages(source_id, page_number, text, ocr_used, char_count) "
@@ -784,7 +982,7 @@ def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
         ordinal = 0
         state = sections if sections is not None else {}
         section = None
-        for passage, section in chunking.split_with_sections(text, state):
+        for passage, section in chunking.split_with_sections(passage_text, state):
             fp = chunking.fingerprint(passage)
             if _already_present(conn, sid, passage, fp):
                 continue  # v0.8.2: this paragraph is already in another file
@@ -938,7 +1136,11 @@ def _extract_pdf(sid: int, path: Path) -> int:
         # next pages. Pages are still STORED strictly in page order, because
         # the document part ("sections") carries from one page to the next.
         # At most 2 × workers pages wait in memory at once.
-        width = ocr.workers() if _has_scanned_pages(doc) else 1
+        # v0.9: lines repeated at the top/bottom of most pages (headers,
+        # footers, the author's name on every slide) — read from the text
+        # layer up front (~1 ms/page) so every page can drop them.
+        boiler = cleaning.boilerplate([doc[i].get_text("text") for i in range(min(total, 400))])
+        width = ocr.workers() if (_has_scanned_pages(doc) or _has_garbled_pages(doc)) else 1
         waiting: deque = deque()  # (page_no, future-or-text, ocr_used, images, tables)
 
         def flush(block: bool) -> None:
@@ -946,7 +1148,8 @@ def _extract_pdf(sid: int, path: Path) -> int:
                 page_no, text, ocr_used, images, tables = waiting.popleft()
                 if isinstance(text, Future):
                     text = text.result()
-                _store_page(sid, page_no, text, ocr_used, images, sections)
+                _store_page(sid, page_no, text, ocr_used, images, sections,
+                            clean=(total, boiler))
                 if tables:
                     with db.connect() as conn:
                         conn.executemany(
@@ -962,11 +1165,38 @@ def _extract_pdf(sid: int, path: Path) -> int:
                     # Scanned page: read the whole rendered page instead.
                     png = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")
                     waiting.append((index + 1, pool.submit(ocr.read_text, png), True, [], []))
+                elif cleaning.is_garbled(text):
+                    # v0.9: broken font encoding → the text layer is gibberish;
+                    # read the page as a picture instead (kept only if better).
+                    png = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")
+                    _count(sid, "garbled_pages")
+                    waiting.append((index + 1, pool.submit(_ocr_instead, png, text), True, [], []))
                 else:
                     waiting.append((index + 1, text, False, _embedded_images(doc, page), tables))
                 flush(block=len(waiting) >= 2 * width)
             flush(block=True)
         return total
+
+
+def _ocr_instead(png: bytes, original: str) -> str:
+    """OCR text for a garbled page — or the original if OCR did no better."""
+    text = ocr.read_text(png)
+    return text if len(text.split()) >= 5 and not cleaning.is_garbled(text) else original
+
+
+def _has_garbled_pages(doc, sample: int = 40) -> bool:
+    """Does this PDF have gibberish text pages (so OCR engines are needed)?"""
+    return any(cleaning.is_garbled(doc[i].get_text("text")) for i in range(min(sample, doc.page_count)))
+
+
+_stats: dict[int, dict] = {}  # source id → {"junk_pages": n, "garbled_pages": n, "junk": {reason: n}}
+
+
+def _count(sid: int, key: str, reason: str | None = None) -> None:
+    d = _stats.setdefault(sid, {})
+    d[key] = d.get(key, 0) + 1
+    if reason:
+        d.setdefault("junk", {})[reason] = d.setdefault("junk", {}).get(reason, 0) + 1
 
 
 class SetAside(Exception):
@@ -1103,6 +1333,51 @@ def _extract_image(sid: int, path: Path) -> int:
         )
     _store_page(sid, 1, text, True, [])
     return 1
+
+
+def _extract_doc(sid: int, path: Path) -> int:
+    """
+    v0.9: Word / PowerPoint / web page / text / Markdown (officefiles.py).
+    Same steps as a PDF: relevance check on a sample, junk cleaning with the
+    document's own repeated lines, paragraphs already in the bank skipped,
+    tables kept as tables, and pictures (slides, diagrams) read by OCR —
+    several at once — with text from identical pictures reused.
+    RETURNS the number of pages (slides for PowerPoint).
+    """
+    from . import officefiles
+    try:
+        pages = officefiles.read(path)
+    except Exception as exc:
+        raise ValueError(f"Couldn't read this file ({exc.__class__.__name__}). "
+                         "If it is open in Word or PowerPoint, close it and press Retry.") from exc
+    total = len(pages)
+    _set(page_count=total)
+    if _check_needed(sid):
+        _judge(sid, "\n".join(p["text"] for p in pages[:SAMPLE_TEXT_PAGES]))
+    boiler = cleaning.boilerplate([p["text"] for p in pages])
+    sections: dict = {}
+    for n, page in enumerate(pages, start=1):
+        _set(current_page=n)
+        records = []
+        if page["pictures"]:
+            todo = []
+            for data in page["pictures"]:
+                sha = hashlib.sha256(data).hexdigest()
+                known = _known_image_text(sha)
+                records.append({"sha256": sha, "ocr_text": known})
+                if known is None:
+                    todo.append((len(records) - 1, data))
+            if todo:
+                with ThreadPoolExecutor(max_workers=max(1, min(len(todo), ocr.workers()))) as pool:
+                    for (i, _d), text in zip(todo, pool.map(ocr.read_text, [d for _i, d in todo])):
+                        records[i]["ocr_text"] = text
+        _store_page(sid, n, page["text"], False, records, sections, clean=(total, boiler))
+        if page["tables"]:
+            with db.connect() as conn:
+                conn.executemany(
+                    "INSERT INTO doc_tables(source_id, page_number, name, rows_json) VALUES (?, ?, ?, ?)",
+                    [(sid, n, name, json.dumps(rows, ensure_ascii=False)) for name, rows in page["tables"]])
+    return total
 
 
 def _cell(value) -> str:
@@ -1376,8 +1651,10 @@ def start() -> None:
     # v0.8.2: once per bank, set aside files already imported that are not
     # about cybersecurity (stored text only — quick, no OCR).
     def _existing_checks():
-        _safe_log(check_existing_relevance, "relevance check")
-        _safe_log(check_existing_duplicates, "same-content check")
+        _safe_log(check_existing_relevance, "relevance check (files set aside)")
+        _safe_log(check_existing_duplicates, "same-content check (files set aside)")
+        _safe_log(clean_existing, "junk clean-up (passages)")
+        _safe_log(name_existing, "titles and categories (files)")
     threading.Thread(target=_existing_checks, name="kb-relevance", daemon=True).start()
     _ensure_worker()
     threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()
@@ -1388,6 +1665,6 @@ def _safe_log(fn, label: str) -> None:
     try:
         n = fn()
         if n:
-            print(f"[engine] {label}: {n} file(s) set aside", flush=True)
+            print(f"[engine] {label}: {n}", flush=True)
     except Exception as exc:
         _set(last_error=f"{label} failed: {exc}")

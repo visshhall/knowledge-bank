@@ -129,7 +129,7 @@ def _material(topic_id: int) -> dict:
         tables = []
         for sid, page in sorted(pages):
             for tb in conn.execute(
-                "SELECT d.id, d.name, d.rows_json, s.file_name FROM doc_tables d JOIN sources s "
+                "SELECT d.id, d.name, d.rows_json, COALESCE(s.title, s.file_name) AS file_name FROM doc_tables d JOIN sources s "
                 "ON s.id = d.source_id WHERE d.source_id = ? AND d.page_number = ?", (sid, page)
             ):
                 tables.append({"id": tb["id"], "name": tb["name"], "file": tb["file_name"],

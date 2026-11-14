@@ -69,6 +69,13 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /library/retry",
   "POST /library/keep", // v0.8.2: import a set-aside file anyway
   "GET /gpu/status", // v0.8.2: graphics card report (Setup)
+  "GET /storage", // v0.9: disk space + clean-up
+  "POST /storage/cleanup",
+  "GET /topics/names", // v0.9: editing topics by hand
+  "POST /topics/rename",
+  "POST /topics/merge",
+  "POST /topics/move",
+  "POST /topics/split",
   "POST /gpu/tune",
   "GET /library/filter", // v0.8.2: "Only keep cybersecurity files" switch
   "POST /library/filter",
@@ -323,7 +330,8 @@ ipcMain.handle("dialog:pickFiles", async () => {
     title: "Add PDFs, images and spreadsheets to the knowledge bank",
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "PDFs, images and spreadsheets", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "xlsx", "xlsm", "csv"] },
+      // v0.9: Word, PowerPoint, saved web pages, text and Markdown too
+      { name: "Documents, images and spreadsheets", extensions: ["pdf", "docx", "pptx", "html", "htm", "txt", "md", "markdown", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "xlsx", "xlsm", "csv"] },
     ],
   });
   return result.canceled ? [] : result.filePaths;
@@ -414,6 +422,20 @@ ipcMain.handle("web:open", async (_event, kind, value) => {
 // of the window so the owner always knows which build is running (v0.6.1).
 ipcMain.handle("app:version", () => app.getVersion());
 
+/*
+ * App updates (v0.9, updater.cjs): check (Downloads/Desktop + GitHub
+ * releases), download with progress, install silently and reopen. Only an
+ * installer the updater itself found or downloaded can be run.
+ */
+const updater = require("./updater.cjs");
+ipcMain.handle("update:check", (_event, online) => updater.check({ online: Boolean(online) }));
+ipcMain.handle("update:state", () => updater.getState());
+ipcMain.handle("update:download", () =>
+  updater.download((p) => mainWindow?.webContents.send("update:progress", p))
+);
+ipcMain.handle("update:install", (_event, installerPath) => updater.install(String(installerPath || "")));
+ipcMain.handle("update:settings", (_event, next) => updater.settings(next));
+
 ipcMain.handle("shell:openReports", async () => {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
   const err = await shell.openPath(REPORTS_DIR);
@@ -496,6 +518,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     startEngine();
     createWindow();
+    // v0.9: quiet update check 30 s after start (online at most once a day,
+    // if allowed); the page shows a banner when something newer is found.
+    updater.scheduleAutoCheck((r) => mainWindow?.webContents.send("update:found", r));
   });
 
   // Flag used by the engine's exit handler to tell a crash from a normal quit.

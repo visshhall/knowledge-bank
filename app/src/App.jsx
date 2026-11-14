@@ -13,7 +13,7 @@
  *        and leaves the full width for content like tables and search.
  * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
  * CONNECTED TO: Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
- *        Updates.jsx, GpuCard.jsx (v0.8.2), icons.jsx, bridge.js (engine status, /system), styles.css.
+ *        Updates.jsx, GpuCard.jsx (v0.8.2), StorageCard.jsx, AppUpdate.jsx (v0.9), icons.jsx, bridge.js (engine status, /system), styles.css.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
@@ -23,6 +23,8 @@ import Learn from "./Learn.jsx";
 import Tools from "./Tools.jsx";
 import Backup from "./Backup.jsx";
 import GpuCard from "./GpuCard.jsx";
+import StorageCard from "./StorageCard.jsx";
+import { UpdateBanner, UpdateCard } from "./AppUpdate.jsx";
 import Library from "./Library.jsx";
 import Topics from "./Topics.jsx";
 import SetupWizard from "./SetupWizard.jsx";
@@ -131,6 +133,7 @@ export default function App() {
             v{version}
           </p>
         )}
+        <UpdateBanner />
         {engine.status === "starting" && (
           <section className="card center-note">
             <div className="pulse" aria-hidden="true" />
@@ -214,9 +217,13 @@ function SetupScreen() {
 
       <GpuCard />
 
+      <UpdateCard />
+
       <Updates />
 
       <Backup />
+
+      <StorageCard />
 
       <section className="card readiness" aria-label="System readiness">
         <div className="section-head">

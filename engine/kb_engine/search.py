@@ -50,34 +50,104 @@ def _to_fts_query(query: str) -> str | None:
     return " AND ".join(parts)
 
 
-def search(query: str, limit: int = 40) -> dict:
+def _filters(source_id, topic_id, kind, category) -> tuple[str, list]:
+    """SQL conditions for the v0.9 search filters (all optional)."""
+    where, args = [], []
+    if source_id:
+        where.append("p.source_id = ?")
+        args.append(int(source_id))
+    if topic_id:
+        where.append("EXISTS (SELECT 1 FROM topic_passages tp WHERE tp.passage_id = p.id AND tp.topic_id = ?)")
+        args.append(int(topic_id))
+    if kind == "picture":
+        where.append("p.text LIKE '[Image on page%'")
+    elif kind == "scanned":
+        where.append("pg.ocr_used = 1 AND p.text NOT LIKE '[Image on page%'")
+    elif kind == "text":
+        where.append("pg.ocr_used = 0 AND p.text NOT LIKE '[Image on page%'")
+    if category:
+        where.append("s.categories LIKE ?")
+        args.append(f'%"{category}"%')
+    return ("".join(f" AND {w}" for w in where)), args
+
+
+def _any_word_query(query: str) -> str | None:
+    """Fallback when no passage has ALL the words: any of them (OR)."""
+    terms = [t for t in _TERM.findall(query) if len(t) >= 2]
+    return " OR ".join('"' + t.replace('"', "") + '"' for t in terms) if len(terms) >= 2 else None
+
+
+def search(query: str, limit: int = 40, source_id: int | None = None, topic_id: int | None = None,
+           kind: str | None = None, category: str | None = None) -> dict:
     """
     Run a search. RETURNS {"query", "total", "results": [{passage_id,
-    source_id, file_name, page_number, snippet}]}, best matches first
-    (ranked by BM25, the standard relevance formula built into FTS5).
+    source_id, file_name, page_number, section, snippet, topic_id,
+    topic_title}], "partial": bool, "facets": {"files": [...], "topics": [...]}}.
+
+    v0.9 (owner chose "better search"):
+      - Filters: one file, one topic, kind of text (typed text / scanned
+        page / text read from a picture) and file category.
+      - Better ranking: BM25 (the standard relevance formula) is adjusted —
+        the exact phrase you typed ranks ×1.6, a match in the document part
+        heading or the file's title ×1.25.
+      - If no passage has ALL your words, passages with SOME of them are
+        shown instead, marked partial=True ("showing close matches").
+      - Facets: how many hits each file and topic has, for filter chips.
     """
     fts = _to_fts_query(query or "")
+    empty = {"query": query, "total": 0, "results": [], "partial": False, "facets": {"files": [], "topics": []}}
     if not fts:
-        return {"query": query, "total": 0, "results": []}
+        return empty
+    cond, args = _filters(source_id, topic_id, kind, category)
+    sql = f"""
+        SELECT p.id AS passage_id, p.source_id, COALESCE(s.title, s.file_name) AS file_name, p.page_number,
+               p.section, p.text, bm25(passages_fts) AS rank,
+               snippet(passages_fts, 0, '{MARK_START}', '{MARK_END}', '…', 28) AS snippet,
+               (SELECT t.id FROM topic_passages tp JOIN topics t ON t.id = tp.topic_id
+                 WHERE tp.passage_id = p.id LIMIT 1) AS topic_id,
+               (SELECT t.title FROM topic_passages tp JOIN topics t ON t.id = tp.topic_id
+                 WHERE tp.passage_id = p.id LIMIT 1) AS topic_title
+        FROM passages_fts
+        JOIN passages p ON p.id = passages_fts.rowid
+        JOIN sources s  ON s.id = p.source_id
+        LEFT JOIN pages pg ON pg.id = p.page_id
+        WHERE passages_fts MATCH ?{cond}
+        ORDER BY bm25(passages_fts)
+        LIMIT 300"""
+    partial = False
     with db.connect() as conn:
         try:
-            rows = conn.execute(
-                f"""
-                SELECT p.id AS passage_id, p.source_id, s.file_name, p.page_number,
-                       snippet(passages_fts, 0, '{MARK_START}', '{MARK_END}', '…', 28) AS snippet
-                FROM passages_fts
-                JOIN passages p ON p.id = passages_fts.rowid
-                JOIN sources s  ON s.id = p.source_id
-                WHERE passages_fts MATCH ?
-                ORDER BY bm25(passages_fts)
-                LIMIT ?
-                """,
-                (fts, limit),
-            ).fetchall()
-            total = conn.execute(
-                "SELECT COUNT(*) FROM passages_fts WHERE passages_fts MATCH ?", (fts,)
-            ).fetchone()[0]
+            rows = [dict(r) for r in conn.execute(sql, (fts, *args)).fetchall()]
+            if not rows:
+                alt = _any_word_query(query)
+                if alt:
+                    rows = [dict(r) for r in conn.execute(sql, (alt, *args)).fetchall()]
+                    partial = bool(rows)
         except Exception:
             # A query FTS5 still can't parse: report no results, never crash.
-            return {"query": query, "total": 0, "results": []}
-    return {"query": query, "total": int(total), "results": [dict(r) for r in rows]}
+            return empty
+    phrase = " ".join(_TERM.findall(query.lower()))
+    words = [w for w in _TERM.findall(query.lower()) if len(w) >= 3]
+    for r in rows:
+        score = -float(r["rank"])  # bm25: lower is better → flip
+        text = " ".join(r["text"].lower().split())
+        if len(phrase.split()) >= 2 and phrase in text:
+            score *= 1.6
+        head = f"{r['section'] or ''} {r['file_name'] or ''}".lower()
+        if words and any(w in head for w in words):
+            score *= 1.25
+        r["score"] = score
+    rows.sort(key=lambda r: -r["score"])
+    files: dict = {}
+    topics: dict = {}
+    for r in rows:
+        f = files.setdefault(r["source_id"], {"id": r["source_id"], "name": r["file_name"], "count": 0})
+        f["count"] += 1
+        if r["topic_id"]:
+            t = topics.setdefault(r["topic_id"], {"id": r["topic_id"], "name": r["topic_title"], "count": 0})
+            t["count"] += 1
+    results = [{k: r[k] for k in ("passage_id", "source_id", "file_name", "page_number", "section",
+                                  "snippet", "topic_id", "topic_title")} for r in rows[:limit]]
+    return {"query": query, "total": len(rows), "results": results, "partial": partial,
+            "facets": {"files": sorted(files.values(), key=lambda f: -f["count"])[:12],
+                       "topics": sorted(topics.values(), key=lambda t: -t["count"])[:12]}}

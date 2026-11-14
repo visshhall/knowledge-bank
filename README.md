@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.8.3 — content already in the bank is never added twice (copies set aside, only new paragraphs added); v0.8.2 — unrelated (non-cybersecurity) files set aside automatically, removed files stay removed, AI tuned to stay on the graphics card; v0.8.1 — faster import (files searchable first, pictures after, parallel and graphics-card OCR); v0.8.0 — spreadsheets become calculated topics (charts, sheet checks, Subnet Lab), animated walk-through diagrams with Play lesson, 3× faster live article writing with line-by-line fact checks — on top of all planned phases (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup); Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.9.0 — cleaner imports (junk lines, garbled text, real titles, categories; Word, PowerPoint, web, text), older versions replaced, better search, hand-edited topics, weak articles rewritten, big-library tuning, self-updating app; v0.8.3 — content already in the bank is never added twice (copies set aside, only new paragraphs added); v0.8.2 — unrelated (non-cybersecurity) files set aside automatically, removed files stay removed, AI tuned to stay on the graphics card; v0.8.1 — faster import (files searchable first, pictures after, parallel and graphics-card OCR); v0.8.0 — spreadsheets become calculated topics (charts, sheet checks, Subnet Lab), animated walk-through diagrams with Play lesson, 3× faster live article writing with line-by-line fact checks — on top of all planned phases (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup); Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -43,6 +43,7 @@ knowledge-bank/
 ├── app/                      Desktop app (Electron + React)
 │   ├── electron/main.cjs     Starts the engine, creates the window, relays allow-listed requests
 │   ├── electron/preload.cjs  The only bridge the page may use (window.kb)
+│   ├── electron/updater.cjs  v0.9: the app updates itself (check, download, verify, install)
 │   ├── src/App.jsx           Side rail, engine status, Setup screen
 │   ├── src/Overview.jsx      Home: schematic of the bank, totals, next step
 │   ├── src/FlowMap.jsx       Overview map: files → topics (interactive, animated)
@@ -83,6 +84,11 @@ knowledge-bank/
 │       ├── backup.py         AES-256 encrypted backup/restore
 │       ├── distill.py        Phase 2: embeddings, topics, repeats, links, names
 │       ├── writer.py         Phase 3: one structured, cited, fact-checked article per topic (streamed live)
+│       ├── cleaning.py       v0.9: removes junk pages/lines, detects garbled text
+│       ├── titles.py         v0.9: readable titles and categories for files
+│       ├── officefiles.py    v0.9: reads Word, PowerPoint, web pages, text, Markdown
+│       ├── topicedit.py      v0.9: rename / merge / move / split topics by hand
+│       ├── storage.py        v0.9: disk space report and clean-up
 │       ├── relevance.py      v0.8.2: is this file about cybersecurity? (vocabulary check, no AI)
 │       ├── gpu.py            v0.8.2: keeps the AI on the graphics card (memory savers, speed tuning)
 │       ├── datapages.py      v0.8: spreadsheet → calculated topic (charts, checks, Subnet Lab, quiz; no AI)

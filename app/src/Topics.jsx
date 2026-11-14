@@ -126,7 +126,7 @@ export default function Topics({ focus }) {
 
   if (openId !== null) {
     return (
-      <TopicDetail
+      <TopicDetail key={openId}
         id={openId}
         focusPoint={focus?.topicId === openId ? focus.pointId : null}
         onBack={() => setOpenId(null)}
@@ -356,7 +356,7 @@ export default function Topics({ focus }) {
  * onOpen(id) jumps to a related topic; onBack returns to the grid.
  */
 function TopicDetail({ id, focusPoint, onBack, onOpen }) {
-  const [data] = usePoll("/topic", 0, { id });
+  const [data, reloadTopic] = usePoll("/topic", 0, { id });
   const [lessonData] = usePoll("/lesson", 0, { id });
   const [tab, setTab] = useState(null);
   const [cited, setCited] = useState(null); // point shown in the side panel
@@ -402,6 +402,15 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
       <header className="topic-hero">
         <h1>{topic.title}</h1>
         {topic.summary && <p>{topic.summary}</p>}
+        <TopicEditBar
+          topic={topic}
+          onDone={(r) => {
+            setNotice(r.message || r.error || "");
+            setTopicData(null);
+            reloadTopic();
+            if (r.open) onOpen(r.open);
+          }}
+        />
         <p className="hero-meta">
           {formatCount(points.length)} distinct points
           {topic.kind === "data"
@@ -411,6 +420,7 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
               : " · article not written yet"}
         </p>
       </header>
+      {notice && view !== "article" && <p className="notice ok">{notice}</p>}
 
       {related.length > 0 && (
         <section className="related" aria-label="Related topics">
@@ -486,7 +496,11 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
                   {topic.kind === "data"
                     ? "Calculated from your spreadsheet — no AI involved."
                     : topic.checks
-                      ? `Checked against the sources: ${topic.checks.removed_count ? `${topic.checks.removed_count} unsupported item${topic.checks.removed_count === 1 ? "" : "s"} removed` : "nothing needed removing"}.`
+                      ? `Checked against the sources: ${topic.checks.removed_count ? `${topic.checks.removed_count} unsupported item${topic.checks.removed_count === 1 ? "" : "s"} removed` : "nothing needed removing"}.${
+                          topic.checks.rewritten
+                            ? ` The first draft had ${topic.checks.first_removed_count} unsupported item${topic.checks.first_removed_count === 1 ? "" : "s"}, so it was written again more strictly.`
+                            : ""
+                        }`
                       : "Every line links to its source."}
                 </p>
               </>
@@ -510,7 +524,20 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
         </div>
       )}
 
-      {view === "points" && <SourcePoints points={points} looseThreshold={loose_threshold} focusPoint={focusPoint} />}
+      {view === "points" && (
+        <SourcePoints
+          points={points}
+          looseThreshold={loose_threshold}
+          focusPoint={focusPoint}
+          topic={topic}
+          onEdited={(r) => {
+            setNotice(r.message || r.error || "");
+            setTopicData(null);
+            reloadTopic();
+            if (r.open) onOpen(r.open);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -527,8 +554,25 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
  *       - Points that repeat across files are already shown once (repeat
  *         groups) with "Said in N places".
  */
-function SourcePoints({ points, looseThreshold, focusPoint }) {
+function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited }) {
   const [order, setOrder] = useState("reading");
+  // v0.9 hand edits: tick points, then move them to another topic or make
+  // a new topic from them (topicedit.py). Hidden for spreadsheet topics.
+  const [editing, setEditing] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const toggle = (pid) =>
+    setPicked((old) => {
+      const next = new Set(old);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+  const tick = (p) =>
+    editing && (
+      <label className="pick">
+        <input type="checkbox" checked={picked.has(p.id)} onChange={() => toggle(p.id)} /> Select
+      </label>
+    );
   const focused = useRef(null);
   // Scroll to (and briefly highlight) the passage chosen in quick search.
   useEffect(() => {
@@ -557,7 +601,29 @@ function SourcePoints({ points, looseThreshold, focusPoint }) {
         <button className={order === "central" ? "seg on" : "seg"} onClick={() => setOrder("central")} aria-pressed={order === "central"}>
           Best match first
         </button>
+        {topic?.kind !== "data" && (
+          <button
+            className={editing ? "seg on" : "seg"}
+            onClick={() => {
+              setEditing(!editing);
+              setPicked(new Set());
+            }}
+            aria-pressed={editing}
+          >
+            {editing ? "Done editing" : "Move or split points"}
+          </button>
+        )}
       </div>
+      {editing && (
+        <PointActions
+          topic={topic}
+          picked={[...picked]}
+          onDone={(r) => {
+            setPicked(new Set());
+            onEdited?.(r);
+          }}
+        />
+      )}
       {order === "reading" ? (
         <ol className="points">
           {groups.map((g, gi) => {
@@ -579,6 +645,7 @@ function SourcePoints({ points, looseThreshold, focusPoint }) {
                       ref={p.id === focusPoint ? focused : undefined}
                     >
                       {gap && <p className="skip-mark" title="Text between these parts belongs to another topic">· · ·</p>}
+                      {tick(p)}
                       {p.fit < looseThreshold && (
                         <p className="loose-flag">
                           <Icon name="alert" size={15} /> Loose fit: may belong to another topic
@@ -607,6 +674,7 @@ function SourcePoints({ points, looseThreshold, focusPoint }) {
         <ol className="points">
           {points.map((p) => (
             <li key={p.id} className={p.fit < looseThreshold ? "is-loose" : ""}>
+              {tick(p)}
               {p.section && <p className="point-section">From: {p.section}</p>}
               {p.fit < looseThreshold && (
                 <p className="loose-flag">
@@ -625,6 +693,106 @@ function SourcePoints({ points, looseThreshold, focusPoint }) {
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+/**
+ * v0.9: rename this topic, or merge another topic into it (topicedit.py).
+ * Hand edits mark the topic for rewriting; "Rebuild topics" replaces them.
+ */
+function TopicEditBar({ topic, onDone }) {
+  const [mode, setMode] = useState(null); // "rename" | "merge"
+  const [title, setTitle] = useState(topic.title);
+  const [other, setOther] = useState("");
+  const [names] = usePoll("/topics/names", 0);
+  const choices = (names?.topics ?? []).filter((t) => t.id !== topic.id && t.kind !== "data");
+  async function save() {
+    const r =
+      mode === "rename"
+        ? await kb.post("/topics/rename", { topic_id: topic.id, title })
+        : await kb.post("/topics/merge", { topic_id: topic.id, others: [Number(other)] });
+    setMode(null);
+    onDone(r);
+  }
+  if (!mode)
+    return (
+      <p className="topic-edit-links">
+        <button className="link" onClick={() => setMode("rename")}>
+          Rename
+        </button>
+        {topic.kind !== "data" && choices.length > 0 && (
+          <>
+            {" · "}
+            <button className="link" onClick={() => setMode("merge")}>
+              Merge another topic into this one
+            </button>
+          </>
+        )}
+      </p>
+    );
+  return (
+    <div className="topic-edit">
+      {mode === "rename" ? (
+        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="New topic name" autoFocus />
+      ) : (
+        <select value={other} onChange={(e) => setOther(e.target.value)} aria-label="Topic to merge in">
+          <option value="">Choose a topic to merge in…</option>
+          {choices.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+      )}
+      <button onClick={save} disabled={mode === "merge" ? !other : !title.trim()}>
+        {mode === "rename" ? "Save name" : "Merge"}
+      </button>
+      <button className="secondary" onClick={() => setMode(null)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/** v0.9: what to do with the ticked points — move them, or make a new topic. */
+function PointActions({ topic, picked, onDone }) {
+  const [to, setTo] = useState("");
+  const [name, setName] = useState("");
+  const [names] = usePoll("/topics/names", 0);
+  const choices = (names?.topics ?? []).filter((t) => t.id !== topic.id && t.kind !== "data");
+  const n = picked.length;
+  async function move() {
+    onDone(await kb.post("/topics/move", { topic_id: topic.id, points: picked, to_topic_id: Number(to) }));
+  }
+  async function split() {
+    const r = await kb.post("/topics/split", { topic_id: topic.id, points: picked, title: name });
+    onDone({ ...r, open: r.ok ? r.topic_id : null });
+  }
+  return (
+    <div className="point-actions">
+      <p className="small muted">
+        {n ? `${n} point${n === 1 ? "" : "s"} selected.` : "Tick the points you want to move."} Changed topics are
+        rewritten by "Write remaining". "Rebuild topics" regroups everything and replaces hand edits.
+      </p>
+      <div className="topic-edit">
+        <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Move to topic">
+          <option value="">Move to…</option>
+          {choices.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+        <button onClick={move} disabled={!n || !to}>
+          Move
+        </button>
+        <span className="muted small">or</span>
+        <input placeholder="Name for a new topic" value={name} onChange={(e) => setName(e.target.value)} />
+        <button onClick={split} disabled={!n || !name.trim()}>
+          Make new topic
+        </button>
+      </div>
     </div>
   );
 }

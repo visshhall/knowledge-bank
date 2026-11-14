@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -382,6 +382,12 @@ def _open() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 10000")
+    # v0.9 (big libraries): a larger page cache (≈64 MB), temporary sort
+    # space in memory and memory-mapped reads (256 MB) make searches and
+    # topic pages on a 1,000+ file bank noticeably faster.
+    conn.execute("PRAGMA cache_size = -65536")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA mmap_size = 268435456")
     return conn
 
 
@@ -538,8 +544,8 @@ def _migrate_v10() -> None:
        and size). Watched-folder scans and folder adds skip these, so a
        removed file stays removed. Picking that exact file again with
        "Add files" brings it back (importer.add_paths).
-    Runs only when the CHECK doesn't allow 'set_aside' yet; the table part
-    is idempotent.
+    Runs only when the CHECK doesn't allow 'set_aside' or 'doc' yet; the
+    table part is idempotent.
     """
     conn = sqlite3.connect(config.DB_PATH, isolation_level=None)
     try:
@@ -553,7 +559,9 @@ def _migrate_v10() -> None:
                 PRIMARY KEY (sha256, path)
             )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_removed_path ON removed_files(path, size_bytes)")
-        if "set_aside" not in sql:
+        # Rebuilt when the CHECKs lack 'set_aside' (v0.8.2) or the 'doc' file
+        # type (v0.9: Word, PowerPoint, web pages, text and Markdown files).
+        if "set_aside" not in sql or "'doc'" not in sql:
             conn.execute("PRAGMA foreign_keys = OFF")
             conn.execute("BEGIN")
             conn.execute("""
@@ -562,7 +570,7 @@ def _migrate_v10() -> None:
                     sha256         TEXT NOT NULL UNIQUE,
                     file_name      TEXT NOT NULL,
                     original_path  TEXT NOT NULL,
-                    file_type      TEXT NOT NULL CHECK (file_type IN ('pdf','image','table')),
+                    file_type      TEXT NOT NULL CHECK (file_type IN ('pdf','image','table','doc')),
                     size_bytes     INTEGER NOT NULL,
                     page_count     INTEGER,
                     status         TEXT NOT NULL DEFAULT 'pending'
@@ -571,12 +579,16 @@ def _migrate_v10() -> None:
                     added_at       TEXT NOT NULL DEFAULT (datetime('now')),
                     processed_at   TEXT,
                     relevance_json TEXT,
-                    keep_anyway    INTEGER NOT NULL DEFAULT 0
+                    keep_anyway    INTEGER NOT NULL DEFAULT 0,
+                    title          TEXT,
+                    categories     TEXT,
+                    replaced_by    INTEGER
                 )""")
-            conn.execute("INSERT INTO sources_v10(id, sha256, file_name, original_path, file_type, size_bytes, "
-                         "page_count, status, error, added_at, processed_at) "
-                         "SELECT id, sha256, file_name, original_path, file_type, size_bytes, page_count, "
-                         "status, error, added_at, processed_at FROM sources")
+            # Copy every column both tables have (older banks lack the newer ones).
+            old_cols = {r[1] for r in conn.execute("PRAGMA table_info(sources)")}
+            new_cols = [r[1] for r in conn.execute("PRAGMA table_info(sources_v10)")]
+            common = ", ".join(c for c in new_cols if c in old_cols)
+            conn.execute(f"INSERT INTO sources_v10({common}) SELECT {common} FROM sources")
             conn.execute("DROP TABLE sources")
             conn.execute("ALTER TABLE sources_v10 RENAME TO sources")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_path ON sources(original_path)")
@@ -596,6 +608,28 @@ def _migrate_v10() -> None:
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.close()
+
+
+def _migrate_v11() -> None:
+    """
+    Schema v11 (KB v0.9). New columns on sources (idempotent, every start):
+      title       — a readable name read from the file's content, for files
+                    named like "1733744110377.pdf" (titles.py). Shown in
+                    Library and in citations; the file on disk is untouched.
+      categories  — JSON list such as ["SIEM & Detection", "Identity"]
+                    (titles.categorise), for the Library filter.
+      replaced_by — id of the newer version of this file that took over
+                    (importer: "Replace old versions automatically").
+    """
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
+        for name, kind in (("title", "TEXT"), ("categories", "TEXT"), ("replaced_by", "INTEGER")):
+            if name not in cols:
+                conn.execute(f"ALTER TABLE sources ADD COLUMN {name} {kind}")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '11') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
 
 
 def _current_version(conn: sqlite3.Connection) -> int:
@@ -671,7 +705,8 @@ def init_db() -> int:
     _migrate_v8()  # idempotent: also repairs a pre-release bank missing a v8 column
     _migrate_v9()  # idempotent (v0.8.1: pictures read in a second pass)
     _migrate_v10()  # idempotent (v0.8.2: set-aside files, removed-files list)
-    return 10
+    _migrate_v11()  # idempotent (v0.9: titles, categories, replaced versions)
+    return 11
 
 
 def stats() -> dict:

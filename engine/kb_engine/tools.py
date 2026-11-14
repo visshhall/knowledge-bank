@@ -140,7 +140,7 @@ def bank_iocs(limit_refs: int = 3) -> dict:
     """Indicators across the whole bank, each with where it appears."""
     where: dict[tuple[str, str], list] = {}
     with db.connect() as conn:
-        rows = conn.execute("SELECT p.id, p.text, p.page_number, p.source_id, s.file_name FROM passages p "
+        rows = conn.execute("SELECT p.id, p.text, p.page_number, p.source_id, COALESCE(s.title, s.file_name) AS file_name FROM passages p "
                             "JOIN sources s ON s.id = p.source_id").fetchall()
     for r in rows:
         for g in extract_iocs(r["text"])["groups"]:
@@ -181,7 +181,7 @@ def mitre() -> dict:
     with db.connect() as conn:
         rows = conn.execute(
             """SELECT p.id, COALESCE(p.cluster_id, p.id) AS point_id, p.text, p.page_number, p.source_id,
-                      s.file_name, t.id AS topic_id, t.title AS topic_title
+                      COALESCE(s.title, s.file_name) AS file_name, t.id AS topic_id, t.title AS topic_title
                FROM passages p JOIN sources s ON s.id = p.source_id
                LEFT JOIN topic_passages tp ON tp.passage_id = p.id LEFT JOIN topics t ON t.id = tp.topic_id
                WHERE p.text LIKE '%T1%'""").fetchall()
@@ -236,7 +236,7 @@ def queries() -> dict:
     with db.connect() as conn:
         rows = conn.execute(
             """SELECT p.id, COALESCE(p.cluster_id, p.id) AS point_id, p.text, p.page_number, p.source_id,
-                      p.section, s.file_name, t.id AS topic_id, t.title AS topic_title
+                      p.section, COALESCE(s.title, s.file_name) AS file_name, t.id AS topic_id, t.title AS topic_title
                FROM passages p JOIN sources s ON s.id = p.source_id
                LEFT JOIN topic_passages tp ON tp.passage_id = p.id LEFT JOIN topics t ON t.id = tp.topic_id
                WHERE p.text LIKE '%|%' OR p.text LIKE '%index=%'""").fetchall()

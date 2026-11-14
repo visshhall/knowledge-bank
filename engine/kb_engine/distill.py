@@ -817,7 +817,7 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
         rows = conn.execute(
             """
             SELECT p.id, p.cluster_id, p.text, p.page_number, p.ordinal, p.section,
-                   s.file_name, s.id AS source_id, tp.fit
+                   COALESCE(s.title, s.file_name) AS file_name, s.id AS source_id, tp.fit
             FROM topic_passages tp
             JOIN passages p ON p.id = tp.passage_id
             JOIN sources s ON s.id = p.source_id
@@ -879,7 +879,7 @@ def passage_context(passage_id: int, around: int = 1) -> dict | None:
     """
     with db.connect() as conn:
         me = conn.execute(
-            "SELECT p.id, p.source_id, p.page_number, p.ordinal, p.section, s.file_name FROM passages p "
+            "SELECT p.id, p.source_id, p.page_number, p.ordinal, p.section, COALESCE(s.title, s.file_name) AS file_name FROM passages p "
             "JOIN sources s ON s.id = p.source_id WHERE p.id = ?", (passage_id,)).fetchone()
         if not me:
             return None
@@ -909,7 +909,7 @@ def section_passages(passage_id: int, limit: int = 60) -> dict | None:
     topics. Falls back to passage_context when the passage has no section.
     """
     with db.connect() as conn:
-        me = conn.execute("SELECT p.source_id, p.section, s.file_name FROM passages p JOIN sources s "
+        me = conn.execute("SELECT p.source_id, p.section, COALESCE(s.title, s.file_name) AS file_name FROM passages p JOIN sources s "
                           "ON s.id = p.source_id WHERE p.id = ?", (passage_id,)).fetchone()
         if not me:
             return None
@@ -932,7 +932,7 @@ def flow() -> dict:
     """
     with db.connect() as conn:
         files = conn.execute(
-            "SELECT s.id, s.file_name, s.file_type, COUNT(p.id) AS n FROM sources s "
+            "SELECT s.id, COALESCE(s.title, s.file_name) AS file_name, s.file_type, COUNT(p.id) AS n FROM sources s "
             "JOIN passages p ON p.source_id = s.id GROUP BY s.id ORDER BY s.id").fetchall()
         topics = conn.execute(
             "SELECT t.id, t.title, COUNT(tp.passage_id) AS n FROM topics t "

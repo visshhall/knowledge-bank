@@ -106,6 +106,22 @@ SOURCE POINTS:
 {points}
 """
 
+# v0.9 "fix weak articles automatically": when the fact check had to remove
+# this many items (or this share of the article's lines), or the article came
+# out too short, the topic is written ONCE more with a stricter request that
+# lists what was unsupported. The better of the two versions is kept.
+WEAK_REMOVED = 4
+WEAK_SHARE = 0.25
+WEAK_MIN_CHARS = 500
+
+RETRY_NOTE = """
+
+IMPORTANT — a first draft of this article used facts that are NOT in the source points.
+Do not use any of these again: {removed}.
+Use ONLY numbers, IDs, commands and query lines that appear word for word in the SOURCE POINTS.
+If the points don't cover a section, leave the section out.
+"""
+
 NOTES_PROMPT = """These SOURCE POINTS are part of the topic "{title}".
 Extract the distinct facts as at most 8 short bullets. Keep queries, commands, event IDs and MITRE IDs exactly.
 End each bullet with its source markers, e.g. [3].
@@ -276,6 +292,23 @@ def _check_article(article: str, sources: list[str]) -> tuple[str, dict]:
     return text, {"removed": ck.removed, "removed_count": len(ck.removed)}
 
 
+def _is_weak(article: str, checks: dict, lines_before: int) -> bool:
+    """Did the fact check gut this article (see WEAK_*)?"""
+    n = checks.get("removed_count", 0)
+    return (n >= WEAK_REMOVED or (lines_before and n / lines_before >= WEAK_SHARE)
+            or len(article) < WEAK_MIN_CHARS)
+
+
+def _better(a2: str, c2: dict, l2: int, a1: str, c1: dict, l1: int) -> bool:
+    """Prefer the version with the smaller share of removed lines; on a tie,
+    the longer one (more of the topic covered)."""
+    s1 = c1.get("removed_count", 0) / max(l1, 1)
+    s2 = c2.get("removed_count", 0) / max(l2, 1)
+    if len(a2) < 40:
+        return False
+    return s2 < s1 - 0.02 or (abs(s2 - s1) <= 0.02 and len(a2) > len(a1))
+
+
 def _clean_article(text: str, valid: set[int]) -> str:
     """
     Tidy the model's Markdown: drop a leading title line (the app shows the
@@ -330,10 +363,25 @@ def write_topic(topic_id: int) -> bool:
         material += "\n\nNOTES FROM MORE POINTS:\n" + "\n".join(notes)
 
     _set(message="Writing the article", live="", live_topic=topic_id)
+    sources = [p["text"] for p in points]
     raw = _ask(ARTICLE_PROMPT.format(title=t["title"], points=material), live=True)
+    lines_before = len([l for l in _clean_article(raw, {int(k) for k in citations}).splitlines() if l.strip()])
     article = _clean_article(raw, {int(k) for k in citations})
     _set(message="Checking every fact against the sources")
-    article, checks = _check_article(article, [p["text"] for p in points])
+    article, checks = _check_article(article, sources)
+    if _is_weak(article, checks, lines_before) and not _cancel.is_set():
+        # v0.9: one stricter second try; keep whichever version is better.
+        _set(message="The first draft had unsupported facts — writing it again more strictly", live="")
+        first_count = checks.get("removed_count", 0)
+        removed = "; ".join(checks["removed"][:12]) or "invented numbers or IDs"
+        raw2 = _ask(ARTICLE_PROMPT.format(title=t["title"], points=material) + RETRY_NOTE.format(removed=removed),
+                    live=True)
+        lines2 = len([l for l in _clean_article(raw2, {int(k) for k in citations}).splitlines() if l.strip()])
+        article2, checks2 = _check_article(_clean_article(raw2, {int(k) for k in citations}), sources)
+        if _better(article2, checks2, lines2, article, checks, lines_before):
+            article, checks = article2, checks2
+        checks["rewritten"] = True
+        checks["first_removed_count"] = first_count  # shown under the article
     _set(live=None, live_topic=None)
     if len(article) < 40:
         return False
@@ -366,8 +414,12 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
                 todo = [focus]
             else:
                 # Spreadsheet ("data") topics are calculated, never AI-written.
-                where = "WHERE t.kind != 'data'" if rewrite_all else \
-                    "WHERE t.kind != 'data' AND (t.status != 'written' OR t.id NOT IN (SELECT topic_id FROM lessons))"
+                # v0.9: "Write remaining" also redoes earlier articles the fact
+                # check gutted (WEAK_REMOVED+ items removed, never retried).
+                where = "WHERE t.kind != 'data'" if rewrite_all else (
+                    "WHERE t.kind != 'data' AND (t.status != 'written' OR t.id NOT IN (SELECT topic_id FROM lessons) "
+                    f"OR (json_extract(t.checks_json, '$.removed_count') >= {WEAK_REMOVED} "
+                    "AND json_extract(t.checks_json, '$.rewritten') IS NULL))")
                 todo = [r["id"] for r in conn.execute(
                     f"""SELECT t.id FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id
                         {where} GROUP BY t.id ORDER BY COUNT(tp.passage_id) DESC"""
@@ -394,9 +446,12 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
             _set(current=title["title"] if title else None, message="Reading the points")
             try:
                 with db.connect() as conn:
-                    written = conn.execute("SELECT status FROM topics WHERE id = ?", (tid,)).fetchone()
+                    written = conn.execute("SELECT status, checks_json FROM topics WHERE id = ?", (tid,)).fetchone()
+                old_checks = json.loads(written["checks_json"] or "{}") if written else {}
+                weak_before = (old_checks.get("removed_count", 0) >= WEAK_REMOVED
+                               and not old_checks.get("rewritten"))
                 if only_topic is None and (rewrite_all or wanted is not None or not written
-                                           or written["status"] != "written"):
+                                           or written["status"] != "written" or weak_before):
                     write_topic(tid)
                 if not _cancel.is_set():
                     _set(message="Designing the lesson")

@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.8.3 — content already in the bank is never added twice · v0.8.2 — non-cybersecurity files set aside automatically, removed files stay removed, AI kept on the graphics card · v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
-| Document version | 2.8 |
+| Current version | KB v0.9.0 — cleaner imports (junk, garbled text, titles, categories, Word/PowerPoint/web/text), old versions replaced, better search, hand-edited topics, weak articles rewritten, big-library tuning, self-updating app · v0.8.3 — content already in the bank is never added twice · v0.8.2 — non-cybersecurity files set aside automatically, removed files stay removed, AI kept on the graphics card · v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
+| Document version | 2.9 |
 | Last updated | 15 November 2026 |
 | Owner | Vishal Singh |
 
@@ -510,6 +510,81 @@ The owner asked whether two different PDFs with the same content can be skipped.
 
 **Limit:** "same content" means the same words. A scan and the original text PDF of the same document usually differ slightly in OCR'd words, so both are kept.
 
+## 9o. v0.9.0 — eleven owner-chosen improvements (15 Nov 2026)
+
+The owner picked these from three rounds of suggestions and said "go ahead".
+
+**1. Clean junk pages and lines** (`cleaning.py`)
+- Lines repeated at the top or bottom of most pages are found from the PDF's text layer before reading and removed from every page. These are headers, footers, watermarks and the author's name on every slide.
+- Also removed: page labels ("Page 3 of 9", "3/9"; a bare number only at a page edge), and promo lines (follow / like / repost, linkedin.com/in/…).
+- Whole pages that are blank, promotion, contents/index, or a title-only cover give no passages. Their text is still stored, so Read in context works.
+- Banks imported earlier are cleaned once without renumbering passages, so citations stay valid:
+  - pure-junk and gibberish passages are deleted;
+  - junk lines inside passages are removed in place.
+- Test, a LinkedIn-style carousel: header, footer and page numbers were gone from all 6 content slides; the cover and promo slide were skipped.
+
+**2. Garbled text detection** (`cleaning.is_garbled`)
+- A text layer counts as gibberish when it has many control or private-use characters, Latin-Extended look-alikes ("ĂŵĞƌŝĐĂ"), is mostly symbols, or has few word-like tokens. Such pages are OCR'd instead; the OCR text is kept only if it is better.
+- No false positives on 143 real test pages (the only pages flagged were glyph tables in a font manual).
+- Test: a page with an invisible gibberish layer was read correctly by OCR.
+
+**3. Real names for files** (`titles.py`, schema v11 `sources.title`)
+- Names like "1733744110377.pdf", "document (3).pdf" or "IMG_2041.png" get a title, taken from the first of these that works: the PDF's title field, the document's first heading, or a title-like first line.
+- All-caps titles are turned readable ("Use Case 3: RDP Brute Force…").
+- Titles show in Library, citations, search results and the flow map. The file on disk is untouched.
+
+**4. Automatic categories** (`titles.categorise`, `sources.categories`)
+- Up to 2 of 11 categories per file (SIEM & Detection, Endpoint, Identity & Access, Cloud, Network, Email & Phishing, Malware, Incident Response, Threat Intel & Hunting, Vulnerabilities & AppSec, Governance & Compliance), from vocabulary hits.
+- Library shows chips and filters by category, status and name. Search filters by category too.
+
+**5. More file types** (`officefiles.py`, file type 'doc'; schema rebuild via `_migrate_v10`)
+- Supported: .docx, .pptx, .html/.htm, .txt, .md.
+- Word: headings, bullets and tables kept; ~3,000-character pages.
+- PowerPoint: one page per slide, with title, text, tables, speaker notes and pictures.
+- Web pages: readable text only.
+- Only the Python standard library is used (zipfile + ElementTree + html.parser), so nothing new is bundled.
+- All the PDF steps apply: relevance check, junk cleaning, duplicate skipping, OCR of pictures.
+- Test: the same content as .docx, .pptx, .html and .md was all read, and the copies were recognised as the same content.
+
+**6. Replace old versions automatically** (`importer._replace_older`, `sources.replaced_by`)
+- A file already in the bank counts as an older version of a new file when at least 60% of its paragraphs are in the new file (names alike, e.g. "Guide v1" / "Guide v2") or at least 85% (any names).
+- The old file is set aside as "Older version — replaced by X". The new file is then read again in full, so it holds the content it skipped as duplicates.
+- Keep anyway restores the old file.
+- Test: doc1 followed by "doc1-updated" (doc1 + doc2): doc1 was replaced and the new file held all 31 paragraphs.
+
+**7. Better search** (`search.py`, `meaning.py`, Library search panel)
+- Filters: file, topic, kind of text (typed / scanned / picture), category.
+- Ranking: BM25, with the exact phrase ×1.6 and a match in the section heading or file title ×1.25.
+- If no passage has every word, close matches with some of the words are shown and labelled.
+- File and topic chips show hit counts and filter with a click; results show the section and the topic.
+- Ctrl+K blends meaning and word results by Reciprocal Rank Fusion.
+
+**8. Edit topics by hand** (`topicedit.py`, Topics.jsx)
+- Rename; merge another topic into this one; "Move or split points" (tick points, then move them to another topic or make a new topic).
+- Only topic membership changes, so passages, citations and cards stay valid. Changed topics are marked for "Write remaining", and empty topics are removed.
+- Spreadsheet topics can only be renamed. "Rebuild topics" replaces hand edits, and the screen says so.
+
+**9. Weak articles rewritten automatically** (`writer.py` WEAK_*)
+- When the fact check removes 4 or more items, 25% or more of the lines, or leaves under 500 characters, the article is written once more. The second request lists the unsupported items and must use only facts found in the sources.
+- The better version is kept (the smaller share of removed lines, then the longer one). The article note says so.
+- "Write remaining" also redoes earlier gutted articles that were never retried.
+
+**10. Big libraries** (`storage.py`, `meaning._vectors`, db pragmas, Library)
+- Measured on a synthetic 1,000-file / 100,000-passage bank:
+  - Library 0.01 s, stats 0.01 s, word search 0.16 s.
+  - Meaning-search memory went from ~980 MB to ~190 MB (float16 matrix filled straight from the cursor; similarities computed in blocks of 20,000 rows).
+- SQLite: 64 MB cache, memory temp store, 256 MB memory-mapped reads.
+- The Library list refreshes every 20 s when idle (4 s while importing) and draws 150 rows at a time.
+- Setup → **Storage** card shows the bank size, what is inside, where the space goes, and how much a clean-up would free. **Clean up** removes leftovers, optimises the search index, VACUUMs, and deletes restore copies and reports older than 30 days (the newest restore copy is kept). It refuses while a job is running.
+
+**11. App updates itself** (`electron/updater.cjs`, `AppUpdate.jsx`)
+- Two sources:
+  - a newer KnowledgeBank-Setup-x.y.z.exe in Downloads or on the Desktop (e.g. sent in chat);
+  - the latest GitHub release of visshhall/knowledge-bank (the repository is public).
+- The download is checked for size, the "MZ" header, and the SHA-256 published in the release notes.
+- It installs silently (/S --force-run), and the app reopens by itself. Only an installer the updater found or downloaded can be run.
+- A banner appears under the version badge. Setup → App updates has "Check for updates" and an automatic daily check (on by default; it sends nothing but the request).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -577,3 +652,4 @@ The owner asked whether two different PDFs with the same content can be skipped.
 | 15 Nov 2026 | Doc 2.6 / KB v0.8.1 | Owner: import too slow. Two-pass import (text first, pictures after; schema v9 images.xref), OCR engine pool + parallel scanned pages (79 s → 30 s to searchable on 2 cores, identical passages), DirectML graphics-card OCR on Windows with automatic processor fallback, background OCR load. Added section 9l. |
 | 15 Nov 2026 | Doc 2.7 / KB v0.8.2 | Owner: unrelated PDFs, slow CPU-bound AI, removed files returning. Relevance check before slow work + set aside + Keep anyway + one-time check of existing bank (relevance.py, schema v10); removed_files so watched folders never re-add; gpu.py memory savers, speed tuning with safe fallback, Graphics card card in Setup. Added section 9m. |
 | 15 Nov 2026 | Doc 2.8 / KB v0.8.3 | Owner: skip PDFs whose content is already present; add only content not present. Paragraph-level skip by fingerprint, file-level "Already in the bank" set-aside with Keep anyway, early detection for scans, picture text, one-time check of existing bank, Library switch. Added section 9n. |
+| 15 Nov 2026 | Doc 2.9 / KB v0.9.0 | Eleven owner-chosen improvements: junk cleaning + garbled-text OCR (cleaning.py), real file titles + categories (titles.py), Word/PowerPoint/web/text/Markdown (officefiles.py), automatic replacement of older versions, better search (filters, ranking, close matches, facets, RRF), hand-edited topics (topicedit.py), automatic rewrite of weak articles, big-library tuning + Storage card (storage.py), self-updating app (updater.cjs). Schema v11. Added section 9o. |
