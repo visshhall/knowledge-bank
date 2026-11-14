@@ -1,9 +1,10 @@
 """
 ocr.py — reads text out of pictures (scanned pages, screenshots, diagrams).
 
-WHAT:  One function, read_text(image_bytes) → text, backed by RapidOCR, an
-       offline OCR engine that runs small neural networks on the CPU via
-       onnxruntime. Its models ship inside the Python package, so nothing is
+WHAT:  read_text(image_bytes) → text, backed by RapidOCR, an offline OCR
+       engine that runs small neural networks via onnxruntime. It is safe
+       to call from several threads at once: each call borrows one engine
+       from a small pool (v0.8.1). Its models ship inside the Python package, so nothing is
        downloaded and nothing leaves the laptop.
 
 WHY:   Some PDFs are scans (pictures of pages with no text layer) and the
@@ -16,11 +17,21 @@ WHY:   Some PDFs are scans (pictures of pages with no text layer) and the
 WHEN:  Called by importer.py for: PDF pages with almost no text, images
        embedded in PDFs, and standalone image files.
 
-CONNECTED TO: importer.py (only caller). Uses CPU only, so it doesn't
-       compete with the AI models for the graphics card's 4 GB.
+CONNECTED TO: importer.py (only caller).
 
-PERFORMANCE: ~1–2 s per page-sized image. The engine is loaded once, on
-       first use (~1–2 s), then reused.
+PERFORMANCE: about 3 s per scanned page on a laptop processor; OCR is
+       almost all of the import time (text pages take ~20 ms each).
+       v0.8.1 (owner: "import is too slow"):
+         - On Windows the bundled onnxruntime is the DirectML build, which
+           runs the OCR networks on ANY graphics card (NVIDIA, AMD, Intel).
+           The models are small (~15 MB, a few hundred MB while running),
+           so they fit beside the AI model on the 4 GB card. If DirectML is
+           missing or fails on the first page, OCR switches to the processor
+           for the rest of the session — importing never stops because of it.
+         - prewarm() loads the engine in the background as soon as an import
+           starts, so the first scanned page doesn't wait for the load.
+       The 180° text-line classifier stays on: switching it off was ~10%
+       faster in tests but changed the text read, and accuracy comes first.
 """
 
 import io
@@ -29,13 +40,19 @@ import threading
 
 from PIL import Image
 
-_engine = None              # the loaded RapidOCR instance (created lazily)
+import queue
+
+device = "not loaded"       # "graphics card" or "processor" — shown in import status
 last_error: str | None = None  # last OCR failure, shown in import status
-_load_lock = threading.Lock()   # guards creating the engine (once)
-_run_lock = threading.Lock()    # one OCR call at a time keeps memory use flat
-# Two separate locks on purpose: read_text() holds _run_lock while it calls
-# _get_engine(), which needs _load_lock. Using one lock for both would make
-# the first OCR call wait on itself forever (a deadlock found in testing).
+_gpu_failed = False         # set once DirectML failed; then processor for the session
+_load_lock = threading.Lock()  # guards building the pool (once)
+_pool: "queue.Queue | None" = None  # idle engines; read_text borrows one
+_size = 0                   # how many engines the pool holds
+# v0.8.1 design note: the old single engine + one global run lock meant one
+# picture at a time using all cores. Measured on 2 cores: two engines with
+# one thread each read 34% more pages per second than one engine with all
+# threads (ONNX models of this size don't spread well over many threads).
+# On the owner's 8+-core laptop the gain is larger.
 
 # Lines the OCR engine is less than this confident about are dropped —
 # they are usually noise (specks, borders, icon fragments).
@@ -46,14 +63,94 @@ MIN_CONFIDENCE = 0.5
 MAX_SIDE_PX = 2400
 
 
-def _get_engine():
-    """Load RapidOCR the first time it's needed (thread-safe), then reuse it."""
-    global _engine
+def _gpu_available() -> bool:
+    """True when this onnxruntime build can use DirectML (Windows bundle)."""
+    try:
+        import onnxruntime
+        import platform
+        return platform.system() == "Windows" and "DmlExecutionProvider" in onnxruntime.get_available_providers()
+    except Exception:
+        return False
+
+
+def _cpu_plan() -> tuple[int, int]:
+    """(engines, threads per engine) for this processor.
+    About 2 cores per engine, at most 3 engines (~200 MB of memory each, so
+    the AI model and the window keep plenty of the 16 GB)."""
+    try:
+        import psutil
+        cores = psutil.cpu_count(logical=False) or 2
+    except Exception:
+        cores = 2
+    engines = max(1, min(3, cores // 2)) if cores >= 2 else 1
+    return engines, max(1, cores // engines)
+
+
+def _build_pool() -> None:
+    """Create the engines (called under _load_lock). Graphics card: ONE
+    engine (the card runs one picture at a time anyway). Processor: a few
+    single-purpose engines that work side by side."""
+    global _pool, _size, device
+    from rapidocr_onnxruntime import RapidOCR  # heavy import, done once
+    engines = []
+    if not _gpu_failed and _gpu_available():
+        try:
+            engines = [RapidOCR(det_use_dml=True, cls_use_dml=True, rec_use_dml=True)]
+            device = "graphics card"
+        except Exception:
+            engines = []
+    if not engines:
+        n, threads = _cpu_plan()
+        engines = [RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1) for _ in range(n)]
+        device = "processor"
+    q: queue.Queue = queue.Queue()
+    for e in engines:
+        q.put(e)
+    _pool, _size = q, len(engines)
+
+
+def _ensure_pool() -> "queue.Queue":
     with _load_lock:
-        if _engine is None:
-            from rapidocr_onnxruntime import RapidOCR  # heavy import, done once
-            _engine = RapidOCR()
-        return _engine
+        if _pool is None:
+            _build_pool()
+        return _pool
+
+
+def workers() -> int:
+    """How many pictures can be read at the same time (importer uses this
+    to decide how many scanned pages to send at once)."""
+    _ensure_pool()
+    return _size
+
+
+def _fall_back_to_cpu() -> None:
+    """DirectML failed while reading: rebuild the pool on the processor."""
+    global _pool, _gpu_failed
+    with _load_lock:
+        if not _gpu_failed:
+            _gpu_failed = True
+            _pool = None
+
+
+def prewarm() -> None:
+    """Load the OCR engines in a background thread (called when an import
+    with work starts), so the first scanned page doesn't pay the load time."""
+    def run():
+        try:
+            _ensure_pool()
+        except Exception:
+            pass
+    threading.Thread(target=run, name="kb-ocr-warm", daemon=True).start()
+
+
+def _run(png: bytes):
+    """Borrow an idle engine, read one picture, give the engine back."""
+    pool = _ensure_pool()
+    engine = pool.get()
+    try:
+        return engine(png)
+    finally:
+        pool.put(engine)
 
 
 def _normalise(image_bytes: bytes) -> bytes:
@@ -92,9 +189,15 @@ def read_text(image_bytes: bytes) -> str:
     except Exception:
         return ""  # not a decodable image — treat as "no text"
     try:
-        engine = _get_engine()
-        with _run_lock:
-            result, _timings = engine(png)
+        try:
+            result, _timings = _run(png)
+        except Exception:
+            if device != "graphics card":
+                raise
+            # The graphics card path failed (driver, memory): retry this
+            # same picture on the processor and stay there.
+            _fall_back_to_cpu()
+            result, _timings = _run(png)
     except Exception as exc:
         # Safety net: if the OCR engine itself fails, keep importing the
         # rest of the file (its normal text still goes in) and report the

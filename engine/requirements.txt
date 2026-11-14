@@ -19,7 +19,9 @@
 # OCR (reading text from scanned pages and images — ocr.py). These are the
 # dependencies of rapidocr_onnxruntime (see requirements-nodeps.txt), listed
 # here so the GUI-free "headless" OpenCV is used instead of the full one:
-# onnxruntime            — runs the OCR neural networks on the CPU
+# onnxruntime            — runs the OCR neural networks (CPU here; the Windows
+#                          bundle uses onnxruntime-directml instead so OCR can
+#                          use the graphics card — see tools/build-windows.sh)
 # opencv-python-headless — image processing (no GUI parts, smaller)
 # numpy, Pillow, shapely, pyclipper, PyYAML, six, tqdm — OCR helpers
 fastapi==0.162.7

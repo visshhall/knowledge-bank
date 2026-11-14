@@ -183,7 +183,14 @@ export default function Library() {
                   <td className="num">{s.page_count ?? "—"}</td>
                   <td className="num">{formatCount(s.passages)}</td>
                   <td className="num">{s.ocr_pages || "—"}</td>
-                  <td className="num">{s.images || "—"}</td>
+                  <td className="num">
+                    {s.images || "—"}
+                    {s.pictures_waiting > 0 && (
+                      <span className="file-meta" title="Pictures waiting to be read">
+                        {" "}· {s.pictures_waiting} to read
+                      </span>
+                    )}
+                  </td>
                   <td className="num">{s.duplicate_copies || "—"}</td>
                   <td>
                     <button
@@ -208,17 +215,32 @@ export default function Library() {
 /**
  * Live progress of the running import. Exported so the Overview screen
  * shows the same panel.
+ * v0.8.1: two phases. "Reading files" (text — each file is usable as soon
+ * as it finishes) and then "Reading pictures" (diagrams and screenshots
+ * inside the files, added to the same pages afterwards). Also says whether
+ * OCR runs on the graphics card or the processor.
  */
 export function ImportProgress({ status }) {
-  const pageText = status.page_count
-    ? `page ${formatCount(status.current_page)} of ${formatCount(status.page_count)}`
-    : "starting";
+  const pictures = status.phase === "pictures";
+  const done = status.pictures_done || 0;
+  const total = done + (status.pictures_left || 0);
+  const pageText = pictures
+    ? `picture on page ${formatCount(status.current_page)}`
+    : status.page_count
+      ? `page ${formatCount(status.current_page)} of ${formatCount(status.page_count)}`
+      : "starting";
+  const device =
+    status.ocr_device === "graphics card" || status.ocr_device === "processor"
+      ? `Scans and pictures are read on the ${status.ocr_device}.`
+      : null;
   return (
     <section className="card import-progress" aria-live="polite">
       <div className="section-head">
-        <h2>Importing</h2>
+        <h2>{pictures ? "Reading pictures" : "Reading files"}</h2>
         <span className="muted">
-          {status.files_queued} file{status.files_queued === 1 ? "" : "s"} left
+          {pictures
+            ? `${formatCount(status.pictures_left)} picture${status.pictures_left === 1 ? "" : "s"} left`
+            : `${status.files_queued} file${status.files_queued === 1 ? "" : "s"} left`}
         </span>
       </div>
       <p className="current-file">
@@ -227,9 +249,15 @@ export function ImportProgress({ status }) {
       <div className="progress-track">
         <div
           className="progress-fill"
-          style={{ width: `${percent(status.current_page, status.page_count)}%` }}
+          style={{ width: `${pictures ? percent(done, total) : percent(status.current_page, status.page_count)}%` }}
         />
       </div>
+      <p className="small muted">
+        {pictures
+          ? "Your files are already searchable. Text found in their diagrams and screenshots is being added now."
+          : "Each file can be searched as soon as its text is in. Pictures inside the files are read afterwards."}
+        {device ? ` ${device}` : ""}
+      </p>
     </section>
   );
 }

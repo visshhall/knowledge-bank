@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
-| Document version | 2.5 |
+| Current version | KB v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
+| Document version | 2.6 |
 | Last updated | 15 November 2026 |
 | Owner | Vishal Singh |
 
@@ -412,6 +412,34 @@ Owner: diagrams, graphs and animations were "weak and ugly"; article writing was
 
 **Also:** a crash guard shows "Reload the window" instead of a blank screen if a screen errors.
 
+## 9l. v0.8.1 — faster import (15 Nov 2026)
+
+Owner: "the Library import is too slow."
+
+**Measured first.** On an 85-page test PDF, text pages take about 20 ms each. Almost all of the time goes to OCR: scanned pages took about 3 s each, and pictures inside pages take 1–3 s each.
+
+**1. Files are usable first, pictures come after** (schema v9 `images.xref`)
+- Pictures inside text pages are no longer read during the file's pass. They are saved as "waiting" with their place in the PDF.
+- After every file's text is in, a second pass reads them and adds their text to the same page (`importer._picture_step`).
+- A newly added file always jumps ahead of waiting pictures. Waiting pictures survive closing the app.
+- Library shows "Reading files" and then "Reading pictures", plus "N to read" per file.
+
+**2. Several pictures at once** (`ocr.py` pool)
+- One engine using all threads was replaced by 1–3 engines with about 2 cores each.
+- Scanned pages of a PDF are OCR'd side by side while the next pages are read, and are still stored in page order.
+- On a 2-core test machine: the same PDF went from 79 s to 30 s until searchable (44 s including pictures), with identical passages. More cores give more gain.
+
+**3. Graphics card OCR on Windows**
+- The Windows bundle uses `onnxruntime-directml`, so OCR can run on any graphics card.
+- If DirectML is missing or fails, OCR switches to the processor for the session; importing never stops.
+- Library says which one is in use. *Not testable in Claude's workspace (no Windows GPU); the owner's timing confirms it.*
+
+**4. Smaller changes**
+- The OCR engine loads in the background as soon as there is something to import.
+- Text-only PDFs never start the OCR engines.
+
+**Kept for accuracy:** the 180° text-line classifier. Turning it off was about 10% faster but changed the text read.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -476,3 +504,4 @@ Owner: diagrams, graphs and animations were "weak and ugly"; article writing was
 | 14 Nov 2026 | Doc 2.3 / KB v0.6.3 | Borderless numbered tables rebuilt (chunker v5), heading-aligned passages, one card per document section + Read the whole section; Overview flow map (files → topics, hover/click, animated) replaces the schematic; Ctrl+K meaning + word search with jump-to-passage. Phase 4 started. Added section 9i. |
 | 14 Nov 2026 | Doc 2.4 / KB v0.7.0 | All remaining phases: answer pages, open PDF at page, topic map (Phase 4); flashcards + spaced repetition + progress (Phase 5); IOC/ATT&CK/query tools + browser look-ups (Phase 6); automatic incremental topic updates + AES-256 encrypted backup/restore (Phase 7); Rewrite all; PDF passwords; quiz answer verification found with the real model. Schema v7. Added section 9j. |
 | 15 Nov 2026 | Doc 2.5 / KB v0.8.0 | Owner: weak diagrams, slow writing, invisible subnet spreadsheet. Spreadsheet data topics (datapages.py: charts, recalculated checks, bits explainer, Subnet Lab, quiz; schema v8); diagrams rewritten with walk-through animation + Play lesson; lesson prompt fixed so steps get pictures + verified fallback visuals; writer 3 calls instead of 5, live streaming, Write this topic now, line-by-line article fact check; crash guard. Added section 9k. |
+| 15 Nov 2026 | Doc 2.6 / KB v0.8.1 | Owner: import too slow. Two-pass import (text first, pictures after; schema v9 images.xref), OCR engine pool + parallel scanned pages (79 s → 30 s to searchable on 2 cores, identical passages), DirectML graphics-card OCR on Windows with automatic processor fallback, background OCR load. Added section 9l. |

@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.8.0 (diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.8.1 (faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 15 November 2026
 
 ---
@@ -13,7 +13,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.8.0.exe` — then open Topics: Subnet-Guide appears as a "Spreadsheet · calculated" topic within seconds (no rebuild needed); check charts, "Checking your sheet", Subnet Lab
+- [ ] Import a few PDFs with v0.8.1: Library should say "read on the graphics card" — report seconds per scanned page and whether it says "processor" instead
+- [ ] Install `KnowledgeBank-Setup-0.8.1.exe` (was 0.8.0) — then open Topics: Subnet-Guide appears as a "Spreadsheet · calculated" topic within seconds (no rebuild needed); check charts, "Checking your sheet", Subnet Lab
 - [ ] Press **Regenerate lesson** on a couple of topics (lessons written before v0.8 often have no diagrams) and try **Play lesson** / **Walk me through**
 - [ ] Time one topic with **Write this topic now** on the GPU and report the minutes (target 2–3)
 - [ ] (was) Install `KnowledgeBank-Setup-0.7.0.exe` (keep the original PDFs where they are: the app re-reads them once on first start; watch Library until all are "In the bank")
@@ -103,6 +104,12 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.8.1 — Faster import ✅ delivered
+- [x] Two-pass import: files searchable first, pictures inside them read afterwards (schema v9)
+- [x] OCR engine pool; scanned pages OCR'd in parallel (79 s → 30 s to searchable on 2 cores)
+- [x] DirectML graphics-card OCR on Windows with automatic processor fallback
+- [ ] Owner timing on the RTX 3050 (DirectML can't be tested in Claude's workspace)
 
 ## v0.8.0 — Diagrams, speed, spreadsheets ✅ delivered
 - [x] Spreadsheet data topics at import (datapages.py, schema v8): charts, recalculated CIDR checks, bits explainer, Subnet Lab, quiz, code-written article; rebuilt at engine start

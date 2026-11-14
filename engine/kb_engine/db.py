@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -499,6 +499,28 @@ def _migrate_v8() -> None:
         )
 
 
+def _migrate_v9() -> None:
+    """
+    Schema v9 (KB v0.8.1): images.xref — where a picture sits inside its PDF.
+    WHY: pictures inside text pages are now read in a SECOND pass after
+         every file's text is in, so files become usable in seconds instead
+         of waiting for slow picture OCR. A row with xref set and ocr_text
+         NULL is "waiting to be read"; the xref lets the importer find the
+         picture again later, even after the app was closed (importer.py
+         _picture_pass). Idempotent: safe to run on every start.
+    """
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(images)")}
+        if "xref" not in cols:
+            conn.execute("ALTER TABLE images ADD COLUMN xref INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_images_pending ON images(source_id) "
+                     "WHERE ocr_text IS NULL AND xref IS NOT NULL")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '9') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -569,12 +591,9 @@ def init_db() -> int:
     if version < 7:
         _migrate_v7()
         version = 7
-    if version < 8:
-        _migrate_v8()
-        version = 8
-    else:
-        _migrate_v8()  # idempotent: adds any v8 column a pre-release bank is missing
-    return version
+    _migrate_v8()  # idempotent: also repairs a pre-release bank missing a v8 column
+    _migrate_v9()  # idempotent (v0.8.1: pictures read in a second pass)
+    return 9
 
 
 def stats() -> dict:

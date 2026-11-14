@@ -10,7 +10,9 @@ WHAT:  1. add_paths(): accepts files and/or folders (folders are searched
                    exact grid is kept (doc_tables) plus a readable text form.
             PDF  → page by page: text layer; if a page has almost no text it
                    is rendered and OCR'd (scanned page); pictures embedded in
-                   the page are OCR'd too (diagram/screenshot labels).
+                   the page are OCR'd too (diagram/screenshot labels) — since
+                   v0.8.1 in a SECOND pass after all files' text is in, so
+                   files are usable in seconds (_worker, _picture_step).
             Image→ OCR'd as a one-page source.
           Each page's text is cut into passages (chunking.py) and stored
           with its file and page number, so everything stays citable.
@@ -51,6 +53,8 @@ import json
 import re
 import os
 import threading
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 import time
 from pathlib import Path
 
@@ -100,6 +104,10 @@ _progress = {
     "files_queued": 0,        # still waiting (including the current one)
     "last_error": None,
     "last_scan": None,        # time of the last watched-folder scan
+    # v0.8.1: pictures inside text pages are read in a second pass
+    "phase": None,            # "text" (files) | "pictures" (diagrams inside them)
+    "pictures_left": 0,       # pictures still waiting to be read, all files
+    "pictures_done": 0,       # read in this run
 }
 
 
@@ -117,6 +125,7 @@ def status() -> dict:
     with _lock:
         snapshot = dict(_progress)
     snapshot["ocr_error"] = ocr.last_error
+    snapshot["ocr_device"] = ocr.device  # "graphics card" / "processor" (v0.8.1)
     return snapshot
 
 
@@ -276,6 +285,8 @@ def library(limit: int = 2000) -> list[dict]:
                    (SELECT COUNT(*) FROM passages p WHERE p.source_id = s.id)          AS passages,
                    (SELECT COUNT(*) FROM pages g WHERE g.source_id = s.id AND g.ocr_used = 1) AS ocr_pages,
                    (SELECT COUNT(*) FROM images i WHERE i.source_id = s.id)            AS images,
+                   (SELECT COUNT(*) FROM images i WHERE i.source_id = s.id
+                      AND i.ocr_text IS NULL AND i.xref IS NOT NULL)                   AS pictures_waiting,
                    (SELECT COUNT(*) FROM duplicate_files d WHERE d.source_id = s.id)   AS duplicate_copies
             FROM sources s ORDER BY s.id DESC LIMIT ?
             """,
@@ -289,7 +300,8 @@ def library(limit: int = 2000) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _ensure_worker() -> None:
-    """Start the extraction thread if it isn't already running."""
+    """Start the extraction thread if it isn't already running.
+    (The worker itself pre-loads OCR when there is work — see _worker.)"""
     global _worker_running
     with _lock:
         if _worker_running:
@@ -310,33 +322,146 @@ def _next_pending():
 
 def _worker() -> None:
     """
-    Background loop: process pending sources one at a time until none are
-    left. One file at a time keeps memory use predictable and lets each
-    file show page-by-page progress.
+    Background loop, in two passes (v0.8.1 — owner: "import is too slow"):
+      1. TEXT: every waiting file, one at a time, page by page. Text pages
+         take ~20 ms; scanned pages are OCR'd here because the picture IS
+         the page. Pictures inside text pages are only recorded.
+         → Each file is "In the bank" (searchable, groupable) in seconds.
+      2. PICTURES: the recorded diagrams/screenshots are read one by one
+         (~1–3 s each on a processor, much less on the graphics card).
+         Their text joins the right page as extra passages.
+    A newly added file always jumps ahead of waiting pictures: the loop
+    checks for files before every picture. Topics are updated after the
+    text pass (so new files reach topics quickly) and again at the end.
+    One file/picture at a time keeps memory use predictable.
     """
     global _worker_running
-    _set(state="running", files_done=0, last_error=None)
+    _set(state="running", files_done=0, pictures_done=0, last_error=None, phase="text")
+    docs: dict = {}            # PDFs kept open during the picture pass
+    text_updated = False       # topics refreshed after the text pass?
+    if _next_pending()[0] or _pictures_waiting():
+        ocr.prewarm()  # load OCR in the background while text pages are read
     try:
         while True:
             source, queued = _next_pending()
-            if not source:
-                break
-            _set(current_file=source["file_name"], current_page=0, page_count=0,
-                 files_queued=queued)
-            _process_source(source)
-            with _lock:
-                _progress["files_done"] += 1
+            if source:
+                _set(phase="text", current_file=source["file_name"], current_page=0,
+                     page_count=0, files_queued=queued)
+                _process_source(source)
+                with _lock:
+                    _progress["files_done"] += 1
+                text_updated = False
+                continue
+            if not text_updated:
+                text_updated = True
+                _auto_update_topics()
+            if _picture_step(docs):
+                continue
+            break
     finally:
+        for d in docs.values():
+            try:
+                d.close()
+            except Exception:
+                pass
         with _lock:
             _worker_running = False
-            _progress.update(state="idle", current_file=None, current_page=0,
-                             page_count=0, files_queued=0)
+            _progress.update(state="idle", phase=None, current_file=None, current_page=0,
+                             page_count=0, files_queued=0, pictures_left=0)
         # Race guard: a file added in the instant between "nothing pending"
         # and this thread stopping would otherwise wait for the next add.
         if _next_pending()[0]:
             _ensure_worker()
         else:
             _auto_update_topics()
+
+
+def _pictures_waiting() -> int:
+    """How many pictures are still waiting to be read (all files)."""
+    with db.connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM images WHERE ocr_text IS NULL "
+                            "AND xref IS NOT NULL").fetchone()[0]
+
+
+def _picture_step(docs: dict) -> bool:
+    """
+    Read the next few waiting pictures (images rows with xref set and
+    ocr_text NULL) — as many at once as there are OCR engines.
+    RETURNS False when no picture is waiting.
+
+    HOW: reopens the PDF (kept open in `docs` for the next batch), pulls
+         each picture by its xref, checks it is still the same picture (its
+         SHA-256), OCRs them side by side (or reuses the text of an
+         identical picture read before), then saves the text and adds it as
+         "[Image on page N]" passages after that page's own passages.
+    A picture that can't be read any more (file moved/changed) is marked
+    read with empty text, so it never blocks the queue. Batches are small,
+    so a newly added file still jumps ahead within a few seconds.
+    """
+    width = ocr.workers()
+    with db.connect() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT i.id, i.source_id, i.page_number, i.sha256, i.xref, s.original_path, s.file_name "
+            "FROM images i JOIN sources s ON s.id = i.source_id "
+            "WHERE i.ocr_text IS NULL AND i.xref IS NOT NULL AND s.status = 'extracted' "
+            "ORDER BY i.source_id, i.page_number, i.id LIMIT ?", (width,))]
+    if not rows:
+        return False
+    rows = [r for r in rows if r["source_id"] == rows[0]["source_id"]]  # one PDF per batch
+    first = rows[0]
+    _set(phase="pictures", current_file=first["file_name"], current_page=first["page_number"],
+         pictures_left=_pictures_waiting())
+    # 1. pull the picture bytes (PyMuPDF: this thread only)
+    jobs: list[tuple[dict, bytes | None, str | None]] = []
+    for r in rows:
+        known = _known_image_text(r["sha256"])
+        data = None
+        if known is None:
+            try:
+                doc = docs.get(r["source_id"])
+                if doc is None:
+                    for d in docs.values():  # one PDF open at a time keeps memory low
+                        d.close()
+                    docs.clear()
+                    doc = pymupdf.open(r["original_path"])
+                    docs[r["source_id"]] = doc
+                raw = doc.extract_image(r["xref"])["image"]
+                data = raw if hashlib.sha256(raw).hexdigest() == r["sha256"] else None
+            except Exception:
+                data = None  # moved, changed or locked: skip, never stall
+            known = None if data is not None else ""
+        jobs.append((r, data, known))
+    # 2. read them side by side
+    with ThreadPoolExecutor(max_workers=max(1, len(jobs)), thread_name_prefix="kb-ocr") as pool:
+        futures = [pool.submit(ocr.read_text, data) if data is not None else None for _r, data, _k in jobs]
+        texts = [f.result() if f is not None else k for f, (_r, _d, k) in zip(futures, jobs)]
+    # 3. store, in page order
+    with db.connect() as conn:
+        for (r, _d, _k), text in zip(jobs, texts):
+            text = text or ""
+            conn.execute("UPDATE images SET ocr_text = ? WHERE id = ?", (text, r["id"]))
+            if len(text.split()) < MIN_IMAGE_WORDS:
+                continue
+            page = conn.execute("SELECT id FROM pages WHERE source_id = ? AND page_number = ?",
+                                (r["source_id"], r["page_number"])).fetchone()
+            if not page:
+                continue  # page gone (file re-read meanwhile): keep the text, add no passage
+            last = conn.execute(
+                "SELECT ordinal, section FROM passages WHERE source_id = ? AND page_number = ? "
+                "ORDER BY ordinal DESC LIMIT 1", (r["source_id"], r["page_number"])).fetchone()
+            ordinal = (int(last["ordinal"]) + 1) if last else 0
+            section = last["section"] if last else None
+            for passage in chunking.split_passages(text):
+                labelled = f"[Image on page {r['page_number']}] {passage}"
+                conn.execute(
+                    "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
+                    "token_count, content_hash, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (r["source_id"], page["id"], r["page_number"], ordinal,
+                     labelled, chunking.approx_tokens(labelled), chunking.fingerprint(passage), section))
+                ordinal += 1
+    with _lock:
+        _progress["pictures_done"] += len(jobs)
+    return True
 
 
 def _auto_update_topics() -> None:
@@ -427,9 +552,13 @@ def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
         section = state.get("major") or state.get("title")
         for img in image_records:
             conn.execute(
-                "INSERT INTO images(source_id, page_number, sha256, ocr_text) VALUES (?, ?, ?, ?)",
-                (sid, page_number, img["sha256"], img["ocr_text"]),
+                "INSERT INTO images(source_id, page_number, sha256, ocr_text, xref) VALUES (?, ?, ?, ?, ?)",
+                (sid, page_number, img["sha256"], img["ocr_text"], img.get("xref")),
             )
+            # ocr_text None = waiting for the picture pass (v0.8.1); it adds
+            # the passages later (_picture_step).
+            if img["ocr_text"] is None:
+                continue
             # Text read from a diagram becomes its own passage so it is
             # searchable and citable like any other text on the page.
             if len(img["ocr_text"].split()) >= MIN_IMAGE_WORDS:
@@ -458,8 +587,12 @@ def _known_image_text(sha: str) -> str | None:
 
 def _embedded_images(doc, page) -> list[dict]:
     """
-    OCR the meaningful pictures on a PDF page (diagrams, screenshots).
+    Record the meaningful pictures on a PDF page (diagrams, screenshots).
     The same picture repeated on one page (e.g. a logo) is handled once.
+    v0.8.1: a picture seen before (same bytes) gets its known text now;
+    any other picture is NOT read here — it is saved as waiting
+    (ocr_text None + its xref) and read by the picture pass, so the file's
+    text is in the bank without waiting for slow picture OCR.
     """
     records: list[dict] = []
     seen: set[int] = set()
@@ -476,10 +609,7 @@ def _embedded_images(doc, page) -> list[dict]:
             continue
         data = extracted["image"]
         sha = hashlib.sha256(data).hexdigest()
-        text = _known_image_text(sha)
-        if text is None:
-            text = ocr.read_text(data)
-        records.append({"sha256": sha, "ocr_text": text})
+        records.append({"sha256": sha, "ocr_text": _known_image_text(sha), "xref": xref})
     return records
 
 
@@ -554,27 +684,49 @@ def _extract_pdf(sid: int, path: Path) -> int:
         total = doc.page_count
         _set(page_count=total)
         sections: dict = {}  # document part carried from page to page
-        for index, page in enumerate(doc):
-            _set(current_page=index + 1)
-            text, tables = _page_text(page)
-            ocr_used = False
-            images: list[dict] = []
-            if len(text.strip()) < SCANNED_PAGE_CHAR_THRESHOLD:
-                # Scanned page: read the whole rendered page instead.
-                pix = page.get_pixmap(dpi=OCR_RENDER_DPI)
-                text = ocr.read_text(pix.tobytes("png"))
-                ocr_used = True
-                tables = []
-            else:
-                images = _embedded_images(doc, page)
-            _store_page(sid, index + 1, text, ocr_used, images, sections)
-            if tables:
-                with db.connect() as conn:
-                    conn.executemany(
-                        "INSERT INTO doc_tables(source_id, page_number, name, rows_json) VALUES (?, ?, ?, ?)",
-                        [(sid, index + 1, name, json.dumps(rows)) for name, rows in tables],
-                    )
+        # v0.8.1: scanned pages are OCR'd SEVERAL AT A TIME (one per OCR
+        # engine, see ocr.workers()) while this thread keeps reading the
+        # next pages. Pages are still STORED strictly in page order, because
+        # the document part ("sections") carries from one page to the next.
+        # At most 2 × workers pages wait in memory at once.
+        width = ocr.workers() if _has_scanned_pages(doc) else 1
+        waiting: deque = deque()  # (page_no, future-or-text, ocr_used, images, tables)
+
+        def flush(block: bool) -> None:
+            while waiting and (block or not isinstance(waiting[0][1], Future) or waiting[0][1].done()):
+                page_no, text, ocr_used, images, tables = waiting.popleft()
+                if isinstance(text, Future):
+                    text = text.result()
+                _store_page(sid, page_no, text, ocr_used, images, sections)
+                if tables:
+                    with db.connect() as conn:
+                        conn.executemany(
+                            "INSERT INTO doc_tables(source_id, page_number, name, rows_json) VALUES (?, ?, ?, ?)",
+                            [(sid, page_no, name, json.dumps(rows)) for name, rows in tables],
+                        )
+                _set(current_page=page_no)
+
+        with ThreadPoolExecutor(max_workers=width, thread_name_prefix="kb-ocr") as pool:
+            for index, page in enumerate(doc):
+                text, tables = _page_text(page)
+                if len(text.strip()) < SCANNED_PAGE_CHAR_THRESHOLD:
+                    # Scanned page: read the whole rendered page instead.
+                    png = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")
+                    waiting.append((index + 1, pool.submit(ocr.read_text, png), True, [], []))
+                else:
+                    waiting.append((index + 1, text, False, _embedded_images(doc, page), tables))
+                flush(block=len(waiting) >= 2 * width)
+            flush(block=True)
         return total
+
+
+def _has_scanned_pages(doc, sample: int = 40) -> bool:
+    """Quick look (text layer only, ~1 ms/page) at the first pages: does
+    this PDF need OCR at all? Avoids starting OCR engines for text PDFs."""
+    for i in range(min(sample, doc.page_count)):
+        if len(doc[i].get_text("text").strip()) < SCANNED_PAGE_CHAR_THRESHOLD:
+            return True
+    return doc.page_count > sample  # can't tell for the rest: allow it
 
 
 def _extract_image(sid: int, path: Path) -> int:

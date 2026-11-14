@@ -65,11 +65,19 @@ echo "==> Installing engine libraries for Windows"
 # Any local Python with pip can do this; --platform makes pip fetch Windows
 # wheels, --only-binary forbids compiling anything on this machine.
 HOST_PY="${HOST_PY:-python3}"
+# v0.8.1: on Windows the OCR runs on the graphics card through DirectML
+# (any GPU vendor), so the plain CPU "onnxruntime" is swapped for
+# "onnxruntime-directml" — same Python API, plus DmlExecutionProvider.
+# ocr.py falls back to the processor by itself if DirectML can't start.
+WIN_REQ="$(mktemp)"
+grep -v '^onnxruntime==' "$ROOT/engine/requirements.txt" > "$WIN_REQ"
+echo "onnxruntime-directml==1.24.4" >> "$WIN_REQ"
 "$HOST_PY" -m pip install --quiet --disable-pip-version-check \
   --target "$PY_OUT/Lib/site-packages" \
   --platform win_amd64 --python-version "$PY_TAG" --implementation cp \
   --only-binary=:all: \
-  -r "$ROOT/engine/requirements.txt"
+  -r "$WIN_REQ"
+rm -f "$WIN_REQ"
 # Packages whose declared dependencies we replace (see requirements-nodeps.txt).
 "$HOST_PY" -m pip install --quiet --disable-pip-version-check \
   --target "$PY_OUT/Lib/site-packages" \
