@@ -37,8 +37,14 @@ MODULES:
        lessons.py       — automatic visual lessons: profile, AI plan from a
                           fixed diagram menu, calculated blocks, fact check
        updates.py       — checks/updates Ollama and the AI models
+       meaning.py       — Ctrl+K search: meaning (vectors) blended with words
+       answers.py       — Phase 4 answer pages: cited, fact-checked answers
+       learn.py         — Phase 5 flashcards, spaced repetition, progress
+       tools.py         — Phase 6 IOC extraction, ATT&CK coverage, query library
+       backup.py        — Phase 7 password-encrypted backup and restore
+       data/mitre_techniques.json — ATT&CK technique names/tactics (offline)
 """
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.6.3"
+__version__ = "0.7.0"

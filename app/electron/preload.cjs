@@ -12,6 +12,9 @@
  *                                     the window (drag-and-drop import)
  *          kb.openReports()         → open the benchmark reports folder
  *          kb.appVersion()          → installed version, e.g. "0.6.1"
+ *          kb.openFile(id, page)    → open an imported file at a page (v0.7)
+ *          kb.webOpen(kind, value)  → optional web look-up in the browser (v0.7)
+ *          kb.saveBackupDialog() / kb.pickBackupDialog() / kb.restart() (v0.7)
  *          kb.engineStatus()        → current engine status
  *          kb.onEngineStatus(cb)    → be told whenever engine status changes
  *
@@ -24,7 +27,7 @@
  *
  * CONNECTED TO: electron/main.cjs (ipcMain handlers "engine:get",
  *        "engine:post", "dialog:pickFolder", "dialog:pickFiles",
- *        "shell:openReports", "app:version", "engine:status", and the "engine:status"
+ *        "shell:openReports", "app:version", "file:open", "web:open", "dialog:saveBackup", "dialog:pickBackup", "app:restart", "engine:status", and the "engine:status"
  *        event); src/*.jsx via src/bridge.js.
  */
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
@@ -54,6 +57,17 @@ contextBridge.exposeInMainWorld("kb", {
       return "";
     }
   },
+
+  /** Open an imported file (PDFs at the given page, in a viewer window). */
+  openFile: (sourceId, page) => ipcRenderer.invoke("file:open", sourceId, page),
+
+  /** Open a web look-up in the normal browser: kind = search|mitre|virustotal|cve. */
+  webOpen: (kind, value) => ipcRenderer.invoke("web:open", kind, value),
+
+  /** Backup dialogs + restart (v0.7). */
+  saveBackupDialog: () => ipcRenderer.invoke("dialog:saveBackup"),
+  pickBackupDialog: () => ipcRenderer.invoke("dialog:pickBackup"),
+  restart: () => ipcRenderer.invoke("app:restart"),
 
   /** Resolve to the app version, e.g. "0.6.1" (shown top-right). */
   appVersion: () => ipcRenderer.invoke("app:version"),

@@ -195,7 +195,10 @@ def _calculated_steps(mat: dict, prof: dict) -> list[dict]:
         if not rows:
             continue
         steps.append({
-            "title": f"From your spreadsheet: {tb['name']}",
+            # Spreadsheet sheets vs tables found inside PDFs (v0.6.2+).
+            "title": (f"From your spreadsheet: {tb['name']}"
+                      if tb["file"].lower().endswith((".xlsx", ".xlsm", ".csv"))
+                      else f"From your document: {tb['name'].replace('Table', 'table', 1)}"),
             "text": "This is the exact table from " + tb["file"] + ".",
             "cites": [],
             "computed": True,
@@ -417,7 +420,56 @@ def _verify_visual(v: dict | None, ck: Checker) -> dict | None:
     return None
 
 
-def _verify(plan: dict, ck: Checker, valid_cites: set[int]) -> dict:
+_STOPWORDS = set("""about above after again against also because been before being below between both
+could does doing down during each from further have having here into itself just more most other
+over same should some such than that their them then there these they this those through under
+until very what when where which while with would your user users""".split())
+
+
+def _words_of(text: str) -> set[str]:
+    """Content words (4+ letters/digits, no common words), lightly stemmed."""
+    out = set()
+    for w in re.findall(r"[a-z0-9]{4,}", str(text).lower()):
+        if w in _STOPWORDS:
+            continue
+        for suffix in ("ment", "ing", "ly", "ed", "es", "s"):
+            if w.endswith(suffix) and len(w) - len(suffix) >= 4:
+                w = w[: -len(suffix)]
+                break
+        out.add(w)
+    return out
+
+
+def _support(option: str, source: str) -> float | None:
+    """Share of an option's content words that its source passage contains."""
+    words = _words_of(option)
+    return len(words & _words_of(source)) / len(words) if words else None
+
+
+def _check_answer(opts: list[str], ans: int, source: str) -> tuple[int | None, str | None]:
+    """
+    Is the option marked correct actually what the source says?
+
+    WHY (v0.7, found testing the real qwen3.5:4b): the model sometimes marks
+    a distractor as the answer ("Wipe the disk" instead of "Use PtH to
+    authenticate"). The fact check can't see that — no invented numbers or
+    IDs — so the answer is compared with the question's own source passage:
+      - marked answer well supported (≥ 50% of its words) → keep;
+      - another option clearly better supported (≥ 60%, 0.2 ahead of the
+        rest) → that option becomes the answer (noted in the checks);
+      - otherwise the question is dropped.
+    RETURNS (answer index or None to drop, note or None).
+    """
+    sup = [_support(o, source) for o in opts]
+    if sup[ans] is None or sup[ans] >= 0.5:
+        return ans, None
+    others = sorted(((s, i) for i, s in enumerate(sup) if i != ans and s is not None), reverse=True)
+    if others and others[0][0] >= 0.6 and (len(others) == 1 or others[0][0] - others[1][0] >= 0.2):
+        return others[0][1], f"quiz answer corrected to \"{opts[others[0][1]][:40]}\""
+    return None, f"quiz question dropped: answer \"{opts[ans][:40]}\" not supported by its source"
+
+
+def _verify(plan: dict, ck: Checker, valid_cites: set[int], cite_texts: dict[int, str] | None = None) -> dict:
     steps = []
     for st in (plan.get("steps") or [])[:MAX_STEPS]:
         if not isinstance(st, dict):
@@ -444,6 +496,12 @@ def _verify(plan: dict, ck: Checker, valid_cites: set[int]) -> dict:
                 and 0 <= ans < len(opts) and question
                 and ck.ok_label(question) and ck.ok_label(opts[ans])):
             cite = q.get("cite")
+            source = (cite_texts or {}).get(cite) if isinstance(cite, int) else None
+            ans, note = _check_answer(opts, ans, source or ck.corpus)
+            if note:
+                ck.removed.append(note)
+            if ans is None:
+                continue
             quiz.append({"q": question, "options": opts, "answer": ans,
                          "cite": cite if isinstance(cite, int) and cite in valid_cites else None})
     return {"steps": steps, "quiz": quiz}
@@ -469,7 +527,9 @@ def build_lesson(topic_id: int, model: str) -> bool:
     ck = Checker(texts + table_text)
 
     plan = _plan(mat, prof, model) or {}
-    lesson = _verify(plan, ck, {int(k) for k in mat["citations"]})
+    by_id = {p["passage_id"]: p["text"] for p in mat["points"]}
+    cite_texts = {int(k): by_id.get(v, "") for k, v in mat["citations"].items()}
+    lesson = _verify(plan, ck, {int(k) for k in mat["citations"]}, cite_texts)
     lesson["steps"] += _calculated_steps(mat, prof)
     if not lesson["steps"]:
         return False
@@ -484,6 +544,12 @@ def build_lesson(topic_id: int, model: str) -> bool:
             "checks_json = excluded.checks_json, model_used = excluded.model_used, created_at = datetime('now')",
             (topic_id, json.dumps(lesson, ensure_ascii=False), json.dumps(checks), model),
         )
+    # Phase 5: refresh this lesson's flashcards (progress is kept by card_key).
+    try:
+        from . import learn  # late import: learn reads lessons, not the other way round
+        learn.sync_cards()
+    except Exception:
+        pass  # cards are re-synced when the Learn screen opens anyway
     return True
 
 

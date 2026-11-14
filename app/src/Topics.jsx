@@ -31,10 +31,12 @@
  */
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
+import SourceChip from "./SourceChip.jsx";
 import { Formatted, Markdown } from "./Formatted.jsx";
 // The lesson view carries the diagram layout engine (~1.4 MB), so it loads
 // only when a lesson is first opened — app start-up stays quick.
 const Lesson = lazy(() => import("./Lesson.jsx"));
+const TopicMap = lazy(() => import("./TopicMap.jsx"));
 import { formatCount, kb, percent, usePoll } from "./bridge.js";
 
 /** The distil job's stages in order, with the words the owner sees. */
@@ -61,6 +63,7 @@ export default function Topics({ focus }) {
   const [write] = usePoll("/write/status", 1500);
   const [list, reloadList] = usePoll("/topics", 0);
   const [openId, setOpenId] = useState(null);
+  const [layout, setLayout] = useState("cards"); // "cards" | "map"
 
   // Opened from elsewhere (Overview map, quick search): show that topic.
   useEffect(() => {
@@ -105,6 +108,7 @@ export default function Topics({ focus }) {
   const writing = write?.state === "running";
   const run = list?.last_run;
   const topics = list?.topics ?? [];
+  const pending = list?.pending ?? 0; // passages from new files not yet in a topic (Phase 7)
   const written = topics.filter((t) => t.status === "written").length;
   const lessons = topics.filter((t) => t.has_lesson).length;
   const allDone = written === topics.length && lessons === topics.length;
@@ -126,7 +130,12 @@ export default function Topics({ focus }) {
           </span>
           <div className="job-body">
             <h2>1. Build topics</h2>
-            <p className="muted">Group passages by subject and merge repeats. Run again after importing files.</p>
+            <p className="muted">
+              {pending > 0 && topics.length
+                ? `${pending.toLocaleString("en-US")} new passage${pending === 1 ? "" : "s"} from recently added files ${pending === 1 ? "isn't" : "aren't"} in a topic yet.`
+                : "Group passages by subject and merge repeats. New files are added to your topics automatically."}
+            </p>
+            {!building && status?.state === "done" && status.added > 0 && <p className="small ok-text">{status.message}</p>}
             {building ? (
               <div className="stages" aria-live="polite">
                 <ol>
@@ -151,10 +160,23 @@ export default function Topics({ focus }) {
                 )}
               </div>
             ) : (
-              <button onClick={() => post("/distill/start")} disabled={writing}>
-                <Icon name="sparkle" size={18} />
-                {topics.length ? "Rebuild topics" : "Build topics"}
-              </button>
+              <div className="job-buttons">
+                {pending > 0 && topics.length > 0 && (
+                  <button onClick={() => post("/distill/update")} disabled={writing} title="Add the new passages to your existing topics — keeps names, articles, lessons and flashcard progress">
+                    <Icon name="sparkle" size={18} />
+                    Add new files to topics
+                  </button>
+                )}
+                <button
+                  className={pending > 0 && topics.length ? "secondary" : ""}
+                  onClick={() => post("/distill/start")}
+                  disabled={writing}
+                  title={topics.length ? "Regroup everything from scratch — best after adding a lot of new material" : undefined}
+                >
+                  <Icon name="refresh" size={18} />
+                  {topics.length ? "Rebuild topics" : "Build topics"}
+                </button>
+              </div>
             )}
             {status?.state === "error" && <p className="notice error">{status.message}</p>}
           </div>
@@ -188,10 +210,27 @@ export default function Topics({ focus }) {
                 </button>
               </div>
             ) : (
-              <button onClick={() => post("/write/start", { rewrite_all: false })} disabled={!topics.length || building || allDone}>
-                <Icon name="sparkle" size={18} />
-                {written === 0 && lessons === 0 ? "Write articles and lessons" : allDone ? "All written" : "Write remaining"}
-              </button>
+              <div className="job-buttons">
+                <button onClick={() => post("/write/start", { rewrite_all: false })} disabled={!topics.length || building || allDone}>
+                  <Icon name="sparkle" size={18} />
+                  {written === 0 && lessons === 0 ? "Write articles and lessons" : allDone ? "All written" : "Write remaining"}
+                </button>
+                {written > 0 && (
+                  <button
+                    className="secondary"
+                    disabled={building}
+                    onClick={() =>
+                      window.confirm(
+                        `Rewrite all ${written} articles and their lessons from scratch? This takes about 2 minutes per topic. Flashcard progress is kept.`
+                      ) && post("/write/start", { rewrite_all: true })
+                    }
+                    title="Write every article again — e.g. after a model update"
+                  >
+                    <Icon name="refresh" size={18} />
+                    Rewrite all
+                  </button>
+                )}
+              </div>
             )}
             {write?.state === "error" && <p className="notice error">{write.message}</p>}
           </div>
@@ -228,6 +267,23 @@ export default function Topics({ focus }) {
       )}
 
       {topics.length > 0 && (
+        <div className="points-bar view-switch" role="group" aria-label="How to show topics">
+          <button className={layout === "cards" ? "seg on" : "seg"} onClick={() => setLayout("cards")} aria-pressed={layout === "cards"}>
+            <Icon name="grid" size={15} /> Cards
+          </button>
+          <button className={layout === "map" ? "seg on" : "seg"} onClick={() => setLayout("map")} aria-pressed={layout === "map"}>
+            <Icon name="map" size={15} /> Map
+          </button>
+        </div>
+      )}
+      {topics.length > 0 && layout === "map" && (
+        <section className="card">
+          <Suspense fallback={<p className="muted">Loading map…</p>}>
+            <TopicMap onOpen={setOpenId} />
+          </Suspense>
+        </section>
+      )}
+      {topics.length > 0 && layout === "cards" && (
         <ul className="topic-grid" aria-label="Topics">
           {topics.map((t, i) => (
             <li key={t.id}>
@@ -437,11 +493,10 @@ function SourcePoints({ points, looseThreshold, focusPoint }) {
                     </div>
                   );
                 })}
-                <ul className="point-sources" aria-label="Pages">
-                  <li>
-                    <Icon name="file" size={14} />
-                    {g.file} <span>{pages.length > 1 ? `pp.${pages.join(", ")}` : `p.${pages[0]}`}</span>
-                  </li>
+                <ul className="point-sources" aria-label="Pages — click to open the original">
+                  {pages.map((pg) => (
+                    <SourceChip key={pg} sourceId={key(g.points[0])[0]} fileName={g.file} page={pg} />
+                  ))}
                 </ul>
                 {g.points[0].passage_id && <InContext passageId={g.points[0].passage_id} whole={Boolean(g.section)} />}
               </li>
@@ -461,10 +516,7 @@ function SourcePoints({ points, looseThreshold, focusPoint }) {
               <Formatted text={withoutHeading(p.text, p.section)} />
               <ul className="point-sources" aria-label="Sources">
                 {p.sources.map((s, i) => (
-                  <li key={i}>
-                    <Icon name="file" size={14} />
-                    {s.file_name} <span>p.{s.page}</span>
-                  </li>
+                  <SourceChip key={i} sourceId={s.source_id} fileName={s.file_name} page={s.page} />
                 ))}
               </ul>
               {p.sources.length > 1 && <p className="small muted">Said in {p.sources.length} places, shown once.</p>}
@@ -550,10 +602,7 @@ function CitePanel({ cited, hint, onClose }) {
           <Formatted text={cited.point.text} collapseAt={10} />
           <ul className="point-sources">
             {cited.point.sources.map((s, i) => (
-              <li key={i}>
-                <Icon name="file" size={14} />
-                {s.file_name} <span>p.{s.page}</span>
-              </li>
+              <SourceChip key={i} sourceId={s.source_id} fileName={s.file_name} page={s.page} />
             ))}
           </ul>
         </>

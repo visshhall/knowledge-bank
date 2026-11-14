@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.6.3 — whole sections per card, borderless tables, interactive flow map, Ctrl+K meaning search (Phase 4 started) |
-| Document version | 2.3 |
+| Current version | KB v0.7.0 — all planned phases delivered: answer pages, topic map, Learn mode, analyst tools, incremental updates, encrypted backup |
+| Document version | 2.4 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -132,10 +132,10 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 1 | Import | PDFs + images (+ Excel/CSV since v0.6), OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | **Delivered (v0.4)** — plus Topics screen |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | **Delivered (v0.5)** |
-| 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | **Started (v0.6.3)** — interactive flow map, Ctrl+K meaning + word search with jump-to-passage, count-up totals; topic graph and answer pages next |
-| 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | **Started (v0.6)** — automatic visual lesson + quiz per topic |
-| 6 | Web assist + cyber tools | Web fallback, MITRE ATT&CK tagging, IOC extraction, KQL library | Not started |
-| 7 | Updates + release | Incremental updates, encrypted backup, Windows .exe installer | Not started |
+| 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | **Delivered (v0.6.3–v0.7)** — flow map, topic map, Ctrl+K meaning search, cited answer pages, open PDF at page |
+| 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | **Delivered (v0.6–v0.7)** — lessons + quiz, flashcards with spaced repetition, streak, progress by topic |
+| 6 | Web assist + cyber tools | Web fallback, MITRE ATT&CK tagging, IOC extraction, KQL library | **Delivered (v0.7)** — IOC extractor, ATT&CK coverage, query library, browser look-ups |
+| 7 | Updates + release | Incremental updates, encrypted backup, Windows .exe installer | **Delivered (v0.7)** — new files join existing topics automatically, encrypted backup/restore |
 
 ## 9a. What was built in Phase 0 (v0.1) and why
 
@@ -332,14 +332,56 @@ Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
 - Enter opens the topic at that exact passage, highlighted (Source points tab).
 - Tested with the real embedding model: "how to stop a hacked RDP account" finds the RDP use case although no word matches; "4625" finds the exact log row.
 
+## 9j. v0.7.0 — every remaining planned phase (14 Nov 2026)
+
+Owner: "Go ahead with all pending tasks now." Tested with the REAL models in Claude's workspace (qwen3.5:4b + nomic-embed-text running on CPU through a private Ollama), not only the mock.
+
+**Phase 4 — Interface**
+- *Answer pages* (`answers.py`, `Answers.jsx`; schema v7 `answers`).
+  - Ctrl+K "Write an answer…" or the Answers screen. The best 8 passages (meaning + words) are numbered, and qwen3.5:4b answers using only those, citing each sentence.
+  - Every sentence is fact-checked (lessons.Checker) and unsupported ones are removed. If the sources don't cover the question, it says so.
+  - Answers are saved for instant reopening.
+  - Real test: "How should I contain an RDP brute force that ended in a successful login?" got a correct, cited answer in 73 s on CPU (faster on the owner's GPU), with nothing needing removal.
+- *Open the original at the cited page.* Every source chip (`SourceChip.jsx`) opens the PDF in a locked-down viewer window at that page (`main.cjs` "file:open"; the path comes from the engine's database, never from the page).
+- *Topic map* (`TopicMap.jsx`, d3-force). Topics form a living network, sized by passages and joined to related topics. Hover traces, drag rearranges, click opens. Each topic always keeps its 2 nearest neighbours, so broad libraries aren't islands.
+
+**Phase 5 — Learn mode** (`learn.py`, `Learn.jsx`; `cards`, `card_reviews`)
+- Flashcards come from the fact-checked lessons: quiz questions become multiple-choice cards and lesson steps become concept cards.
+- Simplified SM-2 scheduling: Again / Hard / Good / Easy, with the next interval shown on each button.
+- Up to 15 new cards a day. Cards flip in 3D and keys 1–4 / Space work.
+- The screen shows streak, 14-day activity, and mastery per topic (interval ≥ 21 days) with Practise.
+- Card identity is a hash of its content, so progress survives rebuilds.
+
+**Lesson quality fix found with the real model.** qwen3.5:4b once marked a distractor ("Wipe the disk") as a quiz's correct answer. `lessons._check_answer` now compares the marked answer with the question's own source passage: a well-supported answer is kept, a clearly better-supported option replaces it, otherwise the question is dropped. The real re-run produced 4/4 correct quiz answers.
+
+**Phase 6 — Analyst tools** (`tools.py`, `Tools.jsx`)
+- *IOC extractor:* IPs, domains, URLs, emails, hashes, CVEs and ATT&CK IDs. Defanged input is understood, output can be defanged or live, private IPs are marked, and "System.Management"-style code isn't mistaken for a domain. There is also a bank-wide view showing where each indicator appears.
+- *MITRE ATT&CK coverage:* names and tactics come from MITRE's own data, bundled offline (867 IDs including retired ones, so older documents' IDs such as T1574.002 are named). There is a tactic strip, plus topics and pages per technique.
+- *Query library:* every KQL/SPL query in the documents, de-duplicated, filterable, copyable.
+- *Web assist:* opens the normal browser for DuckDuckGo / VirusTotal / NVD / attack.mitre.org with only the clicked value. URLs are built in `main.cjs` from a fixed list; nothing is automatic.
+
+**Phase 7 — Updates + backup**
+- *Incremental updates* (`distill.start_update`). New files' passages join the nearest existing topic in the same centred space, repeat groups included.
+  - Changed topics are marked stale and their lesson is refreshed. Nothing else is rewritten, and names, articles and card progress stay.
+  - This runs automatically after an import when topics exist; there is also an "Add new files to topics" button.
+  - Test: a new PDF was added to the right topic in about 1 s.
+- *Encrypted backup* (`backup.py`, `Backup.jsx` in Setup).
+  - SQLite online snapshot → zlib → AES-256-GCM with a scrypt-derived key (N=2^15), streamed in 1 MB chunks. The password is never stored.
+  - Restore decrypts, verifies, and checks integrity, then swaps the bank in at the next start, keeping the old bank aside.
+  - Tested: wrong password and a tampered file are both rejected; a correct restore works.
+
+**Also:** a "Rewrite all" button; password-protected PDFs open from the Library (the password is held in memory for that one file, never saved); lessons are carried over on rebuild even when the topic has no article yet.
+
+**Not done (by design):** "deeper conflict detection" between sources stays a future idea. Comparing every claim pair needs a stronger model than fits a 4 GB GPU; articles already include "Where sources disagree".
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
 - **Merged articles are AI-written.** Every line links to its source so it can be checked in one click.
 - **Poor scans or handwriting** reduce OCR accuracy. Letter/number look-alikes (O/0, l/1, as in "WINRDPO1") can't be corrected automatically.
-- **Password-protected PDFs** are listed as failed with a clear message; remove the password and add them again (entering a password inside the app is a planned improvement).
+- **Password-protected PDFs** show "Enter password" in the Library; the password is used once and never saved.
 - If an original file is **moved or deleted** before it is imported, that file fails with a message; once imported, its text stays in the bank regardless.
-- **Topics are rebuilt as a whole** each time "Build topics" runs (embeddings are reused, so it's quick). Automatic per-file topic updates come with Phase 7.
+- **New files join existing topics automatically** (v0.7). A brand-new subject that fits no topic is only flagged as loose; "Rebuild topics" regroups everything when lots of new material arrives.
 - A local 4–8B model writes well but is less capable than large cloud models; the source-link design compensates for this.
 - **Lesson fact check** compares facts (numbers, IDs, IPs, code) against the sources; it cannot judge whether a plain-language sentence without such facts is a fair summary — the source chips on every step let you check.
 
@@ -394,3 +436,4 @@ Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
 | 14 Nov 2026 | Doc 2.1 / KB v0.6.1 | Owner test: 3 topics / 298 points in one → grouping on centred embeddings with re-measured thresholds, split/fold safety net. Unreadable source points → chunker v3 (Word bullet levels, ligatures, wrapped bullets), schema v6 passages.section, reading order + document-part headers + Read in context. Version shown top-right. Added section 9g. |
 | 14 Nov 2026 | Doc 2.2 / KB v0.6.2 | Owner screenshot polish: PDF and scanned tables kept as tables, OCR row rebuilding + IP/date repair, distinct bullet markers, heading rule fixes, one-time re-read of original files (EXTRACT_VERSION 2). Added section 9h. |
 | 14 Nov 2026 | Doc 2.3 / KB v0.6.3 | Borderless numbered tables rebuilt (chunker v5), heading-aligned passages, one card per document section + Read the whole section; Overview flow map (files → topics, hover/click, animated) replaces the schematic; Ctrl+K meaning + word search with jump-to-passage. Phase 4 started. Added section 9i. |
+| 14 Nov 2026 | Doc 2.4 / KB v0.7.0 | All remaining phases: answer pages, open PDF at page, topic map (Phase 4); flashcards + spaced repetition + progress (Phase 5); IOC/ATT&CK/query tools + browser look-ups (Phase 6); automatic incremental topic updates + AES-256 encrypted backup/restore (Phase 7); Rewrite all; PDF passwords; quiz answer verification found with the real model. Schema v7. Added section 9j. |

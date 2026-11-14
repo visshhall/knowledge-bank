@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.6.3 — automatic visual lessons (diagrams + quiz, fact-checked) and Excel/CSV import, on top of written articles and the AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.7.0 — all planned phases delivered (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup) — automatic visual lessons (diagrams + quiz, fact-checked) and Excel/CSV import, on top of written articles and the AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -47,6 +47,12 @@ knowledge-bank/
 │   ├── src/Overview.jsx      Home: schematic of the bank, totals, next step
 │   ├── src/FlowMap.jsx       Overview map: files → topics (interactive, animated)
 │   ├── src/QuickSearch.jsx   Ctrl+K search by meaning + words
+│   ├── src/Answers.jsx       Cited answer pages
+│   ├── src/TopicMap.jsx      Animated topic network
+│   ├── src/Learn.jsx         Flashcards, spaced repetition, progress
+│   ├── src/Tools.jsx         IOC extractor, ATT&CK coverage, query library
+│   ├── src/Backup.jsx        Encrypted backup & restore (Setup)
+│   ├── src/SourceChip.jsx    Click a source to open the PDF at that page
 │   ├── src/Topics.jsx        Build topics, write articles, topic cards, lesson/article/sources tabs
 │   ├── src/Lesson.jsx        Step-by-step visual lesson, quiz, fact-check note
 │   ├── src/Diagrams.jsx      Draws lesson visuals (ELK auto-layout, tables, CIDR calculator)
@@ -71,6 +77,10 @@ knowledge-bank/
 │       ├── chunking.py       Cuts page text into citable passages
 │       ├── search.py         Instant exact-word search
 │       ├── meaning.py        Meaning search (vectors) blended with word search
+│       ├── answers.py        Cited, fact-checked answers
+│       ├── learn.py          Flashcards + spaced repetition
+│       ├── tools.py          IOCs, ATT&CK coverage, query library (+ data/mitre_techniques.json)
+│       ├── backup.py         AES-256 encrypted backup/restore
 │       ├── distill.py        Phase 2: embeddings, topics, repeats, links, names
 │       ├── writer.py         Phase 3: one structured, cited article per topic
 │       ├── lessons.py        v0.6: designs + fact-checks a visual lesson per topic

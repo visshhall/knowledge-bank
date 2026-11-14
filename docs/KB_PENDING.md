@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.6.3 (whole sections, flow map, Ctrl+K meaning search — Phase 4 started)
+**Current version:** v0.7.0 (all planned phases delivered — now in owner testing)
 **Last updated:** 14 November 2026
 
 ---
@@ -13,7 +13,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.6.3.exe` (keep the original PDFs where they are: the app re-reads them once on first start; watch Library until all are "In the bank")
+- [ ] Install `KnowledgeBank-Setup-0.7.0.exe` (keep the original PDFs where they are: the app re-reads them once on first start; watch Library until all are "In the bank")
 - [ ] Topics → Rebuild topics (expect roughly 10–14 topics for the 6 PDFs, none holding most of the points)
 - [ ] Source points → check reading order, document-part headers and "Read in context"
 - [ ] Import Subnet-Guide.xlsx in Library, Rebuild topics, then "Write remaining" (writes lessons too) — check the lesson for that topic
@@ -59,7 +59,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Instant exact-word search with highlights (bonus, ahead of Phase 4)
 - [x] New blueprint design + side-rail navigation + Overview schematic
 - [ ] Diagram descriptions by the vision model (needs benchmark → moved to Phase 2)
-- [ ] Enter a PDF password inside the app (improvement)
+- [x] Enter a PDF password inside the app (v0.7)
 - [ ] Open the original PDF at the cited page from a search result (Phase 4)
 
 ## Phase 2 — Distil ✅ delivered in v0.4
@@ -83,8 +83,12 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Readable structured source text (chunker v2 + Formatted display)
 - [x] AI update checker (Ollama + models) with Update buttons
 - [x] Writing model chosen from the benchmark: qwen3.5:4b
-- [ ] "Rewrite all articles" button (engine supports it; UI later)
+- [x] "Rewrite all" button (v0.7)
 - [ ] Deeper conflict detection between sources (beyond the article's "Where sources disagree")
+
+## v0.7.0 — All remaining phases ✅ delivered
+- [x] Answers, topic map, open PDF at page, Learn mode, Tools, incremental updates, backup, PDF passwords, Rewrite all
+- [ ] Owner checks: real answer speed on the GPU, flashcard flow, backup to a USB drive and a test restore
 
 ## v0.6.3 — Whole sections + Phase 4 start ✅ delivered
 - [x] Borderless numbered tables rebuilt; heading-aligned passages
@@ -111,26 +115,27 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [ ] Owner check on real topics (see top)
 - [ ] More calculated visuals when new data types appear (e.g. port tables, timelines from dated logs)
 
-## Phase 4 — Interface (started v0.6.3)
+## Phase 4 — Interface ✅ delivered (v0.6.3–v0.7.0)
 - [x] Overview flow map: files → topics, hover to trace, click to open, animated
 - [x] Ctrl+K quick search: meaning (vector) + words, jump to exact passage
 - [x] Topic pages with lesson / article / source points (v0.5–v0.6)
-- [ ] Animated topic graph (topics as a living network, links between related topics)
-- [ ] Generated answer pages: ask a question → cited answer written from the best passages
-- [ ] Open the original PDF at the cited page
+- [x] Animated topic map (d3-force network)
+- [x] Answer pages: cited, fact-checked answers from the best passages (saved)
+- [x] Open the original PDF at the cited page (viewer window)
 
-## Phase 5 — Learn mode
-- [x] Per-topic quiz (v0.6, inside the lesson)
-- [ ] Flashcards, scenarios, spaced repetition, progress
+## Phase 5 — Learn mode ✅ delivered (v0.7.0)
+- [x] Per-topic quiz (v0.6, inside the lesson) + answer verification (v0.7)
+- [x] Flashcards with spaced repetition (SM-2), streak, activity, progress by topic
+- [ ] Idea: scenario drills ("an alert fires — what do you do first?") built from use-case sections
 
-## Phase 6 — Web assist + cyber tools
-- [ ] Optional web search fallback (labelled; only search words sent)
-- [ ] MITRE ATT&CK tagging, IOC extraction, KQL library
+## Phase 6 — Web assist + cyber tools ✅ delivered (v0.7.0)
+- [x] Optional web look-ups in the browser (only the clicked value is sent)
+- [x] ATT&CK coverage (offline names/tactics), IOC extraction (defang/refang), KQL/SPL query library
 
-## Phase 7 — Updates + release
-- [ ] Incremental updates for new PDFs
-- [ ] Encrypted backup
-- [ ] Windows .exe installer
+## Phase 7 — Updates + release ✅ delivered (v0.7.0)
+- [x] Incremental updates: new files join existing topics automatically
+- [x] Encrypted backup + restore (AES-256-GCM, scrypt)
+- [x] Windows .exe installer (since v0.2)
 
 ## Ideas parking lot
 _(Ideas tagged "KB idea:" from any chat land here until scheduled.)_

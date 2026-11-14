@@ -18,6 +18,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
 import QuickSearch from "./QuickSearch.jsx";
+import Answers from "./Answers.jsx";
+import Learn from "./Learn.jsx";
+import Tools from "./Tools.jsx";
+import Backup from "./Backup.jsx";
 import Library from "./Library.jsx";
 import Topics from "./Topics.jsx";
 import SetupWizard from "./SetupWizard.jsx";
@@ -33,6 +37,9 @@ const SCREENS = [
   { id: "overview", label: "Overview", icon: "overview", tone: "forest" },
   { id: "library", label: "Library", icon: "library", tone: "coral" },
   { id: "topics", label: "Topics", icon: "topics", tone: "violet" },
+  { id: "answers", label: "Answers", icon: "answer", tone: "teal" },
+  { id: "learn", label: "Learn", icon: "learn", tone: "coral" },
+  { id: "tools", label: "Tools", icon: "tools", tone: "violet" },
   { id: "setup", label: "Setup", icon: "setup", tone: "mustard" },
 ];
 
@@ -57,7 +64,7 @@ export default function App() {
   }, []);
 
   const navigate = (to, opts) => {
-    setFocus(opts?.topicId ? { topicId: opts.topicId, pointId: opts.pointId, at: Date.now() } : null);
+    setFocus(opts ? { ...opts, at: Date.now() } : null);
     setScreen(to);
   };
   const [version, setVersion] = useState("");
@@ -114,6 +121,7 @@ export default function App() {
         open={searching && engine.status === "ready"}
         onClose={() => setSearching(false)}
         onOpenTopic={(id, pointId) => navigate("topics", { topicId: id, pointId })}
+        onAsk={(question) => navigate("answers", { question })}
       />
 
       <main className="stage">
@@ -143,6 +151,14 @@ export default function App() {
             {screen === "overview" && <Overview onNavigate={navigate} />}
             {screen === "library" && <Library />}
             {screen === "topics" && <Topics focus={focus} />}
+            {screen === "answers" && (
+              <Answers
+                initial={focus?.question ? focus : null}
+                onOpenTopic={(id, pointId) => navigate("topics", { topicId: id, pointId })}
+              />
+            )}
+            {screen === "learn" && <Learn onOpenTopic={(id) => navigate("topics", { topicId: id })} />}
+            {screen === "tools" && <Tools onOpenTopic={(id, pointId) => navigate("topics", { topicId: id, pointId })} />}
             {screen === "setup" && <SetupScreen />}
           </>
         )}
@@ -196,6 +212,8 @@ function SetupScreen() {
       <SetupWizard onStatus={handleSetupStatus} />
 
       <Updates />
+
+      <Backup />
 
       <section className="card readiness" aria-label="System readiness">
         <div className="section-head">

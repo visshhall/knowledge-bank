@@ -175,6 +175,7 @@ export default function Library() {
                     <span className="file-name">{s.file_name}</span>
                     <span className="file-meta">{formatBytes(s.size_bytes)}</span>
                     {s.error && <span className="file-error">{s.error}</span>}
+                    {s.status === "failed" && /password/i.test(s.error ?? "") && <Unlock source={s} />}
                   </td>
                   <td>
                     <span className={`status status-${s.status}`}>{STATUS_TEXT[s.status]}</span>
@@ -349,5 +350,45 @@ function WatchedFolders() {
       )}
       {msg && <p className="notice ok">{msg}</p>}
     </section>
+  );
+}
+
+/**
+ * "Enter password" for a password-protected PDF (v0.7). The password goes
+ * to the engine once (POST /library/password), is used to read that file,
+ * then forgotten — it is never saved.
+ */
+function Unlock({ source }) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState("");
+  const [msg, setMsg] = useState("");
+  async function submit(e) {
+    e.preventDefault();
+    const r = await kb.post("/library/password", { source_id: source.id, password: pw });
+    setMsg(r.message || r.error || "");
+    if (r.ok) {
+      setPw("");
+      setOpen(false);
+    }
+  }
+  if (!open) {
+    return (
+      <button className="link small unlock-link" onClick={() => setOpen(true)}>
+        <Icon name="lock" size={13} /> Enter password
+      </button>
+    );
+  }
+  return (
+    <form className="unlock-form" onSubmit={submit}>
+      <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="PDF password" autoFocus aria-label={`Password for ${source.file_name}`} />
+      <button type="submit" className="small-btn" disabled={!pw}>
+        Open
+      </button>
+      <button type="button" className="ghost small-btn" onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+      {msg && <span className="small muted">{msg}</span>}
+      <span className="small muted">Used once to read this file; never saved.</span>
+    </form>
   );
 }

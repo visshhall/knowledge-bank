@@ -153,6 +153,122 @@ def start() -> dict:
     return {"ok": True, "message": "Building topics."}
 
 
+def start_update() -> dict:
+    """
+    Phase 7: add NEW passages to the EXISTING topics (no full rebuild).
+    Falls back to a full build when there are no topics yet.
+    """
+    global _running
+    with db.connect() as conn:
+        has_topics = conn.execute("SELECT 1 FROM topics LIMIT 1").fetchone()
+    if not has_topics:
+        return start()
+    with _lock:
+        if _running:
+            return {"ok": True, "message": "Already building topics."}
+        _running = True
+        _state.update(state="running", stage="embed", done=0, total=0,
+                      message="Starting…", naming_with=None)
+    threading.Thread(target=_run_update, name="kb-distill-update", daemon=True).start()
+    return {"ok": True, "message": "Adding new passages to your topics."}
+
+
+def pending_count() -> int:
+    """Passages that belong to no topic yet (new files since the last build)."""
+    with db.connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM passages WHERE id NOT IN (SELECT passage_id FROM topic_passages)").fetchone()[0]
+
+
+def _run_update() -> None:
+    """
+    Incremental update (KB v0.7, Phase 7).
+
+    HOW:  1. Embed the new passages (only those without a vector).
+          2. In the same centred space the full build uses, compute each
+             existing topic's centre from its current members and put every
+             new passage in the nearest topic (coverage stays 100%; a poor
+             fit is flagged "loose" like any other).
+          3. Repeats: a new passage that says the same thing as a passage
+             already in that topic (same fingerprint or ≥ NEAR_DUPLICATE
+             similar) joins its repeat group, so it's shown once.
+          4. Topics that received new material and already had an article
+             are marked 'stale' and their lesson cleared, so "Write
+             remaining" refreshes exactly those — nothing else is rewritten.
+    WHY:  The owner's library keeps growing; a full rebuild re-groups
+          everything and can rename topics. This keeps topics, articles,
+          lessons and flashcard progress stable and costs seconds.
+    WHEN: "Update topics" on the Topics screen, and automatically after an
+          import finishes when topics already exist (importer.py).
+    LIMIT: new subjects that fit no existing topic are only flagged as
+          loose; when much new material arrives (> 30% of the bank) the
+          screen suggests a full rebuild.
+    """
+    global _running
+    started = time.time()
+    try:
+        _load_numpy()
+        _embed_missing()
+        _set(stage="topics", done=0, total=1, message="Placing new passages in your topics…")
+        ids, mat, _texts, hashes = _load_vectors()
+        with db.connect() as conn:
+            member = {r["passage_id"]: r["topic_id"] for r in conn.execute(
+                "SELECT passage_id, topic_id FROM topic_passages")}
+            clusters = {r["id"]: r["cluster_id"] for r in conn.execute("SELECT id, cluster_id FROM passages")}
+        topic_ids = sorted(set(member.values()))
+        new_rows = [i for i, pid in enumerate(ids) if int(pid) not in member]
+        if not new_rows:
+            _set(state="done", stage=None, message="Nothing new to add — every passage is already in a topic.",
+                 finished_at=time.strftime("%H:%M"))
+            return
+        z = _centre(mat)
+        index = {t: k for k, t in enumerate(topic_ids)}
+        cents = np.zeros((len(topic_ids), z.shape[1]), dtype=np.float32)
+        old_rows = [i for i, pid in enumerate(ids) if int(pid) in member]
+        for i in old_rows:
+            cents[index[member[int(ids[i])]]] += z[i]
+        cents /= np.maximum(np.linalg.norm(cents, axis=1, keepdims=True), 1e-9)
+
+        sims = z[new_rows] @ cents.T
+        best = sims.argmax(axis=1)
+        fit = sims.max(axis=1)
+        rows_by_topic: dict[int, list[int]] = {}
+        for i in old_rows:
+            rows_by_topic.setdefault(member[int(ids[i])], []).append(i)
+
+        inserts, cluster_updates, touched = [], [], set()
+        for n, i in enumerate(new_rows):
+            t = topic_ids[int(best[n])]
+            touched.add(t)
+            inserts.append((t, int(ids[i]), float(fit[n])))
+            # Repeat group: same fingerprint or near-identical meaning.
+            group = int(ids[i])
+            for j in rows_by_topic.get(t, []):
+                if hashes[j] == hashes[i] or float(mat[i] @ mat[j]) >= NEAR_DUPLICATE:
+                    group = clusters.get(int(ids[j])) or int(ids[j])
+                    break
+            cluster_updates.append((group, int(ids[i])))
+            rows_by_topic.setdefault(t, []).append(i)
+        with db.connect() as conn:
+            conn.executemany("INSERT INTO topic_passages(topic_id, passage_id, fit) VALUES (?, ?, ?)", inserts)
+            conn.executemany("UPDATE passages SET cluster_id = ? WHERE id = ?", cluster_updates)
+            for t in touched:
+                conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
+                             "WHERE id = ? AND status = 'written'", (t,))
+                conn.execute("DELETE FROM lessons WHERE topic_id = ?", (t,))
+        share = len(new_rows) / max(1, len(ids))
+        hint = " Much new material arrived — consider Rebuild topics for the best grouping." if share > 0.3 else ""
+        _set(state="done", stage=None, done=1, total=1,
+             message=f"Added {len(new_rows):,} new passage{'' if len(new_rows) == 1 else 's'} to {len(touched)} topic{'' if len(touched) == 1 else 's'}.{hint}",
+             finished_at=time.strftime("%H:%M"), updated_topics=len(touched), added=len(new_rows),
+             seconds=round(time.time() - started))
+    except Exception as exc:
+        _set(state="error", stage=None, message=str(exc))
+    finally:
+        with _lock:
+            _running = False
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: embeddings
 # ---------------------------------------------------------------------------
@@ -517,6 +633,11 @@ def _run() -> None:
         for a in range(k):
             order = np.argsort(-csims[a])
             near = [int(b) for b in order if b != a and csims[a, b] >= LINK_TOPICS][:4]
+            # Every topic keeps at least its 2 closest neighbours (if at all
+            # alike), so the map never shows isolated islands just because a
+            # library's topics are broad (v0.7).
+            if len(near) < 2:
+                near = [int(b) for b in order if b != a and csims[a, b] > 0.05][:2]
             links.extend((a, b, float(csims[a, b])) for b in near if a < b)
         _set(done=1)
 
@@ -574,7 +695,8 @@ def _save(ids, labels, fit, groups, names, links, k) -> None:
     with db.connect() as conn:
         old_written: list[dict] = []
         for t in conn.execute(
-            "SELECT id, body_markdown, citations, model_used, written_at FROM topics WHERE status = 'written'"
+            "SELECT id, status, body_markdown, citations, model_used, written_at FROM topics "
+            "WHERE status = 'written' OR id IN (SELECT topic_id FROM lessons)"
         ).fetchall():
             members = {r[0] for r in conn.execute(
                 "SELECT passage_id FROM topic_passages WHERE topic_id = ?", (t["id"],))}
@@ -624,14 +746,15 @@ def _save(ids, labels, fit, groups, names, links, k) -> None:
                     score = len(members & old["members"]) / union if union else 0.0
                     if score > best_score:
                         best, best_score = old, score
-                if best and best_score >= 0.6:
+                if best and best_score >= 0.6 and best["status"] == "written":
                     conn.execute(
                         "UPDATE topics SET body_markdown = ?, citations = ?, model_used = ?, "
                         "written_at = ?, status = 'written' WHERE id = ?",
                         (best["body_markdown"], best["citations"], best["model_used"],
                          best["written_at"], topic_ids[t]),
                     )
-                    if best["lesson"]:  # the topic's visual lesson moves with its article
+                if best and best_score >= 0.6:
+                    if best["lesson"]:  # the topic's visual lesson moves with it (even without an article)
                         conn.execute(
                             "INSERT OR REPLACE INTO lessons(topic_id, spec_json, checks_json, model_used) "
                             "VALUES (?, ?, ?, ?)",
@@ -671,7 +794,7 @@ def list_topics() -> dict:
             "SELECT from_topic_id AS a, to_topic_id AS b, weight FROM topic_links"
         ).fetchall()
     return {"topics": [dict(r) for r in rows], "links": [dict(l) for l in links],
-            "last_run": db.get_setting("distill_last_run")}
+            "last_run": db.get_setting("distill_last_run"), "pending": pending_count()}
 
 
 def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
@@ -814,3 +937,22 @@ def flow() -> dict:
     return {"files": [{"id": r["id"], "name": r["file_name"], "type": r["file_type"], "passages": r["n"]} for r in files],
             "topics": [{"id": r["id"], "title": r["title"], "passages": r["n"]} for r in topics],
             "links": [{"file": r["f"], "topic": r["t"], "passages": r["n"]} for r in links]}
+
+
+def topic_map() -> dict:
+    """
+    Data for the animated topic map (TopicMap.jsx): every topic with its size
+    and status, and the links between related topics (topic_links, made in
+    stage 4 of Build topics). RETURNS {"nodes": [...], "links": [...]}.
+    """
+    with db.connect() as conn:
+        nodes = conn.execute(
+            """SELECT t.id, t.title, t.status, COUNT(tp.passage_id) AS passages,
+                      EXISTS(SELECT 1 FROM lessons l WHERE l.topic_id = t.id) AS has_lesson
+               FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id GROUP BY t.id""").fetchall()
+        links = conn.execute("SELECT from_topic_id, to_topic_id, weight FROM topic_links").fetchall()
+    # Weights rescaled to 0–1 for drawing (line width / pull strength).
+    top = max([r["weight"] for r in links] or [1.0]) or 1.0
+    return {"nodes": [dict(r) for r in nodes],
+            "links": [{"source": r["from_topic_id"], "target": r["to_topic_id"],
+                       "weight": round(max(0.1, r["weight"] / top), 3)} for r in links]}

@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -425,6 +425,62 @@ def _migrate_v6() -> None:
         )
 
 
+def _migrate_v7() -> None:
+    """
+    Schema v7 (KB v0.7.0):
+      answers       — saved answer pages (Phase 4): question, cited Markdown
+                      answer, the numbered sources, fact-check results.
+      cards         — flashcards (Phase 5), made from each topic's lesson.
+                      `card_key` (a hash of front+back) identifies a card, so
+                      review progress survives topic rebuilds and lesson
+                      regeneration; topic_id is cleared (not deleted) when a
+                      topic disappears.
+      card_reviews  — every review (rating 1–4), for streaks and progress.
+    """
+    with connect() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS answers (
+                id            INTEGER PRIMARY KEY,
+                question      TEXT NOT NULL,
+                body_markdown TEXT NOT NULL,
+                sources_json  TEXT NOT NULL,
+                checks_json   TEXT,
+                model_used    TEXT,
+                seconds       REAL,
+                created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cards (
+                id          INTEGER PRIMARY KEY,
+                card_key    TEXT NOT NULL UNIQUE,
+                topic_id    INTEGER REFERENCES topics(id) ON DELETE SET NULL,
+                topic_title TEXT,
+                kind        TEXT NOT NULL,
+                front       TEXT NOT NULL,
+                back        TEXT NOT NULL,
+                options     TEXT,
+                point_id    INTEGER,
+                due         TEXT NOT NULL DEFAULT (date('now')),
+                interval    REAL NOT NULL DEFAULT 0,
+                ease        REAL NOT NULL DEFAULT 2.5,
+                reps        INTEGER NOT NULL DEFAULT 0,
+                lapses      INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS card_reviews (
+                id          INTEGER PRIMARY KEY,
+                card_id     INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                rating      INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 4),
+                reviewed_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            )""")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '7') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -492,6 +548,9 @@ def init_db() -> int:
     if version < 6:
         _migrate_v6()
         version = 6
+    if version < 7:
+        _migrate_v7()
+        version = 7
     return version
 
 

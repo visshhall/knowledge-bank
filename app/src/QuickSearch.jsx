@@ -6,6 +6,8 @@
  *        best passages by MEANING and by exact WORDS (GET /search/quick) and
  *        shows each with its topic, document part (section), file and page.
  *        - ↑ / ↓ to move, Enter to open the topic, Esc to close.
+ *        - The first row, "Write an answer…", opens the Answers screen and
+ *          asks the question there (v0.7: cited answer from your files).
  *        - A small label says how each result matched ("meaning", "words").
  *        - If the AI engine isn't running, it still works with words only
  *          and says so.
@@ -32,7 +34,7 @@ function Snippet({ text }) {
   );
 }
 
-export default function QuickSearch({ open, onClose, onOpenTopic }) {
+export default function QuickSearch({ open, onClose, onOpenTopic, onAsk }) {
   const [q, setQ] = useState("");
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -70,6 +72,11 @@ export default function QuickSearch({ open, onClose, onOpenTopic }) {
   const results = data?.results ?? [];
 
   function choose(r) {
+    if (r === "ask") {
+      onAsk?.(q.trim());
+      onClose();
+      return;
+    }
     if (r?.topic_id) {
       onOpenTopic(r.topic_id, r.point_id);
       onClose();
@@ -83,8 +90,8 @@ export default function QuickSearch({ open, onClose, onOpenTopic }) {
       setSel((s) => Math.min(s + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSel((s) => Math.max(s - 1, 0));
-    } else if (e.key === "Enter") choose(results[sel]);
+      setSel((s) => Math.max(s - 1, -1));
+    } else if (e.key === "Enter") choose(sel === -1 ? "ask" : results[sel]);
   }
 
   return (
@@ -113,6 +120,21 @@ export default function QuickSearch({ open, onClose, onOpenTopic }) {
           <p className="qs-hint">{data.error ? data.error : "Nothing found. Try other words, or describe what you mean."}</p>
         ) : (
           <ul className="qs-results" role="listbox" aria-label="Results">
+            <li
+              role="option"
+              aria-selected={sel === -1}
+              className={`qs-ask ${sel === -1 ? "on" : ""}`}
+              onMouseEnter={() => setSel(-1)}
+              onClick={() => choose("ask")}
+            >
+              <Icon name="sparkle" size={18} />
+              <span>
+                Write an answer to <strong>“{q.trim()}”</strong> from your files
+              </span>
+              <span className="qs-how">
+                <span className="qs-tag meaning">AI · cited</span>
+              </span>
+            </li>
             {results.map((r, i) => (
               <li
                 key={r.passage_id}

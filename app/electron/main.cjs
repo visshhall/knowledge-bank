@@ -26,6 +26,7 @@
  *          engine and its private Python (see "Where the engine lives")
  */
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { pathToFileURL } = require("url");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -87,6 +88,26 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "GET /passage/section",
   "GET /overview/flow",
   "GET /search/quick",
+  // v0.7 — answer pages, Learn mode, tools, updates, backup
+  "POST /answer/ask",
+  "GET /answer/status",
+  "GET /answers",
+  "GET /answer",
+  "POST /answer/delete",
+  "GET /source",
+  "GET /topics/map",
+  "POST /tools/iocs",
+  "GET /tools/bank-iocs",
+  "GET /tools/mitre",
+  "GET /tools/queries",
+  "POST /backup/create",
+  "POST /backup/restore",
+  "GET /backup/status",
+  "POST /distill/update",
+  "POST /library/password",
+  "GET /learn/summary",
+  "GET /learn/session",
+  "POST /learn/review",
   // AI updates
   "POST /updates/check",
   "GET /updates/status",
@@ -302,7 +323,87 @@ ipcMain.handle("dialog:pickFiles", async () => {
   return result.canceled ? [] : result.filePaths;
 });
 
+/*
+ * Backup files (v0.7): choose where to save a backup, or which one to
+ * restore. Only ".kbbackup" files. "app:restart" relaunches after a restore
+ * so the engine swaps the bank in at start-up (backup.apply_pending_restore).
+ */
+ipcMain.handle("dialog:saveBackup", async () => {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "Save an encrypted backup of the knowledge bank",
+    defaultPath: `KnowledgeBank-${stamp}.kbbackup`,
+    filters: [{ name: "Knowledge Bank backup", extensions: ["kbbackup"] }],
+  });
+  return result.canceled ? null : result.filePath;
+});
+ipcMain.handle("dialog:pickBackup", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose a backup to restore",
+    properties: ["openFile"],
+    filters: [{ name: "Knowledge Bank backup", extensions: ["kbbackup"] }],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+ipcMain.handle("app:restart", () => {
+  app.relaunch();
+  app.quit(); // the normal quit path stops the engine first
+});
+
 /** window.kb.openReports() → open the reports folder in File Explorer. */
+/*
+ * Open an imported file at a page (v0.7): PDFs open in a separate, locked-
+ * down viewer window using Chromium's built-in PDF viewer, jumping to the
+ * cited page (#page=N). Other files (images) open in their Windows app.
+ * The renderer only passes a source id; the path comes from the engine's
+ * own database, so the page can't ask to open arbitrary files.
+ */
+ipcMain.handle("file:open", async (_event, sourceId, page) => {
+  const src = await callEngine("GET", "/source", { id: Number(sourceId) });
+  if (src.error) return src;
+  if (!src.exists) return { error: "The original file was moved or deleted, so it can't be opened." };
+  if (src.file_type !== "pdf") {
+    const err = await shell.openPath(src.path);
+    return err ? { error: err } : { ok: true };
+  }
+  const n = Math.max(1, Number(page) || 1);
+  const viewer = new BrowserWindow({
+    width: 1000,
+    height: 900,
+    title: `${src.file_name} — page ${n}`,
+    backgroundColor: "#e2e8df",
+    autoHideMenuBar: true,
+    webPreferences: { plugins: true, sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  viewer.on("page-title-updated", (event) => event.preventDefault());
+  viewer.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  viewer.webContents.on("will-navigate", (event) => event.preventDefault());
+  await viewer.loadURL(`${pathToFileURL(src.path).href}#page=${n}`);
+  return { ok: true };
+});
+
+/*
+ * Optional web look-ups (Phase 6 "web assist"), always opened in the
+ * owner's normal browser — never inside the app, never automatic. Only the
+ * single value shown on the button is sent (a search phrase, a technique ID,
+ * an indicator), and the URL is built here from a fixed list of sites, so
+ * the page can't send anything else anywhere.
+ */
+const WEB_LOOKUPS = {
+  search: (v) => `https://duckduckgo.com/?q=${encodeURIComponent(v)}`,
+  mitre: (v) => `https://attack.mitre.org/techniques/${encodeURIComponent(v).replace(".", "/")}/`,
+  virustotal: (v) => `https://www.virustotal.com/gui/search/${encodeURIComponent(v)}`,
+  cve: (v) => `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(v)}`,
+};
+ipcMain.handle("web:open", async (_event, kind, value) => {
+  const make = WEB_LOOKUPS[kind];
+  const v = String(value ?? "").trim();
+  if (!make || !v || v.length > 300) return { error: "Nothing to look up." };
+  if (kind === "mitre" && !/^T\d{4}(\.\d{3})?$/.test(v)) return { error: "Not a technique ID." };
+  await shell.openExternal(make(v));
+  return { ok: true };
+});
+
 // The installed version (from package.json), shown in the top-right corner
 // of the window so the owner always knows which build is running (v0.6.1).
 ipcMain.handle("app:version", () => app.getVersion());

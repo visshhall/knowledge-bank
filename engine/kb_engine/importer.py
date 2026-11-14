@@ -330,6 +330,26 @@ def _worker() -> None:
         # and this thread stopping would otherwise wait for the next add.
         if _next_pending()[0]:
             _ensure_worker()
+        else:
+            _auto_update_topics()
+
+
+def _auto_update_topics() -> None:
+    """
+    Phase 7: after new files finish importing, add their passages to the
+    existing topics automatically (distill.start_update) — only when topics
+    already exist, there are new passages, and the AI engine is running.
+    Otherwise the Topics screen offers "Update topics" by hand.
+    """
+    try:
+        from . import distill, ollama_client  # late import: distill is heavier and imports numpy lazily
+
+        with db.connect() as conn:
+            has_topics = conn.execute("SELECT 1 FROM topics LIMIT 1").fetchone()
+        if has_topics and distill.pending_count() and ollama_client.is_running():
+            distill.start_update()
+    except Exception:
+        pass  # never let this affect importing
 
 
 def _process_source(source: dict) -> None:
@@ -513,7 +533,11 @@ def _extract_pdf(sid: int, path: Path) -> int:
         raise ValueError(f"Not a readable PDF ({exc}).") from exc
     with doc:
         if doc.needs_pass:
-            raise PermissionError("This PDF is password-protected. Remove the password and add it again.")
+            password = _passwords.pop(sid, None)  # used once, never stored (v0.7)
+            if not password:
+                raise PermissionError("This PDF is password-protected. Click \"Enter password\" to open it.")
+            if not doc.authenticate(password):
+                raise PermissionError("Wrong password for this PDF. Click \"Enter password\" to try again.")
         total = doc.page_count
         _set(page_count=total)
         sections: dict = {}  # document part carried from page to page
@@ -730,6 +754,24 @@ def rechunk_all() -> int:
     finally:
         _set(state="idle", current_file=None, files_queued=0)
     return created
+
+
+# Passwords for protected PDFs, typed by the owner in the Library (v0.7).
+# Held in memory only until that one file has been read, then forgotten —
+# never written to the database or to disk.
+_passwords: dict[int, str] = {}
+
+
+def unlock(source_id: int, password: str) -> dict:
+    """Retry a password-protected PDF with the given password."""
+    with db.connect() as conn:
+        r = conn.execute("SELECT id, file_type, status FROM sources WHERE id = ?", (source_id,)).fetchone()
+        if not r or r["file_type"] != "pdf":
+            return {"ok": False, "message": "That file isn't a PDF in the library."}
+        _passwords[source_id] = password
+        conn.execute("UPDATE sources SET status = 'pending', error = NULL WHERE id = ?", (source_id,))
+    _ensure_worker()
+    return {"ok": True, "message": "Opening the PDF with your password…"}
 
 
 # Bump when the way text is READ from files changes (not just how it is cut

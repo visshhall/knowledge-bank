@@ -24,6 +24,11 @@ export const kb =
     pathForFile: () => "",
     openReports: async () => NOT_IN_APP,
     appVersion: async () => "dev",
+    openFile: async () => NOT_IN_APP,
+    webOpen: async () => NOT_IN_APP,
+    saveBackupDialog: async () => null,
+    pickBackupDialog: async () => null,
+    restart: async () => NOT_IN_APP,
     engineStatus: async () => ({ status: "error", detail: "Not running inside the app" }),
     onEngineStatus: () => () => {},
   };

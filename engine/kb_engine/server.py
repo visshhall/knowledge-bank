@@ -29,6 +29,13 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /write/status            — live progress of article writing
          POST /write/cancel            — stop after the current article
          GET  /passage/context?id=...  — a passage with its neighbours (v0.6.1)
+         POST /answer/ask {question}   — write a cited answer (v0.7, background)
+         GET  /answer/status · /answers · /answer?id · POST /answer/delete
+         POST /backup/create · /backup/restore {path, password} · GET /backup/status
+         POST /distill/update          — add new passages to existing topics (Phase 7)
+         POST /tools/iocs {text} · GET /tools/bank-iocs · /tools/mitre · /tools/queries
+         GET  /learn/summary · /learn/session[?topic_id] · POST /learn/review
+         GET  /source?id=...           — an imported file's path (open at page)
          GET  /search/quick?q=...      — meaning + word search for Ctrl+K (v0.6.3)
          GET  /overview/flow           — files → topics counts for the Overview map (v0.6.3)
          GET  /passage/section?id=...  — the whole document part it belongs to (v0.6.3)
@@ -72,7 +79,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, config, db, distill, importer, lessons, meaning, search, setup_manager, system_check, updates, writer)
+from . import (__version__, answers, backup, config, db, distill, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -98,6 +105,9 @@ async def lifespan(_app: FastAPI):
            the app was updated with a newer schema. Doing it here guarantees
            every endpoint can assume the database is ready.
     """
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if backup.apply_pending_restore():  # a checked restore waits for this start (Phase 7)
+        print("[engine] restored the bank from a backup", flush=True)
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
     importer.start()  # resume interrupted imports + start watched-folder scanner
@@ -247,6 +257,12 @@ def distill_start() -> dict:
     return distill.start()
 
 
+@app.post("/distill/update", dependencies=[Depends(require_token)])
+def distill_update() -> dict:
+    """Phase 7: add new passages to existing topics (no full rebuild)."""
+    return distill.start_update()
+
+
 @app.get("/distill/status", dependencies=[Depends(require_token)])
 def distill_status() -> dict:
     return distill.status()
@@ -293,6 +309,140 @@ class TopicRequest(BaseModel):
     topic_id: int
 
 
+# --- v0.7: answer pages, original files --------------------------------------
+
+class AskRequest(BaseModel):
+    question: str
+
+
+class IdRequest(BaseModel):
+    id: int
+
+
+@app.post("/answer/ask", dependencies=[Depends(require_token)])
+def answer_ask(body: AskRequest) -> dict:
+    """Start writing a cited answer from the best passages (background)."""
+    return answers.ask(body.question)
+
+
+@app.get("/answer/status", dependencies=[Depends(require_token)])
+def answer_status() -> dict:
+    return answers.status()
+
+
+@app.get("/answers", dependencies=[Depends(require_token)])
+def answers_recent() -> dict:
+    return answers.recent()
+
+
+@app.get("/answer", dependencies=[Depends(require_token)])
+def answer_get(id: int) -> dict:
+    data = answers.get(id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Answer not found")
+    return data
+
+
+@app.post("/answer/delete", dependencies=[Depends(require_token)])
+def answer_delete(body: IdRequest) -> dict:
+    return answers.delete(body.id)
+
+
+@app.get("/source", dependencies=[Depends(require_token)])
+def source_get(id: int) -> dict:
+    """Where an imported file lives, so the app can open it at a page."""
+    with db.connect() as conn:
+        r = conn.execute("SELECT id, file_name, file_type, original_path FROM sources WHERE id = ?",
+                         (id,)).fetchone()
+    if not r:
+        raise HTTPException(status_code=404, detail="File not found")
+    from pathlib import Path
+    return {"id": r["id"], "file_name": r["file_name"], "file_type": r["file_type"],
+            "path": r["original_path"], "exists": Path(r["original_path"]).exists()}
+
+
+# --- v0.7: analyst tools ---------------------------------------------------
+
+class TextRequest(BaseModel):
+    text: str
+
+
+@app.post("/tools/iocs", dependencies=[Depends(require_token)])
+def tools_iocs(body: TextRequest) -> dict:
+    """Indicators in pasted text (refanged + defanged)."""
+    return tools.extract_iocs(body.text[:500_000])
+
+
+@app.get("/tools/bank-iocs", dependencies=[Depends(require_token)])
+def tools_bank_iocs() -> dict:
+    return tools.bank_iocs()
+
+
+@app.get("/tools/mitre", dependencies=[Depends(require_token)])
+def tools_mitre() -> dict:
+    return tools.mitre()
+
+
+@app.get("/tools/queries", dependencies=[Depends(require_token)])
+def tools_queries() -> dict:
+    return tools.queries()
+
+
+class UnlockRequest(BaseModel):
+    source_id: int
+    password: str
+
+
+@app.post("/library/password", dependencies=[Depends(require_token)])
+def library_password(body: UnlockRequest) -> dict:
+    """Open a password-protected PDF (password used once, never stored)."""
+    return importer.unlock(body.source_id, body.password)
+
+
+# --- v0.7: encrypted backup ------------------------------------------------
+
+class BackupRequest(BaseModel):
+    path: str
+    password: str
+
+
+@app.post("/backup/create", dependencies=[Depends(require_token)])
+def backup_create(body: BackupRequest) -> dict:
+    return backup.create(body.path, body.password)
+
+
+@app.post("/backup/restore", dependencies=[Depends(require_token)])
+def backup_restore(body: BackupRequest) -> dict:
+    return backup.restore(body.path, body.password)
+
+
+@app.get("/backup/status", dependencies=[Depends(require_token)])
+def backup_status() -> dict:
+    return backup.status()
+
+
+# --- v0.7: Learn mode --------------------------------------------------------
+
+class ReviewRequest(BaseModel):
+    card_id: int
+    rating: int
+
+
+@app.get("/learn/summary", dependencies=[Depends(require_token)])
+def learn_summary() -> dict:
+    return learn.summary()
+
+
+@app.get("/learn/session", dependencies=[Depends(require_token)])
+def learn_session(topic_id: int | None = None) -> dict:
+    return learn.session(topic_id)
+
+
+@app.post("/learn/review", dependencies=[Depends(require_token)])
+def learn_review(body: ReviewRequest) -> dict:
+    return learn.review(body.card_id, body.rating)
+
+
 @app.get("/passage/context", dependencies=[Depends(require_token)])
 def passage_context(id: int) -> dict:
     """A passage with the text just before and after it ("Read in context")."""
@@ -309,6 +459,12 @@ def passage_section(id: int) -> dict:
     if data is None:
         raise HTTPException(status_code=404, detail="Passage not found")
     return data
+
+
+@app.get("/topics/map", dependencies=[Depends(require_token)])
+def topics_map() -> dict:
+    """Topics + links for the animated topic map."""
+    return distill.topic_map()
 
 
 @app.get("/overview/flow", dependencies=[Depends(require_token)])

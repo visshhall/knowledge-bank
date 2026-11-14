@@ -1,6 +1,6 @@
 {
   "name": "knowledge-bank",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "description": "Offline, interactive knowledge bank built from the owner's cybersecurity PDFs.",
   "private": true,
   "type": "module",
@@ -17,6 +17,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
+    "d3-force": "^3.0.1",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "elkjs": "^0.12.1",
@@ -45,7 +46,8 @@
         "from": "../engine/kb_engine",
         "to": "engine/kb_engine",
         "filter": [
-          "**/*.py"
+          "**/*.py",
+          "data/*.json"
         ]
       },
       {
