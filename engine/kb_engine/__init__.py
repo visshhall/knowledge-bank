@@ -16,7 +16,7 @@ HOW IT CONNECTS:
        - The window then talks to it over a private local web address
          (http://127.0.0.1:8765). Nothing is exposed to the network.
 
-MODULES (Phase 0, v0.2):
+MODULES:
        config.py        — every path, port and model name in one place
        db.py            — creates/opens the SQLite knowledge-bank database
        system_check.py  — reports GPU, RAM, disk and Ollama status
@@ -26,8 +26,13 @@ MODULES (Phase 0, v0.2):
                           downloads, benchmark) with live progress
        benchmark.py     — one-off tool that picks the best models for
                           the owner's laptop
+       importer.py      — Phase 1: imports PDFs/images (text, OCR,
+                          duplicates, watched folders)
+       chunking.py      — cuts page text into citable passages
+       ocr.py           — reads text from scans, screenshots, diagrams
+       search.py        — instant exact-word search
 """
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.2.0"
+__version__ = "0.3.0"

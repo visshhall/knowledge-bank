@@ -1,63 +1,119 @@
 /**
- * App.jsx — the home screen: engine status, setup wizard, totals, readiness.
+ * App.jsx — the app's frame: side rail, engine status, and the screens.
  *
- * WHAT:  Shows, over the animated Constellation background:
- *          1. Engine status (starting → ready, or a clear error message)
- *          2. Setup wizard (AI engine, models, benchmark) — see SetupWizard.jsx
- *          3. Knowledge bank totals (sources, pages, passages, topics,
- *             coverage %) — all zero until Phase 1 imports PDFs
- *          4. System readiness checks (GPU, RAM, disk, Ollama, models) with
- *             the exact fix for anything not OK
- * WHY:   Phase 0's goal is proving every part connects (window → main
- *        process → Python engine → database/Ollama) and letting the owner
- *        finish setup entirely inside the app.
- * WHEN:  Rendered once at launch (by main.jsx); reloads data when the engine
- *        becomes ready, when "Re-check" is pressed, and when the wizard
- *        reports that setup just completed.
- * CONNECTED TO:
- *        - bridge.js (window.kb) → engine endpoints /stats, /system
- *        - SetupWizard.jsx, Constellation.jsx, styles.css
- *        In Phase 4 this screen's centre becomes the Knowledge Map; the
- *        wizard and readiness panel move to a Settings/Diagnostics page.
+ * WHAT:  - Side rail with the screens that exist so far: Overview, Library,
+ *          Setup (more appear as phases are built: Map, Learn…)
+ *        - Engine status at the foot of the rail (starting / ready / problem)
+ *        - Shows the chosen screen once the engine is ready; a "starting"
+ *          or "problem" panel before that
+ *        - SetupScreen (below): the setup wizard + system readiness checks
+ * WHY:   Phase 1 added a second real screen (Library), so the app needs
+ *        simple navigation. A side rail keeps every screen one click away
+ *        and leaves the full width for content like tables and search.
+ * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
+ * CONNECTED TO: Overview.jsx, Library.jsx, SetupWizard.jsx, bridge.js
+ *        (engine status, /system), styles.css.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import Constellation from "./Constellation.jsx";
+import Overview from "./Overview.jsx";
+import Library from "./Library.jsx";
 import SetupWizard from "./SetupWizard.jsx";
 import { kb } from "./bridge.js";
 
-/** Labels for the totals row, in display order. Keys match engine db.stats(). */
-const STAT_TILES = [
-  ["sources", "Sources"],
-  ["pages", "Pages"],
-  ["passages", "Passages"],
-  ["topics", "Topics"],
-  ["coverage_percent", "Coverage %"],
+/** Screens in the side rail, in order. `id` is used for navigation. */
+const SCREENS = [
+  { id: "overview", label: "Overview" },
+  { id: "library", label: "Library" },
+  { id: "setup", label: "Setup" },
 ];
 
 export default function App() {
   const [engine, setEngine] = useState({ status: "starting", detail: "" });
-  const [stats, setStats] = useState(null);
+  const [screen, setScreen] = useState("overview");
+
+  // On mount: read the current engine status and subscribe to changes.
+  useEffect(() => {
+    kb.engineStatus().then(setEngine);
+    return kb.onEngineStatus(setEngine); // returns the unsubscribe function
+  }, []);
+
+  return (
+    <div className="shell">
+      <nav className="rail" aria-label="Screens">
+        <div className="wordmark" aria-label="Knowledge Bank">
+          <span className="wm-mark" aria-hidden="true" />
+          <span>
+            Knowledge
+            <br />
+            Bank
+          </span>
+        </div>
+        <ul>
+          {SCREENS.map((s) => (
+            <li key={s.id}>
+              <button
+                className={`rail-item ${screen === s.id ? "current" : ""}`}
+                aria-current={screen === s.id ? "page" : undefined}
+                onClick={() => setScreen(s.id)}
+                disabled={engine.status !== "ready"}
+              >
+                {s.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <EngineBadge engine={engine} />
+      </nav>
+
+      <main className="stage">
+        {engine.status === "starting" && (
+          <section className="frame center-note">
+            <div className="pulse" aria-hidden="true" />
+            <h1>Starting the engine</h1>
+            <p className="muted">Opening the database and checking your laptop.</p>
+          </section>
+        )}
+
+        {engine.status === "error" && (
+          <section className="frame center-note problem">
+            <h1>The engine didn't start</h1>
+            <p>{engine.detail}</p>
+            <p className="muted">Close the app and open it again. If this keeps happening, reinstall it.</p>
+          </section>
+        )}
+
+        {engine.status === "ready" && (
+          <>
+            {screen === "overview" && <Overview onNavigate={setScreen} />}
+            {screen === "library" && <Library />}
+            {screen === "setup" && <SetupScreen />}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/**
+ * Setup screen: the three-step wizard plus the readiness checklist.
+ * The checklist refreshes by itself when Ollama starts/stops or setup
+ * completes (fix from v0.2.1: it used to stay on "not answering").
+ */
+function SetupScreen() {
   const [system, setSystem] = useState(null);
   const [loading, setLoading] = useState(false);
-  const lastSetup = useRef(null); // last known {complete, ollamaRunning} from the wizard
+  const lastSetup = useRef(null);
 
-  /** Fetch totals and readiness from the engine (both in parallel). */
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [s, sys] = await Promise.all([kb.get("/stats"), kb.get("/system")]);
-    setStats(s);
-    setSystem(sys);
+    setSystem(await kb.get("/system"));
     setLoading(false);
   }, []);
 
-  /**
-   * Called by the wizard on every poll. Refreshes the readiness list
-   * automatically whenever something it reports changes:
-   *   - the AI engine (Ollama) starts or stops, or
-   *   - setup flips from incomplete to complete (last model downloaded).
-   * Fix in v0.2.1: before, only the second case refreshed, so the list could
-   * still say "Ollama not answering" after the wizard showed it running.
-   */
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
   const handleSetupStatus = useCallback(
     (s) => {
       const now = { complete: s.setup_complete, ollamaRunning: s.ollama.running };
@@ -70,110 +126,56 @@ export default function App() {
     [refresh]
   );
 
-  // On mount: read the current engine status and subscribe to changes.
-  useEffect(() => {
-    kb.engineStatus().then(setEngine);
-    return kb.onEngineStatus(setEngine); // returns the unsubscribe function
-  }, []);
-
-  // Whenever the engine becomes ready, load the dashboard data.
-  useEffect(() => {
-    if (engine.status === "ready") refresh();
-  }, [engine.status, refresh]);
-
   return (
-    <div className="app">
-      <Constellation />
-
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <span>Knowledge Bank</span>
-        </div>
-        <EngineBadge engine={engine} />
+    <div className="setup">
+      <header className="page-head">
+        <h1>Setup</h1>
+        <p className="lede">
+          The AI runs entirely on this laptop. Install it, download the models, then let the app
+          test which models suit your graphics card best.
+        </p>
       </header>
 
-      <main className="content">
-        {engine.status === "starting" && (
-          <section className="center-card">
-            <div className="orb" aria-hidden="true" />
-            <h1>Starting the engine…</h1>
-            <p className="muted">Preparing the database and checking your system.</p>
-          </section>
-        )}
+      <SetupWizard onStatus={handleSetupStatus} />
 
-        {engine.status === "error" && (
-          <section className="center-card error">
-            <h1>Engine problem</h1>
-            <p>{engine.detail}</p>
-            <p className="muted">Close and reopen the app. If it persists, reinstall it.</p>
-          </section>
-        )}
-
-        {engine.status === "ready" && (
-          <>
-            <section className="hero">
-              <h1>Your knowledge bank is ready to be built.</h1>
-              <p className="muted">
-                Finish the setup below. Importing PDFs arrives in the next update — then this
-                space becomes your animated Knowledge Map.
-              </p>
-            </section>
-
-            <SetupWizard onStatus={handleSetupStatus} />
-
-            <section className="tiles" aria-label="Knowledge bank totals">
-              {STAT_TILES.map(([key, label]) => (
-                <div className="tile" key={key}>
-                  <div className="tile-value">{stats && !stats.error ? stats[key] : "—"}</div>
-                  <div className="tile-label">{label}</div>
+      <section className="frame readiness" aria-label="System readiness">
+        <div className="section-head">
+          <h2>System readiness</h2>
+          <button className="secondary" onClick={refresh} disabled={loading}>
+            {loading ? "Checking…" : "Check again"}
+          </button>
+        </div>
+        {system?.error && <p className="notice error">{system.error}</p>}
+        {system?.checks && (
+          <ul className="checks">
+            {system.checks.map((c) => (
+              <li key={c.name} className={c.ok ? "ok" : "fix"}>
+                <span className="dot" aria-hidden="true" />
+                <div>
+                  <p className="check-name">
+                    {c.name} <span className="muted">{c.detail}</span>
+                  </p>
+                  {c.fix && <p className="check-fix">{c.fix}</p>}
                 </div>
-              ))}
-            </section>
-
-            <section className="panel">
-              <div className="panel-head">
-                <h2>System readiness</h2>
-                <button onClick={refresh} disabled={loading}>
-                  {loading ? "Checking…" : "Re-check"}
-                </button>
-              </div>
-              {system?.error && <p className="error-text">{system.error}</p>}
-              {system?.checks && (
-                <ul className="checks">
-                  {system.checks.map((c) => (
-                    <li key={c.name} className={c.ok ? "ok" : "fix"}>
-                      <span className="dot" aria-hidden="true" />
-                      <div>
-                        <div className="check-name">
-                          {c.name} <span className="muted">— {c.detail}</span>
-                        </div>
-                        {c.fix && <div className="check-fix">{c.fix}</div>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {system?.data_dir && (
-                <p className="muted small">Data folder: {system.data_dir}</p>
-              )}
-            </section>
-          </>
+              </li>
+            ))}
+          </ul>
         )}
-      </main>
+        {system?.data_dir && <p className="muted small">Your bank is stored in {system.data_dir}</p>}
+      </section>
     </div>
   );
 }
 
-/** Small pill in the top bar: green "ready", amber "starting", red "error". */
+/** Engine status at the foot of the rail. */
 function EngineBadge({ engine }) {
-  const label = { starting: "Starting", ready: "Engine ready", error: "Engine error" }[
+  const label = { starting: "Engine starting", ready: "Engine ready", error: "Engine problem" }[
     engine.status
   ];
   return (
-    <span className={`badge badge-${engine.status}`} title={engine.detail}>
-      <span className="badge-dot" aria-hidden="true" />
+    <p className={`engine engine-${engine.status}`} title={engine.detail}>
+      <span className="engine-dot" aria-hidden="true" />
       {label}
-    </span>
+    </p>
   );
 }

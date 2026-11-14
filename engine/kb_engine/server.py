@@ -11,7 +11,15 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /setup/ollama/start      — start Ollama if installed but stopped
          POST /setup/models/pull       — download AI models (with progress)
          POST /setup/benchmark/start   — run the benchmark on a chosen folder
-       Later phases add import, search, topics, learn mode, etc.
+         GET  /library                 — every imported file with its counts
+         POST /library/add             — import files/folders
+         POST /library/remove          — take one file out of the bank
+         POST /library/retry           — re-queue files that failed
+         GET  /import/status           — live import progress
+         GET  /settings/watch          — watched folders
+         POST /settings/watch          — change watched folders
+         GET  /search?q=...            — instant exact-word search
+       Later phases add distilling, topics, answer pages, learn mode, etc.
 
 WHY:   Separating the window (Electron) from the engine (Python) means
        hours-long processing never freezes the interface, and each side uses
@@ -30,7 +38,8 @@ SECURITY:
          localhost. If no token is set (manual testing), the check is skipped
          and a warning is printed.
 
-CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py; called by
+CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
+       importer.py, search.py; called by
        app/electron/main.js (which relays requests from the window).
 """
 
@@ -43,7 +52,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import __version__, config, db, setup_manager, system_check
+from . import __version__, config, db, importer, search, setup_manager, system_check
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -71,6 +80,7 @@ async def lifespan(_app: FastAPI):
     """
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
+    importer.start()  # resume interrupted imports + start watched-folder scanner
     yield
     print("[engine] shutting down", flush=True)
 
@@ -135,6 +145,63 @@ def setup_models_pull(body: ModelPullRequest) -> dict:
 @app.post("/setup/benchmark/start", dependencies=[Depends(require_token)])
 def setup_benchmark_start(body: BenchmarkRequest) -> dict:
     return setup_manager.start_benchmark(body.folder)
+
+
+# ---------------------------------------------------------------------------
+# Library / import (Phase 1 — see importer.py)
+# ---------------------------------------------------------------------------
+
+class AddPathsRequest(BaseModel):
+    """Files and/or folders the owner chose or dropped onto the window."""
+    paths: list[str]
+
+
+class SourceRequest(BaseModel):
+    source_id: int
+
+
+class WatchRequest(BaseModel):
+    folders: list[str]
+
+
+@app.get("/library", dependencies=[Depends(require_token)])
+def library() -> dict:
+    return {"sources": importer.library(), "stats": db.stats()}
+
+
+@app.post("/library/add", dependencies=[Depends(require_token)])
+def library_add(body: AddPathsRequest) -> dict:
+    return importer.add_paths(body.paths)
+
+
+@app.post("/library/remove", dependencies=[Depends(require_token)])
+def library_remove(body: SourceRequest) -> dict:
+    return importer.remove_source(body.source_id)
+
+
+@app.post("/library/retry", dependencies=[Depends(require_token)])
+def library_retry() -> dict:
+    return importer.retry_failed()
+
+
+@app.get("/import/status", dependencies=[Depends(require_token)])
+def import_status() -> dict:
+    return importer.status()
+
+
+@app.get("/settings/watch", dependencies=[Depends(require_token)])
+def get_watch() -> dict:
+    return {"folders": importer.watch_folders()}
+
+
+@app.post("/settings/watch", dependencies=[Depends(require_token)])
+def set_watch(body: WatchRequest) -> dict:
+    return importer.set_watch_folders(body.folders)
+
+
+@app.get("/search", dependencies=[Depends(require_token)])
+def search_passages(q: str = "") -> dict:
+    return search.search(q)
 
 
 def main() -> None:

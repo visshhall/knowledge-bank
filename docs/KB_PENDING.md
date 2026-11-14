@@ -2,15 +2,17 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.2 (Phase 0 delivered as Windows installer — waiting on owner's run)
+**Current version:** v0.3 (Phase 1 Import + new design — benchmark report still pending)
 **Last updated:** 14 November 2026
 
 ---
 
 ## Waiting on the owner (blocks Phase 1 model decisions)
 
-- [ ] Grant Claude's GitHub app access to `visshhall/knowledge-bank` so code can be pushed (currently read-only from Claude's side)
-- [ ] Run `KnowledgeBank-Setup-0.2.0.exe` (SmartScreen: More info → Run anyway)
+- [x] GitHub access granted — code is pushed to `visshhall/knowledge-bank`
+- [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
+- [ ] Install `KnowledgeBank-Setup-0.3.0.exe` over v0.2 (data and models are kept)
+- [ ] Add PDFs in Library and check: scanned pages show a count in the Scanned column (confirms OCR works on Windows)
 - [ ] Open the app → confirm "Engine ready" and the Setup panel
 - [ ] Setup step 1: Install AI engine · step 2: Download AI models · step 3: run the benchmark on a folder of 5–10 PDFs
 - [ ] Send the benchmark `.md` report (Open report folder) to Claude
@@ -33,15 +35,21 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Tested in Claude's workspace: DB create/upgrade/cascade/full-text sync, server token enforcement, benchmark end-to-end (against a mock AI service), Electron app launched and screenshotted, engine stops on close, PowerShell scripts parse-checked
 - [ ] Final model choice — from owner's benchmark
 
-## Phase 1 — Import (next)
+## Phase 1 — Import ✅ delivered in v0.3
 
-- [ ] Import PDFs and images (manual + watched folder)
-- [ ] Exact duplicate detection by SHA-256
-- [ ] Page-by-page extraction for very large PDFs (background job, resumable)
-- [ ] OCR for scanned pages and images (Tesseract vs PaddleOCR decision)
-- [ ] Image extraction from PDFs + diagram descriptions (vision model)
-- [ ] Passage chunking with source/page tracking
-- [ ] Import progress in the interface
+- [x] Import PDFs and images (buttons, drag-and-drop, folders recursive)
+- [x] Watched folders (scanned every 3 minutes)
+- [x] Exact duplicate detection by SHA-256 (renamed copies too), shown per file
+- [x] Page-by-page extraction for very large PDFs (background, resumable after closing the app)
+- [x] OCR for scanned pages and images — RapidOCR, bundled, offline, CPU
+- [x] Text from diagrams inside PDFs (OCR → labelled passage)
+- [x] Passage chunking with file + page tracking; passage fingerprints
+- [x] Import progress, remove file, retry failed
+- [x] Instant exact-word search with highlights (bonus, ahead of Phase 4)
+- [x] New blueprint design + side-rail navigation + Overview schematic
+- [ ] Diagram descriptions by the vision model (needs benchmark → moved to Phase 2)
+- [ ] Enter a PDF password inside the app (improvement)
+- [ ] Open the original PDF at the cited page from a search result (Phase 4)
 
 ## Phase 2 — Distil
 - [ ] Embeddings for all passages; vector index (sqlite-vec vs LanceDB decision)

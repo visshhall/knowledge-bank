@@ -1,0 +1,340 @@
+/**
+ * Library.jsx — Phase 1 screen: add files, watch folders, search, manage.
+ *
+ * WHAT:  1. Drop zone + "Add files" / "Add folder" buttons
+ *        2. Live import progress (file, page x of y, files left)
+ *        3. Instant search across every imported passage, with the file and
+ *           page of each match and the matched words highlighted
+ *        4. Watched folders: new files appearing there import automatically
+ *        5. The file list: status, pages, passages, OCR'd pages, pictures,
+ *           duplicate copies found; remove a file; retry failed ones
+ * WHY:   Import is the foundation of the bank; the owner needs to see what
+ *        went in, what was skipped as a duplicate, what failed and why —
+ *        and to find things straight away.
+ * WHEN:  When the owner opens "Library" in the side rail. Polls import
+ *        progress every 1.5 s and the file list every 4 s while visible.
+ * CONNECTED TO: bridge.js → engine /library, /library/add, /library/remove,
+ *        /library/retry, /import/status, /settings/watch, /search
+ *        (server.py → importer.py, search.py). ImportProgress is also used
+ *        by Overview.jsx.
+ */
+import { useEffect, useState } from "react";
+import { formatBytes, formatCount, kb, percent, usePoll } from "./bridge.js";
+
+/** Human wording for each source status (matches db.py's allowed values). */
+const STATUS_TEXT = {
+  pending: "Waiting",
+  extracting: "Reading…",
+  extracted: "In the bank",
+  failed: "Failed",
+};
+
+export default function Library() {
+  const [lib, reloadLib] = usePoll("/library", 4000);
+  const [imp, reloadImp] = usePoll("/import/status", 1500);
+  const [notice, setNotice] = useState(null); // {kind: "ok"|"error", text}
+  const [dragging, setDragging] = useState(false);
+
+  /**
+   * Send chosen/dropped paths to the engine and explain the outcome in one
+   * sentence (added / duplicates / already in / unsupported / errors).
+   */
+  async function addPaths(paths) {
+    if (!paths?.length) return;
+    setNotice({ kind: "ok", text: "Checking files…" });
+    const r = await kb.post("/library/add", { paths });
+    if (r.error) {
+      setNotice({ kind: "error", text: r.error });
+      return;
+    }
+    const parts = [];
+    parts.push(`${r.added} new file${r.added === 1 ? "" : "s"} added`);
+    if (r.duplicates) parts.push(`${r.duplicates} exact cop${r.duplicates === 1 ? "y" : "ies"} skipped`);
+    if (r.already_in_bank) parts.push(`${r.already_in_bank} already in the bank`);
+    if (r.unsupported) parts.push(`${r.unsupported} not a PDF or image (ignored)`);
+    if (r.errors?.length) parts.push(`${r.errors.length} couldn't be opened: ${r.errors.slice(0, 2).join("; ")}`);
+    setNotice({ kind: r.errors?.length ? "error" : "ok", text: parts.join(" · ") + "." });
+    reloadLib();
+    reloadImp();
+  }
+
+  /** Drag-and-drop: turn dropped File objects into disk paths via the bridge. */
+  function onDrop(e) {
+    e.preventDefault();
+    setDragging(false);
+    const paths = [...e.dataTransfer.files].map((f) => kb.pathForFile(f)).filter(Boolean);
+    addPaths(paths);
+  }
+
+  async function removeSource(source) {
+    const r = await kb.post("/library/remove", { source_id: source.id });
+    setNotice({ kind: r.ok ? "ok" : "error", text: r.message || r.error });
+    reloadLib();
+  }
+
+  async function retryFailed() {
+    const r = await kb.post("/library/retry", {});
+    setNotice({ kind: r.error ? "error" : "ok", text: r.message || r.error });
+    reloadLib();
+  }
+
+  const sources = lib?.sources ?? [];
+  const failed = sources.filter((s) => s.status === "failed").length;
+
+  return (
+    <div className="library">
+      <header className="page-head">
+        <h1>Library</h1>
+        <p className="lede">
+          Add PDFs, screenshots and diagrams. Your original files are only read — never moved,
+          changed or copied.
+        </p>
+      </header>
+
+      <section
+        className={`frame dropzone ${dragging ? "dragging" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        aria-label="Add files"
+      >
+        <p className="drop-title">Drop PDFs, images or whole folders here</p>
+        <div className="actions">
+          <button onClick={async () => addPaths(await kb.pickFiles())}>Add files</button>
+          <button
+            className="secondary"
+            onClick={async () => {
+              const folder = await kb.pickFolder("import");
+              if (folder) addPaths([folder]);
+            }}
+          >
+            Add a folder
+          </button>
+        </div>
+        {notice && <p className={`notice ${notice.kind}`}>{notice.text}</p>}
+      </section>
+
+      {imp?.state === "running" && <ImportProgress status={imp} />}
+      {imp?.last_error && imp.state !== "running" && (
+        <p className="notice error">Last problem: {imp.last_error}</p>
+      )}
+      {imp?.ocr_error && (
+        <p className="notice error">
+          Scanned pages and pictures can't be read right now ({imp.ocr_error}). Normal PDF text
+          is still imported.
+        </p>
+      )}
+
+      <SearchPanel hasData={sources.some((s) => s.passages > 0)} />
+
+      <WatchedFolders />
+
+      <section className="frame file-list" aria-label="Files in the bank">
+        <div className="section-head">
+          <h2>
+            Files <span className="count">{formatCount(sources.length)}</span>
+          </h2>
+          {failed > 0 && (
+            <button className="secondary" onClick={retryFailed}>
+              Retry {failed} failed
+            </button>
+          )}
+        </div>
+        {sources.length === 0 ? (
+          <p className="muted">No files yet. Add some above to start building the bank.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Status</th>
+                <th className="num">Pages</th>
+                <th className="num">Passages</th>
+                <th className="num">Scanned</th>
+                <th className="num">Pictures</th>
+                <th className="num">Copies skipped</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.id} className={`st-${s.status}`}>
+                  <td className="file-cell" title={s.original_path}>
+                    <span className="file-name">{s.file_name}</span>
+                    <span className="file-meta">{formatBytes(s.size_bytes)}</span>
+                    {s.error && <span className="file-error">{s.error}</span>}
+                  </td>
+                  <td>
+                    <span className={`status status-${s.status}`}>{STATUS_TEXT[s.status]}</span>
+                  </td>
+                  <td className="num">{s.page_count ?? "—"}</td>
+                  <td className="num">{formatCount(s.passages)}</td>
+                  <td className="num">{s.ocr_pages || "—"}</td>
+                  <td className="num">{s.images || "—"}</td>
+                  <td className="num">{s.duplicate_copies || "—"}</td>
+                  <td>
+                    <button
+                      className="link"
+                      onClick={() => removeSource(s)}
+                      disabled={s.status === "extracting"}
+                      title="Remove from the bank (the original file stays where it is)"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Live progress of the running import. Exported so the Overview screen
+ * shows the same panel.
+ */
+export function ImportProgress({ status }) {
+  const pageText = status.page_count
+    ? `page ${formatCount(status.current_page)} of ${formatCount(status.page_count)}`
+    : "starting";
+  return (
+    <section className="frame import-progress" aria-live="polite">
+      <div className="section-head">
+        <h2>Importing</h2>
+        <span className="muted">
+          {status.files_queued} file{status.files_queued === 1 ? "" : "s"} left
+        </span>
+      </div>
+      <p className="current-file">
+        {status.current_file} <span className="muted">— {pageText}</span>
+      </p>
+      <div className="progress-track">
+        <div
+          className="progress-fill"
+          style={{ width: `${percent(status.current_page, status.page_count)}%` }}
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Search box + results. Waits 250 ms after the last keystroke before
+ * searching (no request per letter). Matches are highlighted using the
+ * engine's marker characters, split into <mark> elements — no raw HTML.
+ */
+function SearchPanel({ hasData }) {
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState(null);
+
+  useEffect(() => {
+    if (!q.trim()) {
+      setRes(null);
+      return undefined;
+    }
+    const id = setTimeout(async () => {
+      const r = await kb.get("/search", { q });
+      if (!r.error) setRes(r);
+    }, 250);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  return (
+    <section className="frame search" aria-label="Search">
+      <label className="search-label" htmlFor="kb-search">
+        Search every page
+      </label>
+      <input
+        id="kb-search"
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={hasData ? "Try 4625, SigninLogs, lateral movement…" : "Search becomes available once files are imported"}
+        disabled={!hasData}
+        autoComplete="off"
+        spellCheck="false"
+      />
+      {res && (
+        <div className="results">
+          <p className="muted small">
+            {res.total === 0
+              ? "No passage contains all of these words."
+              : `${formatCount(res.total)} passage${res.total === 1 ? "" : "s"} — showing the best ${res.results.length}`}
+          </p>
+          <ol>
+            {res.results.map((r) => (
+              <li key={r.passage_id}>
+                <p className="where">
+                  {r.file_name} <span className="muted">· page {r.page_number}</span>
+                </p>
+                <p className="snippet">
+                  <Highlighted text={r.snippet} />
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Turn "\u0002match\u0003" markers from search.py into <mark> elements. */
+function Highlighted({ text }) {
+  const parts = text.split(/(\u0002[^\u0003]*\u0003)/g);
+  return parts.map((part, i) =>
+    part.startsWith("\u0002") ? <mark key={i}>{part.slice(1, -1)}</mark> : <span key={i}>{part}</span>
+  );
+}
+
+/** Watched folders: list, add (folder dialog), stop watching. */
+function WatchedFolders() {
+  const [data, reload] = usePoll("/settings/watch", 0);
+  const [msg, setMsg] = useState("");
+  const folders = data?.folders ?? [];
+
+  async function save(next) {
+    const r = await kb.post("/settings/watch", { folders: next });
+    setMsg(r.message || r.error || "");
+    reload();
+  }
+
+  return (
+    <section className="frame watched" aria-label="Watched folders">
+      <div className="section-head">
+        <h2>Watched folders</h2>
+        <button
+          className="secondary"
+          onClick={async () => {
+            const f = await kb.pickFolder("watch");
+            if (f) save([...folders, f]);
+          }}
+        >
+          Watch a folder
+        </button>
+      </div>
+      <p className="muted small">
+        New PDFs and images saved in these folders are imported automatically every few minutes.
+      </p>
+      {folders.length > 0 && (
+        <ul className="folder-list">
+          {folders.map((f) => (
+            <li key={f}>
+              <span>{f}</span>
+              <button className="link" onClick={() => save(folders.filter((x) => x !== f))}>
+                Stop watching
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {msg && <p className="notice ok">{msg}</p>}
+    </section>
+  );
+}

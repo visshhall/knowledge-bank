@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.2 — Phase 0 (foundation) delivered as a Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.3 — Phase 1 (Import) + new blueprint design, delivered as a Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -22,7 +22,7 @@ No PowerShell, no commands, no Python install — the app carries its own.
 
 ## For developers: build from source
 
-Requirements (Linux or WSL): Node 20+, Python 3.11+, `wine64` + `wine32` (electron-builder uses Wine to generate the Windows uninstaller).
+Requirements (Linux or WSL): Node 20+, Python 3.12 (the OCR package doesn't support 3.13 yet), `wine64` + `wine32` (electron-builder uses Wine to generate the Windows uninstaller).
 
 ```bash
 bash tools/build-windows.sh            # → app/release/KnowledgeBank-Setup-<version>.exe
@@ -31,7 +31,8 @@ bash tools/build-windows.sh            # → app/release/KnowledgeBank-Setup-<ve
 Run the app in development mode (live reload):
 
 ```bash
-cd engine && python -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd engine && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt \
+  && .venv/bin/pip install --no-deps -r requirements-nodeps.txt
 cd ../app && npm install && npm run dev
 ```
 
@@ -42,10 +43,12 @@ knowledge-bank/
 ├── app/                      Desktop app (Electron + React)
 │   ├── electron/main.cjs     Starts the engine, creates the window, relays allow-listed requests
 │   ├── electron/preload.cjs  The only bridge the page may use (window.kb)
-│   ├── src/App.jsx           Home screen (status, setup, totals, readiness)
+│   ├── src/App.jsx           Side rail, engine status, Setup screen
+│   ├── src/Overview.jsx      Home: schematic of the bank, totals, next step
+│   ├── src/Schematic.jsx     Blueprint drawing files → passages → topics
+│   ├── src/Library.jsx       Import, watched folders, search, file list
 │   ├── src/SetupWizard.jsx   In-app setup: AI engine, model downloads, benchmark
-│   ├── src/Constellation.jsx Animated background (seed of the Knowledge Map)
-│   ├── src/bridge.js         Shared access to window.kb
+│   ├── src/bridge.js         Shared access to window.kb + helpers
 │   ├── src/styles.css        Look and feel
 │   ├── build/icon.*          App icon
 │   ├── build/after-pack.cjs  Sets the .exe icon and version details during the build
@@ -56,6 +59,10 @@ knowledge-bank/
 │       ├── db.py             Database schema (sources → pages → passages → topics)
 │       ├── server.py         Private local server the window talks to
 │       ├── setup_manager.py  Background jobs for the setup wizard
+│       ├── importer.py       Phase 1: import PDFs/images, duplicates, watched folders
+│       ├── ocr.py            Reads text from scans, screenshots, diagrams (offline)
+│       ├── chunking.py       Cuts page text into citable passages
+│       ├── search.py         Instant exact-word search
 │       ├── system_check.py   GPU / RAM / disk / Ollama / models readiness
 │       ├── ollama_client.py  Talks to the local AI models
 │       └── benchmark.py      Picks the best models for this laptop

@@ -1,0 +1,5 @@
+# Installed with --no-deps (see requirements.txt for why).
+# rapidocr_onnxruntime — offline OCR engine; its models (~15 MB) ship inside
+# the package, so nothing is downloaded at runtime. It declares a dependency
+# on the full "opencv-python"; we supply opencv-python-headless instead.
+rapidocr_onnxruntime==1.4.4

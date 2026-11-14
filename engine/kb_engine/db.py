@@ -21,9 +21,10 @@ HOW THE TABLES FIT TOGETHER (the "distillation" chain):
 
     sources ──< pages ──< passages ──< topic_passages >── topics
        │                     │                               │
-       └──< images           └── passages_fts (search)       ├──< topic_links
-                                                             └──< conflicts
-    jobs  (progress of long-running background work)
+       ├──< images           └── passages_fts (search)       ├──< topic_links
+       └──< duplicate_files                                  └──< conflicts
+    jobs      (progress of long-running background work)
+    settings  (app preferences, e.g. watched folders)
 
     1. A PDF/image the owner adds = one row in `sources`.
     2. Each page's text = one row in `pages`.
@@ -46,10 +47,11 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
+# Version 2 = Phase 1 (import): settings + duplicate_files tables.
 _MIGRATIONS: list[tuple[int, list[str]]] = [
     (
         1,
@@ -227,6 +229,36 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
             """,
         ],
     ),
+    (
+        2,
+        [
+            # Simple key/value store for app preferences. Values are JSON
+            # text. Example: key 'watch_folders' → '["C:\\Users\\me\\PDFs"]'.
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """,
+            # Files that turned out to be exact copies of a file already in
+            # the bank (same SHA-256 fingerprint). Recorded so that:
+            #   - the owner can see what was skipped and why, and
+            #   - the watched-folder scan doesn't re-fingerprint them every time.
+            # Deleting the original source deletes these records too.
+            """
+            CREATE TABLE IF NOT EXISTS duplicate_files (
+                path       TEXT PRIMARY KEY,
+                sha256     TEXT NOT NULL,
+                source_id  INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                size_bytes INTEGER NOT NULL,
+                found_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_sources_path ON sources(original_path)",
+            "CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status)",
+            "CREATE INDEX IF NOT EXISTS idx_images_sha ON images(sha256)",
+        ],
+    ),
 ]
 
 
@@ -343,8 +375,8 @@ def stats() -> dict:
     """
     Count what the knowledge bank currently holds.
 
-    WHAT:    Returns totals for the dashboard (sources, pages, passages,
-             topics, conflicts) plus coverage = % of passages that belong
+    WHAT:    Returns totals for the dashboard (sources, images, OCR'd pages,
+             duplicates skipped, pages, passages, topics, conflicts) plus coverage = % of passages that belong
              to at least one topic (the "nothing missed" number).
     CALLED BY: server.py → GET /stats → shown on the app's home screen.
     """
@@ -356,6 +388,9 @@ def stats() -> dict:
         covered = count("SELECT COUNT(DISTINCT passage_id) FROM topic_passages")
         return {
             "sources": count("SELECT COUNT(*) FROM sources"),
+            "images": count("SELECT COUNT(*) FROM images"),
+            "ocr_pages": count("SELECT COUNT(*) FROM pages WHERE ocr_used = 1"),
+            "duplicates_skipped": count("SELECT COUNT(*) FROM duplicate_files"),
             "pages": count("SELECT COUNT(*) FROM pages"),
             "passages": passages,
             "topics": count("SELECT COUNT(*) FROM topics"),
@@ -363,3 +398,25 @@ def stats() -> dict:
             "coverage_percent": round(100.0 * covered / passages, 1) if passages else 0.0,
             "schema_version": _current_version(conn),
         }
+
+
+def get_setting(key: str, default=None):
+    """
+    Read one app preference (stored as JSON). Returns `default` if unset.
+    CALLED BY: importer.py (watched folders).
+    """
+    import json
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return json.loads(row["value"]) if row else default
+
+
+def set_setting(key: str, value) -> None:
+    """Save one app preference as JSON (insert or overwrite)."""
+    import json
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, json.dumps(value)),
+        )

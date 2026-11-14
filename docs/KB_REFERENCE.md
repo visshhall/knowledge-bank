@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.2 — Phase 0 delivered as a Windows installer (.exe); awaiting owner's in-app setup + benchmark |
-| Document version | 1.4 |
+| Current version | KB v0.3 — Phase 1 (Import) + new blueprint design, Windows installer; benchmark report still pending |
+| Document version | 1.5 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -116,7 +116,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | App shell | Electron + React | Windows desktop app; same approach the owner chose for LumenSutra; supports global hotkey and rich animation |
 | Engine | Python (runs alongside the app) | Best ecosystem for PDF processing, OCR and local AI |
 | PDF reading | PyMuPDF (candidate) | Fast, page-by-page, handles large files |
-| OCR | Tesseract or PaddleOCR (decided in Phase 0) | Reads scans and screenshots |
+| OCR | **RapidOCR** (onnxruntime, CPU) — decided in v0.3 | Installs as a normal Python package inside the app (Tesseract would need a separate Windows install); models ship inside it, so fully offline; runs on the CPU so it never competes with the AI models for the 4 GB graphics card |
 | Local AI runtime | Ollama | Runs AI models on the RTX 3050 |
 | Writing model | Two-model strategy, decided by benchmark in Phase 0: a ~4B model (e.g. Qwen 3.5 4B) for fast interactive answers, and possibly an ~8B model (e.g. Qwen3 8B) for the overnight topic-writing job only if its quality gain justifies running mostly from RAM | The RTX 3050's 4 GB fits ~4B models only; 8B would be slow and is used only where speed doesn't matter |
 | Embedding model | Local embedding model (chosen in Phase 0) | Powers meaning-based search and clustering |
@@ -129,7 +129,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | Phase | Name | What gets done | Status |
 |---|---|---|---|
 | 0 | Foundation | Finalise models and storage for RTX 3050 4 GB / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
-| 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | Not started |
+| 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | Not started |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | Not started |
 | 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | Not started |
@@ -162,12 +162,31 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 **Tested before delivery (in Claude's Linux workspace):** database create/upgrade/cascade-delete and full-text sync; server rejects requests without the token (HTTP 401); benchmark end-to-end against a mock AI service with generated PDFs (including scanned-page detection); the Electron app launched, showed "Engine ready" with live readiness data, and stopped the engine cleanly on close; v0.2 additionally: the installer was built, then installed silently under Wine (Windows compatibility layer) — files, Desktop and Start-menu shortcuts created; the installed app started its bundled Windows Python engine (answered on its port and rejected untokened requests); the bundled engine, run on its own under Wine, passed health/stats/system checks, the model-download job (with progress) and a full benchmark run against a mock AI service; the setup wizard was rendered and screenshotted in the Linux build. **Not testable there:** the real GPU, real Ollama and models, the app window on real Windows — verified by the owner's run.
 
+## 9b. Phase 1 — Import (v0.3) and the new design: what and why
+
+| Part | File(s) | What it does | Why it's built this way |
+|---|---|---|---|
+| Importer | `engine/kb_engine/importer.py` | Adds files/folders (recursive), fingerprints each file (SHA-256), skips exact copies, extracts every pending file in the background, watches folders, removes files, retries failures | Fingerprinting the bytes catches renamed copies. One page per database transaction means closing the app mid-import loses at most one page; half-done files restart cleanly on next launch. Originals are only read — never moved, changed or copied |
+| Page handling | `importer.py` | Text layer first; pages with almost no text (scans) are rendered at 200 dpi and OCR'd; meaningful pictures inside pages (≥160 px) are OCR'd too and their text becomes a labelled passage ("[Image on page N] …") | Diagrams and screenshots carry real knowledge (queries, labels). Tiny pictures (logos, bullets) are skipped. A picture already read anywhere is never OCR'd twice |
+| OCR | `engine/kb_engine/ocr.py` | Reads text from images, line by line in reading order; drops low-confidence noise | See OCR row in section 8. If OCR ever fails, the rest of the file still imports and the Library shows a clear message |
+| Passages | `engine/kb_engine/chunking.py` | Cleans page text and cuts it into ~120–260-word passages that never cross a page; fingerprints each passage | Passages are what get searched, merged and cited — one page each, so every citation points to an exact page. Passage fingerprints catch the same paragraph copied into several PDFs (Phase 2 catches same meaning in different words) |
+| Search | `engine/kb_engine/search.py` | Instant exact-word search across every passage, best matches first, matched words highlighted, file + page shown | Useful from day one, before AI topic pages exist. Each typed word is quoted so IDs like 4625, T1110.001 or SigninLogs never break the search |
+| Database v2 | `db.py` | Adds `settings` (watched folders) and `duplicate_files` (what was skipped and why) | Owner sees what was skipped; watched-folder scans don't re-fingerprint known files |
+| Library screen | `app/src/Library.jsx` | Drag-and-drop or buttons to add; live progress (file, page x of y, files left); search; watched folders; file table with status, pages, passages, scanned pages, pictures, copies skipped; remove; retry | Everything about import visible in one place |
+| Navigation | `app/src/App.jsx` | Side rail: Overview, Library, Setup | Screens grow per phase (Map, Learn later) |
+| Overview | `app/src/Overview.jsx`, `Schematic.jsx` | A blueprint-style drawing of files → passages → topics built from live totals (unbuilt parts drawn dashed), key numbers, and the one most useful next step | Owner requirement: with nothing searched, the bank explains what it holds and where it stands |
+
+**New design (v0.3) — why it changed:** the owner asked for a look distinct from his LumenSutra intelligence dashboard (dark navy, glowing cyan dots). The app is now an *engineer's blueprint*: ultramarine paper with a faint drafting grid, white line-work, frames with corner tick marks instead of cards and shadows, amber as the single action colour, Bricolage Grotesque for headings (personality) and Atkinson Hyperlegible for text (built for legibility — clear 0/O and 1/l/I, important for IDs and queries). One deliberate animation: the Overview schematic draws itself once on opening. Fonts are bundled, so everything works offline.
+
+**Tested (v0.3):** on Linux — full import of text PDFs, a scanned PDF, standalone image, embedded diagram (OCR'd into a labelled passage), exact-copy skipping, password-protected PDF message, resume after an interrupted import, search incl. prefix and odd characters, all three screens screenshotted. On the Windows build under Wine — import of a 40-page PDF, duplicate skip, password message, search. **Not verifiable under Wine:** OCR at runtime (Wine lacks a maths function the OCR libraries use; real Windows has it) — the OCR libraries do load on the Windows Python, and an OCR failure can no longer stop a file importing.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
 - **Merged articles are AI-written.** Every line links to its source so it can be checked in one click.
 - **Poor scans or handwriting** reduce OCR accuracy.
-- **Password-protected PDFs** need their password once.
+- **Password-protected PDFs** are listed as failed with a clear message; remove the password and add them again (entering a password inside the app is a planned improvement).
+- If an original file is **moved or deleted** before it is imported, that file fails with a message; once imported, its text stays in the bank regardless.
 - A local 4–8B model writes well but is less capable than large cloud models; the source-link design compensates for this.
 
 ## 11. How we work on this project
@@ -212,3 +231,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.2 / KB v0.1 | Phase 0 foundation built and tested: engine (config, database schema v1, system check, Ollama client, secure local server, benchmark), Electron + React shell with status screen, Windows setup scripts. Added section 9a. |
 | 14 Nov 2026 | Doc 1.3 / KB v0.2 | Owner rejected PowerShell setup. Replaced it with an in-app setup wizard (Ollama install/start, model downloads with progress, benchmark with folder picker) and a Windows installer bundling a private Python. Removed setup/*.ps1. Added tools/build-windows.sh. Fixed model-name matching (`name` vs `name:latest`). |
 | 14 Nov 2026 | Doc 1.4 | Owner's first real run: app installed and works on Windows. System check revealed the GPU is an RTX 3050 Laptop 4 GB (not RTX 3060 6 GB) — hardware table and model strategy corrected. Fixed: readiness list now refreshes automatically when Ollama starts (fix ships in next installer). |
+| 14 Nov 2026 | Doc 1.5 / KB v0.3 | Phase 1 Import delivered (importer, OCR via RapidOCR, passages, watched folders, duplicate tracking, instant search, Library screen); new blueprint design replacing the LumenSutra-like look; side-rail navigation; Overview schematic; database schema v2; OCR made non-fatal. Added section 9b. |

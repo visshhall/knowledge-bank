@@ -2,19 +2,36 @@
 # development environment and the Windows app bundle are identical).
 #
 # Bundled into the Windows installer by tools/build-windows.sh; for local
-# development install with:  pip install -r requirements.txt
+# development:  pip install -r requirements.txt
+#               pip install --no-deps -r requirements-nodeps.txt
 #
 # fastapi   — the local web server framework the window talks to (server.py)
 # uvicorn   — runs the FastAPI server
 # httpx     — HTTP client: talks to Ollama, downloads the Ollama installer
-# pymupdf   — fast, page-by-page PDF reading (benchmark now, import in Phase 1)
+# pymupdf   — fast, page-by-page PDF reading and page rendering for OCR
 # psutil    — reads RAM/disk info for the system check (system_check.py)
 # colorama  — Windows console colours; required by uvicorn's dependency
 #             "click" on Windows (listed explicitly because the bundle is
 #             built on Linux, where pip would otherwise skip it)
+#
+# OCR (reading text from scanned pages and images — ocr.py). These are the
+# dependencies of rapidocr_onnxruntime (see requirements-nodeps.txt), listed
+# here so the GUI-free "headless" OpenCV is used instead of the full one:
+# onnxruntime            — runs the OCR neural networks on the CPU
+# opencv-python-headless — image processing (no GUI parts, smaller)
+# numpy, Pillow, shapely, pyclipper, PyYAML, six, tqdm — OCR helpers
 fastapi==0.162.7
 uvicorn==0.54.0
 httpx==0.28.1
 pymupdf==1.28.2
 psutil==7.2.2
 colorama==0.4.6
+onnxruntime==1.32.0
+opencv-python-headless==5.0.0.93
+numpy<3
+Pillow
+shapely
+pyclipper
+PyYAML
+six
+tqdm

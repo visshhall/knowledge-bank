@@ -59,6 +59,15 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /setup/ollama/start",
   "POST /setup/models/pull",
   "POST /setup/benchmark/start",
+  // Phase 1 — import, library, search
+  "GET /library",
+  "POST /library/add",
+  "POST /library/remove",
+  "POST /library/retry",
+  "GET /import/status",
+  "GET /settings/watch",
+  "POST /settings/watch",
+  "GET /search",
 ]);
 
 /*
@@ -195,6 +204,10 @@ function stopEngine() {
 
 /**
  * Send one request to the engine, adding the secret token.
+ *   method      "GET" or "POST"
+ *   enginePath  must be on ALLOWED_ENGINE_CALLS (checked without any query)
+ *   body        POST: JSON body · GET: optional object of query parameters
+ *               (e.g. { q: "4625" } → /search?q=4625), safely encoded here
  * Errors come back as { error } objects rather than thrown, so the
  * interface can show a friendly message.
  */
@@ -205,8 +218,12 @@ async function callEngine(method, enginePath, body) {
   if (engineState.status !== "ready") {
     return { error: `Engine is ${engineState.status}` };
   }
+  const query =
+    method === "GET" && body && typeof body === "object"
+      ? `?${new URLSearchParams(body).toString()}`
+      : "";
   try {
-    const res = await fetch(`${ENGINE_URL}${enginePath}`, {
+    const res = await fetch(`${ENGINE_URL}${enginePath}${query}`, {
       method,
       headers: { "X-KB-Token": ENGINE_TOKEN, "Content-Type": "application/json" },
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
@@ -218,8 +235,10 @@ async function callEngine(method, enginePath, body) {
   }
 }
 
-/** window.kb.get(path) → GET request to the engine. */
-ipcMain.handle("engine:get", (_event, enginePath) => callEngine("GET", enginePath));
+/** window.kb.get(path, params) → GET request to the engine. */
+ipcMain.handle("engine:get", (_event, enginePath, params) =>
+  callEngine("GET", enginePath, params)
+);
 
 /** window.kb.post(path, body) → POST request to the engine. */
 ipcMain.handle("engine:post", (_event, enginePath, body) =>
@@ -227,16 +246,36 @@ ipcMain.handle("engine:post", (_event, enginePath, body) =>
 );
 
 /**
- * window.kb.pickFolder() → Windows "choose a folder" dialog.
- * Returns the chosen path, or null if cancelled. The dialog itself is the
- * owner's explicit choice, so the page never supplies a path on its own.
+ * window.kb.pickFolder(purpose) → Windows "choose a folder" dialog.
+ * purpose picks the dialog title from a fixed list (the page can't inject
+ * arbitrary text). Returns the chosen path, or null if cancelled.
  */
-ipcMain.handle("dialog:pickFolder", async () => {
+const FOLDER_DIALOG_TITLES = {
+  benchmark: "Choose a folder with 5–10 of your PDFs",
+  import: "Choose a folder to import (subfolders included)",
+  watch: "Choose a folder to watch for new PDFs and images",
+};
+ipcMain.handle("dialog:pickFolder", async (_event, purpose) => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Choose a folder with 5–10 of your PDFs",
+    title: FOLDER_DIALOG_TITLES[purpose] || FOLDER_DIALOG_TITLES.import,
     properties: ["openDirectory"],
   });
   return result.canceled ? null : result.filePaths[0];
+});
+
+/**
+ * window.kb.pickFiles() → Windows "open files" dialog for PDFs and images.
+ * Returns an array of paths (empty if cancelled).
+ */
+ipcMain.handle("dialog:pickFiles", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Add PDFs and images to the knowledge bank",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "PDFs and images", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] },
+    ],
+  });
+  return result.canceled ? [] : result.filePaths;
 });
 
 /** window.kb.openReports() → open the reports folder in File Explorer. */
@@ -266,7 +305,7 @@ function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: "#0b1020", // matches the interface so there's no white flash
+    backgroundColor: "#13235e", // matches the interface so there's no white flash
     title: "Knowledge Bank",
     autoHideMenuBar: true, // hides File/Edit/View menu (press Alt to show)
     webPreferences: {

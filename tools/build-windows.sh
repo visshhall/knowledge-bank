@@ -20,7 +20,7 @@
 #        Output: app/release/KnowledgeBank-Setup-<version>.exe
 #
 # CONNECTED TO:
-#        - engine/requirements.txt   → libraries bundled
+#        - engine/requirements.txt, requirements-nodeps.txt → libraries bundled
 #        - app/package.json "build"  → electron-builder settings: copies
 #          engine/kb_engine → resources/engine/kb_engine and
 #          app/build-resources/python → resources/python
@@ -70,6 +70,12 @@ HOST_PY="${HOST_PY:-python3}"
   --platform win_amd64 --python-version "$PY_TAG" --implementation cp \
   --only-binary=:all: \
   -r "$ROOT/engine/requirements.txt"
+# Packages whose declared dependencies we replace (see requirements-nodeps.txt).
+"$HOST_PY" -m pip install --quiet --disable-pip-version-check \
+  --target "$PY_OUT/Lib/site-packages" \
+  --platform win_amd64 --python-version "$PY_TAG" --implementation cp \
+  --only-binary=:all: --no-deps \
+  -r "$ROOT/engine/requirements-nodeps.txt"
 # pip puts Linux-style launcher scripts here; the engine doesn't use them.
 rm -rf "$PY_OUT/Lib/site-packages/bin"
 # Drop bytecode caches so the installer only contains source + binaries.

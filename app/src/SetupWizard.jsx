@@ -8,31 +8,19 @@
  *          3. Benchmark  — pick a folder of PDFs, run, open the report
  * WHY:   The owner wants a normal Windows app: no PowerShell, no commands.
  *        Each step unlocks when the previous one is done.
- * WHEN:  Shown by App.jsx on the home screen until setup is complete, and
- *        always reachable afterwards (e.g. to re-run the benchmark).
+ * WHEN:  Shown on the Setup screen (SetupScreen in App.jsx), always
+ *        reachable from the side rail (e.g. to re-run the benchmark).
  *        While visible it polls GET /setup/status every 1.5 s.
  * CONNECTED TO:
  *        - bridge.js (window.kb) → engine endpoints /setup/* (server.py →
  *          setup_manager.py), the folder dialog, and "open reports folder"
- *        - App.jsx (parent): onStatus(status) tells it when setup completes
- *          so it can refresh the readiness list
+ *        - App.jsx (parent): onStatus(status) on every poll, so the
+ *          readiness list can refresh when Ollama starts or setup completes
  */
 import { useCallback, useEffect, useState } from "react";
-import { kb } from "./bridge.js";
+import { formatBytes, kb, percent } from "./bridge.js";
 
 const POLL_MS = 1500;
-
-/** "1.2 GB" style size text for progress labels. */
-function formatBytes(bytes) {
-  if (!bytes) return "0 MB";
-  const gb = bytes / 1024 ** 3;
-  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
-}
-
-/** Percentage 0–100 from done/total (0 when total unknown). */
-function percent(done, total) {
-  return total ? Math.min(100, Math.round((100 * done) / total)) : 0;
-}
 
 export default function SetupWizard({ onStatus }) {
   const [status, setStatus] = useState(null);
@@ -65,12 +53,12 @@ export default function SetupWizard({ onStatus }) {
 
   /** Step 3 button: choose a folder, then start the benchmark on it. */
   async function runBenchmark() {
-    const folder = await kb.pickFolder();
+    const folder = await kb.pickFolder("benchmark");
     if (folder) act("/setup/benchmark/start", { folder });
   }
 
   if (!status) {
-    return <section className="panel">Loading setup status…</section>;
+    return <section className="frame wizard">Loading setup status…</section>;
   }
 
   const { ollama, models, benchmark } = status;
@@ -81,9 +69,9 @@ export default function SetupWizard({ onStatus }) {
   const requiredPresent = models.list.filter((m) => m.required).every((m) => m.present);
 
   return (
-    <section className="wizard" aria-label="Setup">
-      <div className="panel-head">
-        <h2>Setup</h2>
+    <section className="frame wizard" aria-label="Setup steps">
+      <div className="section-head">
+        <h2>Three steps, once</h2>
         {status.setup_complete && <span className="pill-ok">Ready to use</span>}
       </div>
       {notice && <p className="error-text">{notice}</p>}
@@ -183,7 +171,7 @@ export default function SetupWizard({ onStatus }) {
           </p>
           {benchJob.state === "running" ? (
             <>
-              <Progress indeterminate label="Running — this takes 10–40 minutes" />
+              <Progress indeterminate label="Running. This takes 10–40 minutes." />
               <p className="small muted">{benchJob.message}</p>
             </>
           ) : (
