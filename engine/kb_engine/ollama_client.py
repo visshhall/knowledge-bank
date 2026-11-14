@@ -126,7 +126,7 @@ def generate(
                      knowledge bank needs; high = more creative
       num_ctx      — how many tokens of input+output the model can see at
                      once. 8192 ≈ 6,000 words. Larger uses more video memory,
-                     which is the scarce resource on a 6 GB card.
+                     which is the scarce resource on a 4 GB card.
       think        — some models (Qwen 3.x) can "reason" privately before
                      answering. Off by default: much faster, and summaries
                      rarely need it. The benchmark measures both if useful.
@@ -201,7 +201,7 @@ def unload(model: str) -> None:
     """
     Remove a model from video memory immediately.
 
-    WHY:   Only one ~8B model fits on a 6 GB card. Between benchmark runs we
+    WHY:   Video memory is scarce (4 GB on the owner's RTX 3050). Between benchmark runs we
            unload the previous model so each test starts from the same clean
            state and timings are fair. Errors are ignored (nothing to unload).
     """

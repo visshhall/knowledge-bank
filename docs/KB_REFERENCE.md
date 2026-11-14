@@ -6,7 +6,7 @@
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
 | Current version | KB v0.2 — Phase 0 delivered as a Windows installer (.exe); awaiting owner's in-app setup + benchmark |
-| Document version | 1.3 |
+| Document version | 1.4 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -30,7 +30,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 **Decision:** the app does NOT train/fine-tune an AI model on the PDFs. It **distils** them.
 
 **Why:**
-- Training a model on a laptop GPU (6 GB) is impractical.
+- Training a model on a laptop GPU (4 GB) is impractical.
 - A trained model blends facts together and **cannot show where an answer came from** — dangerous for security work, where accuracy matters.
 - A trained model must be retrained every time new PDFs arrive.
 
@@ -50,9 +50,9 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 | Item | Value | Implication |
 |---|---|---|
-| GPU | NVIDIA RTX 3060 Laptop, 6 GB VRAM | 3–4B models run fully on the GPU (fast). 8B models (Q4) are tight on 6 GB and may spill partly to RAM (slower) — acceptable for overnight distillation, decided by benchmark in Phase 0 |
-| RAM | 16 GB | Sufficient |
-| Free disk | 200 GB | Ample (models + knowledge bank need ~20–30 GB) |
+| GPU | **NVIDIA GeForce RTX 3050 Laptop, 4 GB VRAM** (confirmed by the app's own system check on 14 Nov 2026; originally believed to be an RTX 3060 6 GB) | ~4B models (≈3.4 GB) just fit on the GPU. 8B models (~5–6 GB) do NOT fit and will run largely from system RAM — much slower, usable only for the overnight writing job if the benchmark shows the quality gain is worth it |
+| RAM | 16 GB (15.7 GB usable) | Sufficient; carries the part of an 8B model that doesn't fit in video memory |
+| Free disk | ~184 GB free (after install) | Ample (models + knowledge bank need ~20–30 GB) |
 | Data volume | ~5–6 GB of PDFs (individual files mostly KB-sized), 100+ files and growing | Very manageable |
 | Scanned PDFs | Only 2–3 | OCR needed for these, plus images |
 | Processing time tolerance | Owner is fine with a few hours for the first build | First full distillation can run overnight |
@@ -117,8 +117,8 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | Engine | Python (runs alongside the app) | Best ecosystem for PDF processing, OCR and local AI |
 | PDF reading | PyMuPDF (candidate) | Fast, page-by-page, handles large files |
 | OCR | Tesseract or PaddleOCR (decided in Phase 0) | Reads scans and screenshots |
-| Local AI runtime | Ollama | Runs AI models on the RTX 3060 |
-| Writing model | Two-model strategy, decided by benchmark in Phase 0: a ~4B model (e.g. Qwen 3.5 4B) for fast interactive answers, and an ~8B model (e.g. Qwen3 8B) for the overnight topic-writing job if quality gain justifies the slower speed | 6 GB VRAM fits 4B fully; 8B is tight, so it is only used where speed doesn't matter |
+| Local AI runtime | Ollama | Runs AI models on the RTX 3050 |
+| Writing model | Two-model strategy, decided by benchmark in Phase 0: a ~4B model (e.g. Qwen 3.5 4B) for fast interactive answers, and possibly an ~8B model (e.g. Qwen3 8B) for the overnight topic-writing job only if its quality gain justifies running mostly from RAM | The RTX 3050's 4 GB fits ~4B models only; 8B would be slow and is used only where speed doesn't matter |
 | Embedding model | Local embedding model (chosen in Phase 0) | Powers meaning-based search and clustering |
 | Vision model | Small local vision model (chosen in Phase 0) | Describes diagrams |
 | Storage | SQLite with full-text search + a vector index (sqlite-vec or LanceDB, decided in Phase 0) | Single-file, fast, offline |
@@ -128,7 +128,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 | Phase | Name | What gets done | Status |
 |---|---|---|---|
-| 0 | Foundation | Finalise models and storage for RTX 3060 / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
+| 0 | Foundation | Finalise models and storage for RTX 3050 4 GB / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
 | 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | Not started |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | Not started |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | Not started |
@@ -160,11 +160,11 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 **Known installer behaviour:** the installer is not code-signed (a certificate is a paid annual service), so Windows SmartScreen shows "Windows protected your PC" on first run → *More info → Run anyway*. Ollama itself is installed by its own official installer, opened by the app, because it is a separate program that other apps can also use and that updates itself.
 
-**Tested before delivery (in Claude's Linux workspace):** database create/upgrade/cascade-delete and full-text sync; server rejects requests without the token (HTTP 401); benchmark end-to-end against a mock AI service with generated PDFs (including scanned-page detection); the Electron app launched, showed "Engine ready" with live readiness data, and stopped the engine cleanly on close; v0.2 additionally: the installer was built, then installed silently under Wine (Windows compatibility layer) — files, Desktop and Start-menu shortcuts created; the installed app started its bundled Windows Python engine (answered on its port and rejected untokened requests); the bundled engine, run on its own under Wine, passed health/stats/system checks, the model-download job (with progress) and a full benchmark run against a mock AI service; the setup wizard was rendered and screenshotted in the Linux build. **Not testable there:** the real RTX 3060, real Ollama and models, the app window on real Windows — verified by the owner's run.
+**Tested before delivery (in Claude's Linux workspace):** database create/upgrade/cascade-delete and full-text sync; server rejects requests without the token (HTTP 401); benchmark end-to-end against a mock AI service with generated PDFs (including scanned-page detection); the Electron app launched, showed "Engine ready" with live readiness data, and stopped the engine cleanly on close; v0.2 additionally: the installer was built, then installed silently under Wine (Windows compatibility layer) — files, Desktop and Start-menu shortcuts created; the installed app started its bundled Windows Python engine (answered on its port and rejected untokened requests); the bundled engine, run on its own under Wine, passed health/stats/system checks, the model-download job (with progress) and a full benchmark run against a mock AI service; the setup wizard was rendered and screenshotted in the Linux build. **Not testable there:** the real GPU, real Ollama and models, the app window on real Windows — verified by the owner's run.
 
 ## 10. Known limits (stated upfront)
 
-- **First distillation** of 100+ PDFs is a one-time background job taking several hours on the RTX 3060. New files afterwards take minutes.
+- **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
 - **Merged articles are AI-written.** Every line links to its source so it can be checked in one click.
 - **Poor scans or handwriting** reduce OCR accuracy.
 - **Password-protected PDFs** need their password once.
@@ -211,3 +211,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.1 | Corrected model sizing: 8B models are tight on 6 GB VRAM (not "comfortable"). Adopted two-model strategy (~4B interactive, ~8B overnight), final choice by Phase 0 benchmark. |
 | 14 Nov 2026 | Doc 1.2 / KB v0.1 | Phase 0 foundation built and tested: engine (config, database schema v1, system check, Ollama client, secure local server, benchmark), Electron + React shell with status screen, Windows setup scripts. Added section 9a. |
 | 14 Nov 2026 | Doc 1.3 / KB v0.2 | Owner rejected PowerShell setup. Replaced it with an in-app setup wizard (Ollama install/start, model downloads with progress, benchmark with folder picker) and a Windows installer bundling a private Python. Removed setup/*.ps1. Added tools/build-windows.sh. Fixed model-name matching (`name` vs `name:latest`). |
+| 14 Nov 2026 | Doc 1.4 | Owner's first real run: app installed and works on Windows. System check revealed the GPU is an RTX 3050 Laptop 4 GB (not RTX 3060 6 GB) — hardware table and model strategy corrected. Fixed: readiness list now refreshes automatically when Ollama starts (fix ships in next installer). |

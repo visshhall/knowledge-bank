@@ -68,12 +68,12 @@ ENGINE_PORT = int(os.environ.get("KB_ENGINE_PORT", "8765"))
 OLLAMA_URL = os.environ.get("KB_OLLAMA_URL", "http://127.0.0.1:11434")
 
 # FAST model: used for interactive answers (search pages, quick questions).
-# ~4B models fit fully inside the RTX 3060's 6 GB, so they are quick.
+# ~4B models (~3.4 GB) just fit inside the RTX 3050's 4 GB, so they are quick.
 # Final choice is made from the Phase 0 benchmark. Override: KB_FAST_MODEL
 FAST_MODEL = os.environ.get("KB_FAST_MODEL", "qwen3.5:4b")
 
 # DEEP model: used only for the overnight job that writes Knowledge Topics,
-# where quality matters more than speed. An ~8B model is tight on 6 GB and
+# where quality matters more than speed. An ~8B model does not fit in 4 GB and
 # may spill partly into system RAM (slower), which is acceptable overnight.
 # Override: KB_DEEP_MODEL
 DEEP_MODEL = os.environ.get("KB_DEEP_MODEL", "qwen3:8b")

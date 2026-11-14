@@ -16,7 +16,7 @@ WHAT:  A one-off test (Phase 0). It:
 
 WHY:   Model choice is the biggest single factor in both speed and quality.
        Published benchmarks use other hardware and other text; this uses the
-       owner's RTX 3060 (6 GB) and his real cybersecurity documents.
+       owner's RTX 3050 (4 GB) and his real cybersecurity documents.
 
 WHEN:  Run once by the owner from the app's setup wizard ("Run benchmark"
        button → setup_manager.py → run_benchmark()). Developers can also run
@@ -159,7 +159,7 @@ def bench_model(model: str, samples: list[dict], think: bool) -> dict:
     HOW:   1. Unload the model (clean start), record idle video memory.
            2. Tiny warm-up call → measures pure load time.
            3. Record video memory with the model loaded → shows whether it
-              fits the 6 GB card (if not, Ollama spills into RAM = slower).
+              fits the 4 GB card (if not, Ollama spills into RAM = slower).
            4. Run the real task on each excerpt.
            5. Unload again so the next model starts clean.
     """

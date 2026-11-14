@@ -39,7 +39,7 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [system, setSystem] = useState(null);
   const [loading, setLoading] = useState(false);
-  const wasComplete = useRef(null); // last known setup_complete value
+  const lastSetup = useRef(null); // last known {complete, ollamaRunning} from the wizard
 
   /** Fetch totals and readiness from the engine (both in parallel). */
   const refresh = useCallback(async () => {
@@ -51,14 +51,21 @@ export default function App() {
   }, []);
 
   /**
-   * Called by the wizard on every poll. When setup flips from incomplete to
-   * complete (e.g. the last model finished downloading), refresh the
-   * readiness list so it turns green without the owner pressing Re-check.
+   * Called by the wizard on every poll. Refreshes the readiness list
+   * automatically whenever something it reports changes:
+   *   - the AI engine (Ollama) starts or stops, or
+   *   - setup flips from incomplete to complete (last model downloaded).
+   * Fix in v0.2.1: before, only the second case refreshed, so the list could
+   * still say "Ollama not answering" after the wizard showed it running.
    */
   const handleSetupStatus = useCallback(
     (s) => {
-      if (wasComplete.current === false && s.setup_complete) refresh();
-      wasComplete.current = s.setup_complete;
+      const now = { complete: s.setup_complete, ollamaRunning: s.ollama.running };
+      const prev = lastSetup.current;
+      if (prev && (prev.ollamaRunning !== now.ollamaRunning || (!prev.complete && now.complete))) {
+        refresh();
+      }
+      lastSetup.current = now;
     },
     [refresh]
   );
