@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -481,6 +481,24 @@ def _migrate_v7() -> None:
         )
 
 
+def _migrate_v8() -> None:
+    """
+    Schema v8 (KB v0.8.0): topics.kind — 'subject' (grouped by meaning, written
+    by AI) or 'data' (one per spreadsheet, calculated by datapages.py);
+    topics.checks_json — what the article fact check removed.
+    """
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)")}
+        if "kind" not in cols:
+            conn.execute("ALTER TABLE topics ADD COLUMN kind TEXT NOT NULL DEFAULT 'subject'")
+        if "checks_json" not in cols:  # the article's fact-check results (v0.8)
+            conn.execute("ALTER TABLE topics ADD COLUMN checks_json TEXT")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '8') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -551,6 +569,11 @@ def init_db() -> int:
     if version < 7:
         _migrate_v7()
         version = 7
+    if version < 8:
+        _migrate_v8()
+        version = 8
+    else:
+        _migrate_v8()  # idempotent: adds any v8 column a pre-release bank is missing
     return version
 
 

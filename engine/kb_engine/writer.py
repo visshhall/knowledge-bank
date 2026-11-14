@@ -55,11 +55,22 @@ from . import chunking, config, db, lessons, ollama_client
 # keeps qwen3.5:4b fully on the GPU (11.6 tokens/s). 8 points × ≤800 chars ≈
 # 1,600 tokens in + ≤1,300 out fits that window; 1,300 avoids the cut-off
 # endings seen in the benchmark (which allowed only 700).
-POINTS_PER_REQUEST = 8      # points sent per AI request
-POINT_MAX_CHARS = 800       # each point is trimmed to this for the prompt
-MAX_BATCHES = 12            # up to 96 points read per topic (most central first)
+#
+# v0.8 SPEED-UP (owner: "article writing is very slow"). v0.5–v0.7 used 8
+# points per request and up to 12 note-taking passes per topic, each allowed
+# 1,300 tokens — about 4 calls / 8–10 minutes for a typical 17-point topic.
+# Now: the 12 most central points go straight into ONE writing request
+# (12 × ≤650 chars ≈ 2,100 tokens in + ≤950 out, still inside 4,096), and
+# only extra points beyond that get short note passes (≤450 tokens each, at
+# most 3). Typical topic: 1–2 calls, ~2–3 minutes including its lesson.
+# Every point stays visible under "Source points" either way.
+POINTS_PER_REQUEST = 12     # points read directly by the writing request
+POINT_MAX_CHARS = 650       # each point is trimmed to this for the prompt
+NOTE_BATCH = 12             # extra points per note-taking pass
+MAX_NOTE_BATCHES = 3        # → up to 48 points read per topic (most central first)
 NUM_CTX = 4096              # model window for writing requests
-MAX_OUTPUT = 1300           # cap on each answer's length (tokens)
+MAX_OUTPUT = 950            # cap on the article's length (tokens)
+NOTES_MAX_OUTPUT = 450      # cap on each note-taking pass
 
 SYSTEM = (
     "You write study articles for a cybersecurity analyst's private knowledge bank. "
@@ -69,7 +80,7 @@ SYSTEM = (
     "Write plainly and briefly. No introductions like 'This article…'."
 )
 
-ARTICLE_PROMPT = """Write a knowledge-bank article titled "{title}" from the SOURCE POINTS below.
+ARTICLE_PROMPT = """Write a concise knowledge-bank article (about 300-450 words) titled "{title}" from the SOURCE POINTS below.
 
 Use these Markdown sections, in this order, and LEAVE OUT any section the points don't support:
 ## Overview
@@ -96,7 +107,7 @@ SOURCE POINTS:
 """
 
 NOTES_PROMPT = """These SOURCE POINTS are part of the topic "{title}".
-Extract every distinct fact as short bullets. Keep queries, commands, event IDs and MITRE IDs exactly.
+Extract the distinct facts as at most 8 short bullets. Keep queries, commands, event IDs and MITRE IDs exactly.
 End each bullet with its source markers, e.g. [3].
 
 SOURCE POINTS:
@@ -106,6 +117,7 @@ SOURCE POINTS:
 _lock = threading.Lock()
 _running = False
 _cancel = threading.Event()
+_priority: list[int] = []  # topics asked for with "Write this topic now" (v0.8)
 _state = {"state": "idle", "done": 0, "total": 0, "current": None, "message": "",
           "started_at": None, "model": None}
 
@@ -134,7 +146,7 @@ def status() -> dict:
     return snap
 
 
-def start(rewrite_all: bool = False, only_topic: int | None = None) -> dict:
+def start(rewrite_all: bool = False, only_topic: int | None = None, focus: int | None = None) -> dict:
     """
     Begin writing: missing articles and lessons (default), everything
     (rewrite_all), or just one topic's lesson (only_topic — the
@@ -148,8 +160,27 @@ def start(rewrite_all: bool = False, only_topic: int | None = None) -> dict:
     _cancel.clear()
     _set(state="running", done=0, total=0, current=None, message="Starting…",
          started_at=time.time(), model=write_model())
-    threading.Thread(target=_run, args=(rewrite_all, only_topic), name="kb-writer", daemon=True).start()
+    threading.Thread(target=_run, args=(rewrite_all, only_topic, focus), name="kb-writer", daemon=True).start()
     return {"ok": True, "message": "Working."}
+
+
+def write_now(topic_id: int) -> dict:
+    """
+    "Write this topic now" (v0.8): if the writer is running, this topic is
+    done next; otherwise the writer starts with just this topic.
+    """
+    with db.connect() as conn:
+        kind = conn.execute("SELECT kind FROM topics WHERE id = ?", (topic_id,)).fetchone()
+    if not kind:
+        return {"ok": False, "message": "Topic not found."}
+    if kind[0] == "data":
+        return {"ok": False, "message": "This topic is calculated from a spreadsheet — nothing to write."}
+    with _lock:
+        if _running:
+            if topic_id not in _priority:
+                _priority.insert(0, topic_id)
+            return {"ok": True, "message": "Next up: this topic."}
+    return start(rewrite_all=False, only_topic=None, focus=topic_id)
 
 
 def cancel() -> dict:
@@ -194,10 +225,55 @@ def _numbered(points: list[dict], start: int) -> str:
     )
 
 
-def _ask(prompt: str) -> str:
+def _ask(prompt: str, limit: int = MAX_OUTPUT, live: bool = False) -> str:
+    """One writing request. live=True streams the text into the job status
+    ("live"), so the Topics screen shows the article being written."""
+    on_text = (lambda t: _set(live=t)) if live else None
     r = ollama_client.generate(write_model(), prompt, system=SYSTEM, temperature=0.15,
-                               num_ctx=NUM_CTX, num_predict=MAX_OUTPUT)
+                               num_ctx=NUM_CTX, num_predict=limit, on_text=on_text)
     return r.text
+
+
+def _check_article(article: str, sources: list[str]) -> tuple[str, dict]:
+    """
+    Accuracy pass (v0.8), the same rules as answers and lessons: every
+    number, event ID, technique ID, IP and query line must appear in the
+    topic's sources. Unsupported sentences and query lines are removed; an
+    emptied section or code block is dropped. RETURNS (article, checks).
+    """
+    ck = lessons.Checker(sources)
+    out, in_code, code = [], False, []
+    for line in article.split("\n"):
+        if line.strip().startswith("```"):
+            if in_code:
+                if code:
+                    out += [fence, *code, line]
+                in_code, code = False, []
+            else:
+                in_code, fence, code = True, line, []
+            continue
+        if in_code:
+            if not line.strip() or ck.ok_code(line):
+                code.append(line)
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            out.append(line)
+            continue
+        prefix = re.match(r"^\s*(?:[-*]|\d+[.)])\s+", line)
+        head = prefix.group(0) if prefix else ""
+        kept = ck.clean_text(line[len(head):], max_len=4000)
+        if kept:
+            out.append(head + kept)
+    # Drop headings left with nothing under them.
+    final = []
+    for k, line in enumerate(out):
+        if line.lstrip().startswith("## "):
+            rest = next((l for l in out[k + 1:] if l.strip()), "")
+            if not rest or rest.lstrip().startswith("## "):
+                continue
+        final.append(line)
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(final)).strip()
+    return text, {"removed": ck.removed, "removed_count": len(ck.removed)}
 
 
 def _clean_article(text: str, valid: set[int]) -> str:
@@ -211,6 +287,13 @@ def _clean_article(text: str, valid: set[int]) -> str:
     text = re.sub(r"[ \t]+([.,;:])", r"\1", text)          # "force ." → "force."
     if text.count("```") % 2 == 1:                          # answer cut off inside a query
         text += "\n```"
+    # Filler the model adds despite instructions (v0.8): "Event IDs: N/A",
+    # and a "Where sources disagree" section that only says there are none.
+    text = "\n".join(l for l in text.split("\n")
+                     if not re.search(r":\**\s*(N/?A|none|not specified|not provided)\b", l, re.I))
+    text = re.sub(r"## Where sources disagree\s*\n(?:(?!## ).)*?(no (?:direct )?(?:contradictions|disagreements)|"
+                  r"do not contradict|are consistent|consistently)(?:(?!## ).)*", "", text,
+                  flags=re.I | re.S)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -226,38 +309,44 @@ def write_topic(topic_id: int) -> bool:
         t = conn.execute("SELECT id, title FROM topics WHERE id = ?", (topic_id,)).fetchone()
         if not t:
             return False
-        points = _topic_points(conn, topic_id)[: POINTS_PER_REQUEST * MAX_BATCHES]
+        points = _topic_points(conn, topic_id)[: POINTS_PER_REQUEST + NOTE_BATCH * MAX_NOTE_BATCHES]
     if not points:
         return False
 
     citations = {str(i + 1): p["passage_id"] for i, p in enumerate(points)}
-    if len(points) <= POINTS_PER_REQUEST:
-        material = _numbered(points, 1)
-    else:
+    direct = points[:POINTS_PER_REQUEST]
+    material = _numbered(direct, 1)
+    extra = points[POINTS_PER_REQUEST:]
+    if extra:
         notes: list[str] = []
-        for b in range(0, len(points), POINTS_PER_REQUEST):
+        for b in range(0, len(extra), NOTE_BATCH):
             if _cancel.is_set():
                 return False
-            batch = points[b:b + POINTS_PER_REQUEST]
-            _set(message=f"Reading points {b + 1}–{b + len(batch)} of {len(points)}")
-            notes.append(_ask(NOTES_PROMPT.format(title=t["title"], points=_numbered(batch, b + 1))))
-        material = "\n".join(notes)
+            batch = extra[b:b + NOTE_BATCH]
+            first = POINTS_PER_REQUEST + b + 1
+            _set(message=f"Reading extra points {first}–{first + len(batch) - 1} of {len(points)}")
+            notes.append(_ask(NOTES_PROMPT.format(title=t["title"], points=_numbered(batch, first)),
+                              limit=NOTES_MAX_OUTPUT))
+        material += "\n\nNOTES FROM MORE POINTS:\n" + "\n".join(notes)
 
-    _set(message="Writing the article")
-    article = _clean_article(_ask(ARTICLE_PROMPT.format(title=t["title"], points=material)),
-                             {int(k) for k in citations})
+    _set(message="Writing the article", live="", live_topic=topic_id)
+    raw = _ask(ARTICLE_PROMPT.format(title=t["title"], points=material), live=True)
+    article = _clean_article(raw, {int(k) for k in citations})
+    _set(message="Checking every fact against the sources")
+    article, checks = _check_article(article, [p["text"] for p in points])
+    _set(live=None, live_topic=None)
     if len(article) < 40:
         return False
     with db.connect() as conn:
         conn.execute(
-            "UPDATE topics SET body_markdown = ?, citations = ?, status = 'written', "
+            "UPDATE topics SET body_markdown = ?, citations = ?, status = 'written', checks_json = ?, "
             "model_used = ?, written_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-            (article, json.dumps(citations), write_model(), topic_id),
+            (article, json.dumps(citations), json.dumps(checks), write_model(), topic_id),
         )
     return True
 
 
-def _run(rewrite_all: bool, only_topic: int | None = None) -> None:
+def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = None) -> None:
     global _running
     try:
         if not ollama_client.is_running():
@@ -268,24 +357,41 @@ def _run(rewrite_all: bool, only_topic: int | None = None) -> None:
         with db.connect() as conn:
             if only_topic is not None:
                 todo = [only_topic]
+            elif focus is not None:
+                todo = [focus]
             else:
-                where = "" if rewrite_all else \
-                    "WHERE t.status != 'written' OR t.id NOT IN (SELECT topic_id FROM lessons)"
+                # Spreadsheet ("data") topics are calculated, never AI-written.
+                where = "WHERE t.kind != 'data'" if rewrite_all else \
+                    "WHERE t.kind != 'data' AND (t.status != 'written' OR t.id NOT IN (SELECT topic_id FROM lessons))"
                 todo = [r["id"] for r in conn.execute(
                     f"""SELECT t.id FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id
                         {where} GROUP BY t.id ORDER BY COUNT(tp.passage_id) DESC"""
                 )]
         _set(total=len(todo))
-        for n, tid in enumerate(todo, start=1):
+        n = 0
+        while todo:
             if _cancel.is_set():
                 break
+            # A topic the owner asked for jumps the queue.
+            with _lock:
+                wanted = _priority.pop(0) if _priority else None
+            if wanted is not None:
+                if wanted in todo:
+                    todo.remove(wanted)
+                else:
+                    _set(total=_state["total"] + 1)
+                tid = wanted
+            else:
+                tid = todo.pop(0)
+            n += 1
             with db.connect() as conn:
                 title = conn.execute("SELECT title FROM topics WHERE id = ?", (tid,)).fetchone()
             _set(current=title["title"] if title else None, message="Reading the points")
             try:
                 with db.connect() as conn:
                     written = conn.execute("SELECT status FROM topics WHERE id = ?", (tid,)).fetchone()
-                if only_topic is None and (rewrite_all or not written or written["status"] != "written"):
+                if only_topic is None and (rewrite_all or wanted is not None or not written
+                                           or written["status"] != "written"):
                     write_topic(tid)
                 if not _cancel.is_set():
                     _set(message="Designing the lesson")

@@ -37,6 +37,37 @@ import { Formatted, Markdown } from "./Formatted.jsx";
 // only when a lesson is first opened — app start-up stays quick.
 const Lesson = lazy(() => import("./Lesson.jsx"));
 const TopicMap = lazy(() => import("./TopicMap.jsx"));
+const Visual = lazy(() => import("./Diagrams.jsx"));
+
+/**
+ * Put the lesson's diagrams into the article (v0.8): each diagram goes at the
+ * end of the article section that shares the most words with its step, at
+ * most one per section. Tables and the Subnet Lab stay in the lesson only.
+ * RETURNS {sectionIndex: {step, visual}}.
+ */
+function figuresFor(article, lesson) {
+  if (!article || !lesson?.steps) return {};
+  const sections = article.split(/\n(?=#{2,3}\s)/).filter((x) => /^#{2,3}\s/.test(x.trim()));
+  const words = (t) => new Set(String(t).toLowerCase().match(/[a-z0-9]{4,}/g) || []);
+  const secWords = sections.map(words);
+  const out = {};
+  for (const step of lesson.steps) {
+    if (!step.visual || ["table", "subnetlab", "ipcalc", "verify"].includes(step.visual.type)) continue;
+    const w = words(`${step.title} ${step.text} ${JSON.stringify(step.visual)}`);
+    let best = -1;
+    let score = 0;
+    secWords.forEach((sw, k) => {
+      if (out[k]) return;
+      const sc = [...w].filter((x) => sw.has(x)).length;
+      if (sc > score) {
+        score = sc;
+        best = k;
+      }
+    });
+    if (best >= 0 && score >= 2) out[best] = step;
+  }
+  return out;
+}
 import { formatCount, kb, percent, usePoll } from "./bridge.js";
 
 /** The distil job's stages in order, with the words the owner sees. */
@@ -292,12 +323,17 @@ export default function Topics({ focus }) {
                 <span className="topic-title">{t.title}</span>
                 {t.summary && <span className="topic-summary">{t.summary}</span>}
                 <span className="topic-meta">
-                  {t.status === "written" && (
+                  {t.status === "written" && t.kind !== "data" && (
                     <span className="ready">
                       <Icon name="check" size={13} /> Article ready
                     </span>
                   )}
-                  {Boolean(t.has_lesson) && (
+                  {t.kind === "data" && (
+                    <span className="ready data-badge">
+                      <Icon name="grid" size={13} /> Spreadsheet · calculated
+                    </span>
+                  )}
+                  {Boolean(t.has_lesson) && t.kind !== "data" && (
                     <span className="ready lesson-ready">
                       <Icon name="sparkle" size={13} /> Lesson ready
                     </span>
@@ -324,9 +360,27 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
   const [lessonData] = usePoll("/lesson", 0, { id });
   const [tab, setTab] = useState(null);
   const [cited, setCited] = useState(null); // point shown in the side panel
+  // Live writing (v0.8): while the writer works on THIS topic, its text
+  // streams in and is shown as it is written.
+  const [write, reloadWrite] = usePoll("/write/status", 1000);
+  const liveHere = write?.state === "running" && write.live_topic === id && typeof write.live === "string";
+  const [notice, setNotice] = useState("");
+  const wasLive = useRef(false);
+  const [topicData, setTopicData] = useState(null);
+  useEffect(() => {
+    if (wasLive.current && !liveHere) kb.get("/topic", { id }).then((r) => !r.error && setTopicData(r));
+    wasLive.current = liveHere;
+  }, [liveHere, id]);
+  async function writeNow() {
+    setNotice("");
+    const r = await kb.post("/write/topic", { topic_id: id });
+    setNotice(r.message || r.error || "");
+    reloadWrite();
+    setTab("article");
+  }
 
   if (!data) return <p className="muted">Loading topic…</p>;
-  const { topic, points, related, citations, loose_threshold } = data;
+  const { topic, points, related, citations, loose_threshold } = topicData ?? data;
   const hasArticle = Boolean(topic.article);
   const hasLesson = Boolean(lessonData?.lesson);
   // From quick search: show the exact passage in Source points.
@@ -350,7 +404,11 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
         {topic.summary && <p>{topic.summary}</p>}
         <p className="hero-meta">
           {formatCount(points.length)} distinct points
-          {hasArticle ? ` · article written by ${topic.model_used}` : " · article not written yet"}
+          {topic.kind === "data"
+            ? " · calculated from your spreadsheet's cells (no AI)"
+            : hasArticle
+              ? ` · article written by ${topic.model_used}`
+              : " · article not written yet"}
         </p>
       </header>
 
@@ -395,13 +453,55 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
       {view === "article" && (
         <div className="article-layout">
           <article className="card article">
-            {hasArticle ? (
-              <Markdown text={topic.article} onCite={openCitation} />
+            {liveHere ? (
+              <div className="live-writing" aria-live="polite">
+                <p className="live-tag">
+                  <span className="live-dot" aria-hidden="true" /> Writing now with {write.model} — {write.message}
+                </p>
+                <Markdown text={write.live || "…"} onCite={() => {}} />
+                <span className="live-cursor" aria-hidden="true" />
+              </div>
+            ) : hasArticle ? (
+              <>
+                <Suspense fallback={<Markdown text={topic.article} onCite={openCitation} />}>
+                  <Markdown
+                    text={topic.article}
+                    onCite={openCitation}
+                    figures={Object.fromEntries(
+                      Object.entries(figuresFor(topic.article, lessonData?.lesson)).map(([k, step]) => [
+                        k,
+                        <figure className="article-fig" key={k}>
+                          <Visual spec={step.visual} />
+                          <figcaption>
+                            <strong>Figure:</strong> {step.title}
+                            {step.text ? ` — ${step.text}` : ""}
+                          </figcaption>
+                        </figure>,
+                      ])
+                    )}
+                  />
+                </Suspense>
+                <p className="article-checks small">
+                  <Icon name="check" size={14} />{" "}
+                  {topic.kind === "data"
+                    ? "Calculated from your spreadsheet — no AI involved."
+                    : topic.checks
+                      ? `Checked against the sources: ${topic.checks.removed_count ? `${topic.checks.removed_count} unsupported item${topic.checks.removed_count === 1 ? "" : "s"} removed` : "nothing needed removing"}.`
+                      : "Every line links to its source."}
+                </p>
+              </>
             ) : (
-              <p className="muted">
-                This topic doesn't have a written article yet. Go back and press Write articles — meanwhile,
-                the Source points tab shows everything this topic contains.
-              </p>
+              <div className="article-empty">
+                <p className="muted">
+                  {write?.state === "running"
+                    ? "The writer is busy with other topics. Jump the queue to write this one next."
+                    : "This topic doesn't have a written article yet. Write it now — you can watch it being written — or use Write articles to do all topics."}
+                </p>
+                <button onClick={writeNow}>
+                  <Icon name="sparkle" size={18} /> Write this topic now
+                </button>
+                {notice && <p className="small muted">{notice}</p>}
+              </div>
             )}
           </article>
           {hasArticle && (

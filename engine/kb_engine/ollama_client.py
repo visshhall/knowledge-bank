@@ -115,6 +115,7 @@ def generate(
     num_ctx: int = 8192,
     think: bool = False,
     num_predict: int | None = None,
+    on_text=None,
 ) -> GenerationResult:
     """
     Ask a model to write a response (non-streaming: waits for the full answer).
@@ -135,6 +136,11 @@ def generate(
                      model that rambles (or "thinks" despite think=False)
                      can never run for many minutes on one request.
 
+      on_text      — optional callback(text_so_far). When given, the answer is
+                     STREAMED and the callback receives the growing text about
+                     4× a second, so the app can show it being written live
+                     (v0.8). The final result is the same as without it.
+
     RETURNS: GenerationResult with the text and timing figures.
     RAISES:  OllamaError with a readable message on any failure.
     """
@@ -149,6 +155,8 @@ def generate(
         payload["options"]["num_predict"] = num_predict
     if system:
         payload["system"] = system
+    if on_text is not None:
+        return _generate_stream(model, payload, on_text)
     try:
         r = httpx.post(
             f"{config.OLLAMA_URL}/api/generate",
@@ -179,6 +187,51 @@ def generate(
         prompt_seconds=_ns_to_s(data.get("prompt_eval_duration")),
         generate_seconds=_ns_to_s(data.get("eval_duration")),
         total_seconds=_ns_to_s(data.get("total_duration")),
+    )
+
+
+def _generate_stream(model: str, payload: dict, on_text) -> GenerationResult:
+    """Streamed version of generate(): same result, with live progress callbacks."""
+    import json as _json
+    import time as _time
+
+    payload = {**payload, "stream": True}
+    text, last, final = "", 0.0, {}
+    try:
+        with httpx.stream("POST", f"{config.OLLAMA_URL}/api/generate", json=payload,
+                          timeout=config.OLLAMA_TIMEOUT_SECONDS) as r:
+            if r.status_code == 400:
+                r.read()
+                if "think" in r.text.lower() and "think" in payload:
+                    return _generate_stream(model, {k: v for k, v in payload.items() if k != "think"}, on_text)
+            if r.status_code != 200:
+                r.read()
+                raise OllamaError(f"Ollama error for model {model}: HTTP {r.status_code} {r.text[:300]}")
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                chunk = _json.loads(line)
+                text += chunk.get("response", "")
+                if chunk.get("done"):
+                    final = chunk
+                    break
+                if _time.monotonic() - last > 0.25:
+                    last = _time.monotonic()
+                    try:
+                        on_text(text)
+                    except Exception:
+                        pass  # a display problem must never stop the writing
+    except httpx.HTTPError as exc:
+        raise OllamaError(f"Ollama did not respond for model {model}: {exc}") from exc
+    on_text(text)
+    return GenerationResult(
+        text=text.strip(),
+        prompt_tokens=int(final.get("prompt_eval_count") or 0),
+        output_tokens=int(final.get("eval_count") or 0),
+        load_seconds=_ns_to_s(final.get("load_duration")),
+        prompt_seconds=_ns_to_s(final.get("prompt_eval_duration")),
+        generate_seconds=_ns_to_s(final.get("eval_duration")),
+        total_seconds=_ns_to_s(final.get("total_duration")),
     )
 
 

@@ -237,7 +237,12 @@ const SECTION_TONES = ["teal", "coral", "violet", "mustard"];
  * A written article (Markdown subset produced by writer.py).
  * onCite(n) is called when a citation chip is clicked.
  */
-export function Markdown({ text, onCite }) {
+/**
+ * Article Markdown. `figures` (v0.8) is an optional map of section number →
+ * element, placed at the end of that section (Topics.jsx puts the lesson's
+ * diagrams next to the part of the article they explain).
+ */
+export function Markdown({ text, onCite, figures }) {
   const lines = String(text).split("\n");
   const out = [];
   let i = 0;
@@ -254,6 +259,7 @@ export function Markdown({ text, onCite }) {
       continue;
     }
     if (/^#{2,3}\s+/.test(line)) {
+      if (section >= 0 && figures?.[section]) out.push(<div key={`f${section}`}>{figures[section]}</div>);
       section += 1;
       out.push(
         <h2 key={`h${i}`} className={`md-h tone-${SECTION_TONES[section % SECTION_TONES.length]}`}>
@@ -289,5 +295,6 @@ export function Markdown({ text, onCite }) {
     }
     i += 1;
   }
+  if (section >= 0 && figures?.[section]) out.push(<div key={`f${section}`}>{figures[section]}</div>);
   return <div className="md">{out}</div>;
 }

@@ -244,6 +244,11 @@ def remove_source(source_id: int) -> dict:
         if row["status"] == "extracting":
             return {"ok": False, "message": "This file is being imported right now — try again in a moment."}
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+    try:
+        from . import datapages
+        datapages.rebuild_data_topics()  # a removed spreadsheet takes its data topic with it
+    except Exception:
+        pass
     return {"ok": True, "message": "Removed from the knowledge bank. The original file is untouched."}
 
 
@@ -376,6 +381,14 @@ def _process_source(source: dict) -> None:
                 "processed_at = datetime('now') WHERE id = ?",
                 (page_count, sid),
             )
+        if source["file_type"] == "table":
+            # A spreadsheet becomes its own calculated topic at once — no AI
+            # needed, visible on the Topics screen straight after import (v0.8).
+            try:
+                from . import datapages
+                datapages.ensure_data_topic(sid)
+            except Exception as exc:
+                _set(last_error=f"{source['file_name']}: couldn't build its data page ({exc})")
     except Exception as exc:
         message = str(exc) or exc.__class__.__name__
         _set(last_error=f"{source['file_name']}: {message}")

@@ -2,8 +2,8 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.7.0 (all planned phases delivered — now in owner testing)
-**Last updated:** 14 November 2026
+**Current version:** v0.8.0 (diagrams, writing speed, spreadsheet topics — in owner testing)
+**Last updated:** 15 November 2026
 
 ---
 
@@ -13,7 +13,10 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.7.0.exe` (keep the original PDFs where they are: the app re-reads them once on first start; watch Library until all are "In the bank")
+- [ ] Install `KnowledgeBank-Setup-0.8.0.exe` — then open Topics: Subnet-Guide appears as a "Spreadsheet · calculated" topic within seconds (no rebuild needed); check charts, "Checking your sheet", Subnet Lab
+- [ ] Press **Regenerate lesson** on a couple of topics (lessons written before v0.8 often have no diagrams) and try **Play lesson** / **Walk me through**
+- [ ] Time one topic with **Write this topic now** on the GPU and report the minutes (target 2–3)
+- [ ] (was) Install `KnowledgeBank-Setup-0.7.0.exe` (keep the original PDFs where they are: the app re-reads them once on first start; watch Library until all are "In the bank")
 - [ ] Topics → Rebuild topics (expect roughly 10–14 topics for the 6 PDFs, none holding most of the points)
 - [ ] Source points → check reading order, document-part headers and "Read in context"
 - [ ] Import Subnet-Guide.xlsx in Library, Rebuild topics, then "Write remaining" (writes lessons too) — check the lesson for that topic
@@ -100,6 +103,17 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.8.0 — Diagrams, speed, spreadsheets ✅ delivered
+- [x] Spreadsheet data topics at import (datapages.py, schema v8): charts, recalculated CIDR checks, bits explainer, Subnet Lab, quiz, code-written article; rebuilt at engine start
+- [x] Diagrams rewritten: walk-through animation on every visual, moving packet on links, click to explain, Play lesson autoplay
+- [x] Lesson prompt fix + verified fallback visuals (journey chain, source cards) so lessons are never text-only
+- [x] Lesson diagrams shown as figures in articles
+- [x] Writer: 3 model calls instead of 5, shorter tighter articles, live streaming (articles + answers), Write this topic now
+- [x] Article line-by-line fact check with removed count; filler stripping
+- [x] Crash guard instead of blank screen
+- [ ] Next: polish the Overview flow map and Topic map to the new diagram style (owner feedback first)
+- [ ] Next: more calculated data pages (port tables, dated logs → timelines)
 
 ## v0.6.1 — Fixes from owner's real test ✅ delivered
 - [x] Topic grouping on centred embeddings (no more one giant topic)

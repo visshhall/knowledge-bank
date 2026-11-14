@@ -73,13 +73,14 @@ CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
 import hmac
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, config, db, distill, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, config, datapages, db, distill, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -111,6 +112,17 @@ async def lifespan(_app: FastAPI):
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
     importer.start()  # resume interrupted imports + start watched-folder scanner
+    # v0.8: spreadsheets imported before data topics existed get their charts,
+    # checks and Subnet Lab now, without the owner pressing "Rebuild topics".
+    # Runs in a thread so a large bank never delays the '[engine] ready' line.
+    def _data_topics():
+        try:
+            n = datapages.rebuild_data_topics()
+            if n:
+                print(f"[engine] built {n} spreadsheet topic(s)", flush=True)
+        except Exception as exc:  # never block startup over a bad sheet
+            print(f"[engine] spreadsheet topics skipped: {exc}", flush=True)
+    threading.Thread(target=_data_topics, daemon=True).start()
     yield
     print("[engine] shutting down", flush=True)
 
@@ -307,6 +319,13 @@ def write_cancel() -> dict:
 
 class TopicRequest(BaseModel):
     topic_id: int
+
+
+@app.post("/write/topic", dependencies=[Depends(require_token)])
+def write_topic_now(body: TopicRequest) -> dict:
+    """"Write this topic now": jump the queue, or start with just this topic (v0.8)."""
+    return writer.write_now(body.topic_id)
+
 
 
 # --- v0.7: answer pages, original files --------------------------------------

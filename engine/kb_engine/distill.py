@@ -54,7 +54,7 @@ import threading
 import time
 from collections import Counter
 
-from . import config, db, ollama_client
+from . import config, datapages, db, ollama_client
 
 # numpy is loaded only when topics are actually built (_load_numpy), not when
 # the engine starts. If it ever failed to load on a machine, only "Build
@@ -177,7 +177,8 @@ def pending_count() -> int:
     """Passages that belong to no topic yet (new files since the last build)."""
     with db.connect() as conn:
         return conn.execute(
-            "SELECT COUNT(*) FROM passages WHERE id NOT IN (SELECT passage_id FROM topic_passages)").fetchone()[0]
+            "SELECT COUNT(*) FROM passages p JOIN sources s ON s.id = p.source_id WHERE s.file_type != 'table' "
+            "AND p.id NOT IN (SELECT passage_id FROM topic_passages)").fetchone()[0]
 
 
 def _run_update() -> None:
@@ -332,9 +333,12 @@ def _load_vectors() -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
     Memory: 100,000 passages × 768 dims × 4 bytes ≈ 300 MB — fine on 16 GB.
     """
     with db.connect() as conn:
+        # Spreadsheet rows are not grouped by meaning: each spreadsheet is
+        # its own calculated "data" topic (datapages.py, v0.8).
         rows = conn.execute(
-            "SELECT id, text, content_hash, embedding FROM passages "
-            "WHERE embedding IS NOT NULL ORDER BY id"
+            "SELECT p.id, p.text, p.content_hash, p.embedding FROM passages p "
+            "JOIN sources s ON s.id = p.source_id "
+            "WHERE p.embedding IS NOT NULL AND s.file_type != 'table' ORDER BY p.id"
         ).fetchall()
     if not rows:
         return np.zeros(0, dtype=np.int64), np.zeros((0, 1), dtype=np.float32), [], []
@@ -660,6 +664,7 @@ def _run() -> None:
 
         _set(stage="saving", message="Saving topics…")
         _save(ids, labels, fit, groups, names, links, k)
+        datapages.rebuild_data_topics()  # spreadsheets: one calculated topic each
 
         loose = int((fit < LOOSE_FIT).sum())
         db.set_setting("distill_last_run", {
@@ -776,7 +781,7 @@ def list_topics() -> dict:
     with db.connect() as conn:
         rows = conn.execute(
             """
-            SELECT t.id, t.slug, t.title, t.summary, t.status, t.written_at,
+            SELECT t.id, t.slug, t.title, t.summary, t.status, t.written_at, t.kind,
                    EXISTS(SELECT 1 FROM lessons l WHERE l.topic_id = t.id) AS has_lesson,
                    COUNT(tp.passage_id)                AS passages,
                    COUNT(DISTINCT p.cluster_id)        AS points,
@@ -805,7 +810,7 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
     """
     with db.connect() as conn:
         t = conn.execute(
-            "SELECT id, slug, title, summary, status, body_markdown, citations, model_used, written_at "
+            "SELECT id, slug, title, summary, status, body_markdown, citations, model_used, written_at, kind, checks_json "
             "FROM topics WHERE id = ?", (topic_id,)).fetchone()
         if not t:
             return None
@@ -858,8 +863,9 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
                 row = conn.execute("SELECT cluster_id FROM passages WHERE id = ?", (pid,)).fetchone()
                 if row:
                     citations[marker] = row["cluster_id"] or pid
-    topic = {k: t[k] for k in ("id", "slug", "title", "summary", "status", "model_used", "written_at")}
+    topic = {k: t[k] for k in ("id", "slug", "title", "summary", "status", "model_used", "written_at", "kind")}
     topic["article"] = t["body_markdown"] if t["status"] == "written" else None
+    topic["checks"] = json.loads(t["checks_json"]) if t["checks_json"] else None
     return {"topic": topic, "points": list(points.values()), "citations": citations,
             "related": [dict(x) for x in related], "loose_threshold": LOOSE_FIT}
 
@@ -947,7 +953,7 @@ def topic_map() -> dict:
     """
     with db.connect() as conn:
         nodes = conn.execute(
-            """SELECT t.id, t.title, t.status, COUNT(tp.passage_id) AS passages,
+            """SELECT t.id, t.title, t.status, t.kind, COUNT(tp.passage_id) AS passages,
                       EXISTS(SELECT 1 FROM lessons l WHERE l.topic_id = t.id) AS has_lesson
                FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id GROUP BY t.id""").fetchall()
         links = conn.execute("SELECT from_topic_id, to_topic_id, weight FROM topic_links").fetchall()

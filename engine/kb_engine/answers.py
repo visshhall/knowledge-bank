@@ -125,7 +125,8 @@ def _run(question: str) -> None:
         model = write_model()
         _set(stage=f"Writing the answer with {model}…")
         r = ollama_client.generate(model, PROMPT.format(question=question, sources=numbered),
-                                   system=SYSTEM, temperature=0.1, num_ctx=NUM_CTX, num_predict=MAX_OUTPUT)
+                                   system=SYSTEM, temperature=0.1, num_ctx=NUM_CTX, num_predict=MAX_OUTPUT,
+                                   on_text=lambda t: _set(live=t))  # streamed: shown as it's written (v0.8)
         body = r.text.strip()
         not_found = "NOT IN SOURCES" in body.upper()[:60]
 
@@ -163,7 +164,7 @@ def _run(question: str) -> None:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (question, answer, json.dumps(src), json.dumps(checks), model, round(time.time() - started, 1)))
             answer_id = cur.lastrowid
-        _set(state="done", stage=None, answer_id=answer_id, seconds=round(time.time() - started, 1))
+        _set(state="done", stage=None, live=None, answer_id=answer_id, seconds=round(time.time() - started, 1))
     except Exception as exc:
         _set(state="error", stage=None, message=str(exc))
 

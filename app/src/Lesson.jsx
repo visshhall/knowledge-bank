@@ -20,7 +20,7 @@
  *        Diagrams.jsx; Topics.jsx passes onCite(marker, pointId), which opens the source panel.
  */
 import { useEffect, useState } from "react";
-import Visual from "./Diagrams.jsx";
+import Visual, { WALKABLE } from "./Diagrams.jsx";
 import Icon from "./icons.jsx";
 import { kb, usePoll } from "./bridge.js";
 
@@ -28,6 +28,10 @@ export default function Lesson({ topicId, onCite }) {
   const [data, reload] = usePoll("/lesson", 0, { id: topicId });
   const [write] = usePoll("/write/status", 2000);
   const [step, setStep] = useState(0);
+  // "Play lesson" (v0.8): each step's diagram walks itself through, then the
+  // lesson moves on — like a teacher presenting. Any click on the step dots
+  // or Back/Next stops it.
+  const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState("");
   const [showChecks, setShowChecks] = useState(false);
 
@@ -56,6 +60,26 @@ export default function Lesson({ topicId, onCite }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [total]);
 
+  // (All hooks stay above the early returns below — React requires the same
+  // hooks on every render.)
+  const current = steps[step];
+  const walkable = Boolean(current?.visual && WALKABLE.has(current.visual.type));
+
+  // Steps without a walk-through stay up long enough to read, then advance.
+  useEffect(() => {
+    if (!playing || !current || walkable) return undefined;
+    const ms = Math.min(14000, 4000 + (current.text || "").length * 45);
+    const t = setTimeout(() => setStep((s) => s + 1), ms);
+    return () => clearTimeout(t);
+  }, [playing, current, walkable]);
+  useEffect(() => {
+    if (playing && step >= steps.length) setPlaying(false); // reached the quiz
+  }, [playing, step, steps.length]);
+  const goTo = (i) => {
+    setPlaying(false);
+    setStep(i);
+  };
+
   async function regenerate() {
     setNotice("");
     const r = await kb.post("/lesson/regenerate", { topic_id: topicId });
@@ -76,7 +100,6 @@ export default function Lesson({ topicId, onCite }) {
     );
   }
 
-  const current = steps[step];
   // Source chips carry the lesson's own marker numbers; translate each to the
   // point id the Topics side panel understands.
   const cite = (n) => onCite?.(String(n), lesson.citations?.[String(n)]);
@@ -90,7 +113,7 @@ export default function Lesson({ topicId, onCite }) {
             <li key={i}>
               <button
                 className={`dot ${i === step ? "on" : i < step ? "seen" : ""}`}
-                onClick={() => setStep(i)}
+                onClick={() => goTo(i)}
                 aria-label={i < steps.length ? `Step ${i + 1}: ${steps[i].title}` : "Quiz"}
                 aria-current={i === step ? "step" : undefined}
               >
@@ -99,7 +122,10 @@ export default function Lesson({ topicId, onCite }) {
             </li>
           ))}
         </ol>
-        <button className="ghost" onClick={regenerate} disabled={regenerating} title="Design this lesson again">
+        <button className={playing ? "walk-play" : "walk-play outline"} onClick={() => (playing ? setPlaying(false) : (step >= steps.length && setStep(0), setPlaying(true)))}>
+          <span className={`walk-icon ${playing ? "pause" : "play"}`} aria-hidden="true" /> {playing ? "Pause lesson" : "Play lesson"}
+        </button>
+        <button className="ghost" onClick={regenerate} disabled={regenerating || data?.model_used === "calculated"} title={data?.model_used === "calculated" ? "Calculated from your data — nothing to redesign" : "Design this lesson again"}>
           <Icon name="refresh" size={16} />
           {regenerating ? "Redesigning…" : "Regenerate lesson"}
         </button>
@@ -125,7 +151,12 @@ export default function Lesson({ topicId, onCite }) {
           )}
           {current.visual && (
             <div className="lesson-visual">
-              <Visual spec={current.visual} />
+              <Visual
+                key={`${step}-${playing}`}
+                spec={current.visual}
+                autoPlay={playing}
+                onDone={() => playing && setTimeout(() => setStep((s) => s + 1), 900)}
+              />
             </div>
           )}
         </section>
@@ -134,11 +165,11 @@ export default function Lesson({ topicId, onCite }) {
       )}
 
       <div className="lesson-nav">
-        <button className="secondary" onClick={() => setStep(step - 1)} disabled={step === 0}>
+        <button className="secondary" onClick={() => goTo(step - 1)} disabled={step === 0}>
           <Icon name="arrow-left" size={16} />
           Back
         </button>
-        <button onClick={() => setStep(step + 1)} disabled={step >= total - 1}>
+        <button onClick={() => goTo(step + 1)} disabled={step >= total - 1}>
           {step === steps.length - 1 && quiz.length ? "Take the quiz" : "Next step"}
         </button>
       </div>

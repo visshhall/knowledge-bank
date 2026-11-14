@@ -53,7 +53,7 @@ import re
 from . import chunking, db, ollama_client
 
 NUM_CTX = 5120            # article (≤4,500 chars) + instructions + answer
-MAX_OUTPUT = 1500         # tokens for the lesson JSON
+MAX_OUTPUT = 1150         # tokens for the lesson JSON (v0.8: was 1,500 — faster, still room for 7 steps)
 MAX_STEPS = 7
 MAX_QUIZ = 4
 ARTICLE_MAX_CHARS = 4500
@@ -225,7 +225,7 @@ SYSTEM = (
 )
 
 MENU = """Visual kinds you may use (pick the one that truly fits each step, or null for text only):
-- "flow": a process with arrows. {"type":"flow","nodes":[{"id":"a","label":"short label"}],"edges":[{"from":"a","to":"b","label":"optional"}]}  (3-9 nodes)
+- "flow": a process with arrows. {"type":"flow","nodes":[{"id":"a","label":"short label","detail":"one sentence: what happens here"}],"edges":[{"from":"a","to":"b","label":"optional"}]}  (3-9 nodes)
 - "chain": stages in strict order, e.g. an attack chain or timeline. {"type":"chain","stages":[{"label":"...","detail":"..."}]}  (2-7 stages)
 - "stack": layers from top to bottom. {"type":"stack","layers":[{"label":"...","detail":"..."}]}  (2-7 layers)
 - "tree": a hierarchy. {"type":"tree","root":"...","children":[{"label":"...","children":[{"label":"..."}]}]}  (max 3 levels)
@@ -240,10 +240,12 @@ PROMPT = """Design a lesson that teaches "{title}" simply, step by step.
 
 Recognised in this material: {hints}. Prefer those kinds where they fit; use null when text is clearer.
 
-Return JSON exactly in this shape:
-{{"steps":[{{"title":"...","text":"1-3 short sentences","cites":[1],"visual":null}}],
+Return JSON exactly in this shape (the visual shown is only an example of the format):
+{{"steps":[{{"title":"...","text":"1-3 short sentences","cites":[1],
+  "visual":{{"type":"chain","stages":[{{"label":"...","detail":"..."}},{{"label":"...","detail":"..."}}]}}}}],
  "quiz":[{{"q":"...","options":["...","...","...","..."],"answer":0,"cite":1}}]}}
 {n_steps}; up to {n_quiz} quiz questions. "cites" are the [n] source numbers each step uses.
+Give MOST steps a visual (at least 2). A lesson is a picture first, words second.
 
 MATERIAL:
 {material}
@@ -372,9 +374,14 @@ def _verify_visual(v: dict | None, ck: Checker) -> dict | None:
         return None
     kind = v.get("type")
     if kind == "flow":
-        nodes = [{"id": _s(n.get("id"), 20), "label": _s(n.get("label"))}
+        # "detail" (v0.8): one sentence per box, shown when the box is clicked
+        # or during "Walk me through"; dropped (box kept) if it fails the check.
+        nodes = [{"id": _s(n.get("id"), 20), "label": _s(n.get("label")), "detail": _s(n.get("detail"), 160)}
                  for n in v.get("nodes", [])[:9] if isinstance(n, dict)]
         nodes = [n for n in nodes if n["id"] and n["label"] and ck.ok_label(n["label"])]
+        for n in nodes:
+            if n["detail"] and not ck.ok_label(n["detail"]):
+                n["detail"] = ""
         ids = {n["id"] for n in nodes}
         edges = [{"from": _s(e.get("from"), 20), "to": _s(e.get("to"), 20), "label": _s(e.get("label"), 30)}
                  for e in v.get("edges", []) if isinstance(e, dict)]
@@ -507,6 +514,45 @@ def _verify(plan: dict, ck: Checker, valid_cites: set[int], cite_texts: dict[int
     return {"steps": steps, "quiz": quiz}
 
 
+def _first_sentence(text: str, n: int = 150) -> str:
+    t = re.sub(r"\s+", " ", str(text or "")).strip()
+    m = re.match(r"(.{20,}?[.!?])(\s|$)", t)
+    t = m.group(1) if m else t
+    return t if len(t) <= n else t[:n].rsplit(" ", 1)[0] + "…"
+
+
+def _ensure_visuals(lesson: dict, cite_texts: dict[int, str]) -> None:
+    """
+    WHY:  A 4B model often answers "visual": null for every step (seen in the
+          v0.8 test: 4 of 4 steps had no picture), which leaves a lesson that
+          is just text — the opposite of what the Lesson screen is for.
+    HOW:  Built ONLY from material that is already verified, so nothing new
+          can be invented here:
+            1. If fewer than two steps have a picture, the first text-only
+               step gets a "chain" of the lesson's own step titles, with each
+               step's checked text as the detail — a map of the journey that
+               the owner can walk through stage by stage.
+            2. Other text-only steps with sources get "cards" quoting the
+               first sentence of each cited source passage ("Source 5 says…").
+    WHEN: build_lesson(), after _verify() and the calculated steps.
+    """
+    steps = lesson.get("steps") or []
+    ai_steps = [s for s in steps if s.get("visual") is None or s["visual"].get("type") not in ("table", "ipcalc")]
+    if sum(1 for s in steps if s.get("visual")) >= 2 or len(ai_steps) < 2:
+        return
+    text_only = [s for s in ai_steps if not s.get("visual")]
+    if not text_only:
+        return
+    journey = {"type": "chain", "stages": [
+        {"label": s["title"][:60], "detail": _first_sentence(s.get("text"), 160)} for s in ai_steps[:7]]}
+    text_only[0]["visual"] = journey
+    for s in text_only[1:]:
+        items = [{"label": f"Source {c}", "detail": _first_sentence(cite_texts.get(c, ""))}
+                 for c in (s.get("cites") or [])[:4] if cite_texts.get(c)]
+        if len(items) >= 2:
+            s["visual"] = {"type": "cards", "items": items}
+
+
 # ---------------------------------------------------------------------------
 # Public
 # ---------------------------------------------------------------------------
@@ -531,6 +577,7 @@ def build_lesson(topic_id: int, model: str) -> bool:
     cite_texts = {int(k): by_id.get(v, "") for k, v in mat["citations"].items()}
     lesson = _verify(plan, ck, {int(k) for k in mat["citations"]}, cite_texts)
     lesson["steps"] += _calculated_steps(mat, prof)
+    _ensure_visuals(lesson, cite_texts)
     if not lesson["steps"]:
         return False
     lesson["profile"] = prof

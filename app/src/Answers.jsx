@@ -141,13 +141,22 @@ export default function Answers({ initial, onOpenTopic }) {
           {running && (
             <section className="card answer-wait" aria-live="polite">
               <p className="answer-q">{job.question}</p>
-              <div className="thinking" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-              <p className="muted">{job.stage}</p>
-              <p className="small muted">A local model on a 4 GB GPU takes about 20–60 seconds.</p>
+              {job.live ? (
+                <div className="answer-body live-writing">
+                  <Markdown text={job.live} onCite={() => {}} />
+                  <span className="live-cursor" aria-hidden="true" />
+                </div>
+              ) : (
+                <div className="thinking" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              )}
+              <p className="muted small">
+                {job.stage}
+                {job.live ? " Facts are checked when it finishes." : " A local model on a 4 GB GPU takes about 20–60 seconds."}
+              </p>
             </section>
           )}
 

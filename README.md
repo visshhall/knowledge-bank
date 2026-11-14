@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.7.0 — all planned phases delivered (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup) — automatic visual lessons (diagrams + quiz, fact-checked) and Excel/CSV import, on top of written articles and the AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.8.0 — spreadsheets become calculated topics (charts, sheet checks, Subnet Lab), animated walk-through diagrams with Play lesson, 3× faster live article writing with line-by-line fact checks — on top of all planned phases (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup); Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -55,7 +55,7 @@ knowledge-bank/
 │   ├── src/SourceChip.jsx    Click a source to open the PDF at that page
 │   ├── src/Topics.jsx        Build topics, write articles, topic cards, lesson/article/sources tabs
 │   ├── src/Lesson.jsx        Step-by-step visual lesson, quiz, fact-check note
-│   ├── src/Diagrams.jsx      Draws lesson visuals (ELK auto-layout, tables, CIDR calculator)
+│   ├── src/Diagrams.jsx      Draws lesson visuals: ELK diagrams, walk-throughs, charts, sheet checks, Subnet Lab
 │   ├── src/Formatted.jsx     Structured display of passages and articles (no raw HTML)
 │   ├── src/Updates.jsx       AI updates card (Setup)
 │   ├── src/icons.jsx         Inline line icons
@@ -82,7 +82,8 @@ knowledge-bank/
 │       ├── tools.py          IOCs, ATT&CK coverage, query library (+ data/mitre_techniques.json)
 │       ├── backup.py         AES-256 encrypted backup/restore
 │       ├── distill.py        Phase 2: embeddings, topics, repeats, links, names
-│       ├── writer.py         Phase 3: one structured, cited article per topic
+│       ├── writer.py         Phase 3: one structured, cited, fact-checked article per topic (streamed live)
+│       ├── datapages.py      v0.8: spreadsheet → calculated topic (charts, checks, Subnet Lab, quiz; no AI)
 │       ├── lessons.py        v0.6: designs + fact-checks a visual lesson per topic
 │       ├── updates.py        Checks/updates Ollama and the AI models
 │       ├── system_check.py   GPU / RAM / disk / Ollama / models readiness

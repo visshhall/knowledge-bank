@@ -5,9 +5,9 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.7.0 — all planned phases delivered: answer pages, topic map, Learn mode, analyst tools, incremental updates, encrypted backup |
-| Document version | 2.4 |
-| Last updated | 14 November 2026 |
+| Current version | KB v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
+| Document version | 2.5 |
+| Last updated | 15 November 2026 |
 | Owner | Vishal Singh |
 
 > **How to use this document in a new chat:** Upload this file (and KB_PENDING.md) at the start and say: *"This is the KB reference document. Read it fully and continue from the current phase."*
@@ -374,6 +374,44 @@ Owner: "Go ahead with all pending tasks now." Tested with the REAL models in Cla
 
 **Not done (by design):** "deeper conflict detection" between sources stays a future idea. Comparing every claim pair needs a stronger model than fits a 4 GB GPU; articles already include "Where sources disagree".
 
+## 9k. v0.8.0 — diagrams, writing speed, spreadsheets (15 Nov 2026)
+
+Owner: diagrams, graphs and animations were "weak and ugly"; article writing was "very slow"; an uploaded subnet Excel file showed "no graph or map with any explanation at all".
+
+**Spreadsheets become their own topics** (`datapages.py`; schema v8 `topics.kind`, `topics.checks_json`)
+- *Why it was invisible:* spreadsheet passages relied on the AI grouping and writing, so a sheet of numbers either landed in an unrelated topic or waited for the writer.
+- *Now:* every imported spreadsheet gets a **data topic** at import, calculated by code with no AI, so it appears in seconds. Its lesson contains:
+  - a summary of the sheet;
+  - charts of every numeric series (log scale when values span ≥1000×), with explained patterns (halving, doubling, powers of 2);
+  - **"Checking your sheet"**: for subnet sheets, each CIDR's hosts (2^(32−n)) and mask are recalculated. On the test sheet, 32/32 and 8/8 matched;
+  - **"Why /n means n network bits"**: a bits explainer;
+  - **Subnet Lab**: type any IP, slide the prefix, and play the AND animation to get the network, broadcast, usable range and sibling subnets, with the owner's own sheet value shown alongside;
+  - the original table;
+  - a quiz built from the sheet.
+- The article is written by code too (Overview / Key points / How it works).
+- Spreadsheets are excluded from AI grouping and the writer. Data topics rebuild after "Rebuild topics", on removal of a file, and once at every engine start, so sheets imported before v0.8 appear automatically.
+
+**Diagrams rewritten** (`Diagrams.jsx`)
+- Flow diagrams use ELK layout with rounded orthogonal links, numbered cards with colour accents, and labelled edges.
+- **Walk me through** works on every visual: it highlights each part in turn, dims the rest, and sends a moving "packet" along the active link, with an explanation line. Click any box to explain it.
+- The timeline, layers, flip cards, comparison and query walk-through are all redesigned.
+- A new interactive chart has hover values with ÷2/×2 ratios and a line-draw animation.
+- The **Play lesson** button runs the whole lesson hands-free: each visual walks itself, then the lesson moves to the next step and stops at the quiz.
+- *Lessons without pictures fixed.* The real model answered `"visual": null` for every step because the prompt's example showed null. The prompt now shows a filled visual and asks for most steps to have one; in the re-test, 3 of 4 steps had diagrams. `lessons._ensure_visuals` guarantees at least a "journey" chain (the lesson's own steps) and source-quote cards, built only from already-verified text.
+- Articles now show the lesson's diagrams as figures under the best-matching section.
+
+**Writing 3× faster** (`writer.py`, `ollama_client.py`)
+- Up to 12 points go straight into the article prompt; note passes only run for bigger topics, with 12 points per pass and at most 3 passes. Articles are shorter (300–450 words) and capped at 950 tokens.
+- The real CPU test went from 5 model calls to 3; the estimate is about 2–3 min per topic on the owner's GPU versus 8–10 before.
+- **Live writing:** text streams from Ollama and appears in the article as it's written (Answers stream too).
+- **Write this topic now** puts one topic at the front of the queue.
+
+**Accuracy**
+- Every article line is fact-checked against the topic's sources after writing (`_check_article`): unsupported IDs, numbers and query lines are removed, and the count is shown under the article.
+- In the real test, 7 invented items were removed (4 ATT&CK IDs that are not in the sources, 3 query lines). Filler lines such as "N/A" and empty "Where sources disagree" sections are stripped.
+
+**Also:** a crash guard shows "Reload the window" instead of a blank screen if a screen errors.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -437,3 +475,4 @@ Owner: "Go ahead with all pending tasks now." Tested with the REAL models in Cla
 | 14 Nov 2026 | Doc 2.2 / KB v0.6.2 | Owner screenshot polish: PDF and scanned tables kept as tables, OCR row rebuilding + IP/date repair, distinct bullet markers, heading rule fixes, one-time re-read of original files (EXTRACT_VERSION 2). Added section 9h. |
 | 14 Nov 2026 | Doc 2.3 / KB v0.6.3 | Borderless numbered tables rebuilt (chunker v5), heading-aligned passages, one card per document section + Read the whole section; Overview flow map (files → topics, hover/click, animated) replaces the schematic; Ctrl+K meaning + word search with jump-to-passage. Phase 4 started. Added section 9i. |
 | 14 Nov 2026 | Doc 2.4 / KB v0.7.0 | All remaining phases: answer pages, open PDF at page, topic map (Phase 4); flashcards + spaced repetition + progress (Phase 5); IOC/ATT&CK/query tools + browser look-ups (Phase 6); automatic incremental topic updates + AES-256 encrypted backup/restore (Phase 7); Rewrite all; PDF passwords; quiz answer verification found with the real model. Schema v7. Added section 9j. |
+| 15 Nov 2026 | Doc 2.5 / KB v0.8.0 | Owner: weak diagrams, slow writing, invisible subnet spreadsheet. Spreadsheet data topics (datapages.py: charts, recalculated checks, bits explainer, Subnet Lab, quiz; schema v8); diagrams rewritten with walk-through animation + Play lesson; lesson prompt fixed so steps get pictures + verified fallback visuals; writer 3 calls instead of 5, live streaming, Write this topic now, line-by-line article fact check; crash guard. Added section 9k. |
