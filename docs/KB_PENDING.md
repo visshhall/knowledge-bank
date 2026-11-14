@@ -109,6 +109,19 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## Next to build (chosen by the owner 15 Nov 2026 — waiting for his go-ahead)
+- [ ] Weak articles rewritten automatically (when the fact check removes many lines)
+- [ ] App updates itself (check, download, install in one click)
+- [ ] More file types: Word (.docx), PowerPoint (.pptx), saved web pages, text, Markdown
+- [ ] Better search: filters (file, topic, scanned/text) and better ranking
+- [ ] Built for 1,000+ PDFs: performance tuning, bank size shown, clean-up button
+- [ ] Edit topics by hand: rename, merge, split, move a point
+- [ ] Replace old versions: an updated PDF takes over from its older version automatically
+- [ ] Clean junk pages and lines: covers, blank pages, "follow/like/repost" pages, contents/index pages, repeated headers/footers/watermarks
+- [ ] Real names for files: title read from content for numeric downloads (display only; files on disk untouched)
+- [ ] Garbled text detection: broken-font pages re-read by OCR automatically
+- [ ] Automatic categories per file (SIEM, EDR, Cloud, Network, Malware, Identity, Email…) with a Library filter
+
 ## v0.8.3 — Same content never added twice ✅ delivered
 - [x] Paragraphs already in another file are not added again (fingerprint match; short lines kept)
 - [x] Files with (almost) nothing new set aside as "Already in the bank" + Keep anyway
