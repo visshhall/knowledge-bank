@@ -396,7 +396,7 @@ function SourcePoints({ points, looseThreshold }) {
                   <Icon name="alert" size={15} /> Loose fit: may belong to another topic
                 </p>
               )}
-              <Formatted text={p.text} />
+              <Formatted text={showGroup || order === "central" ? withoutHeading(p.text, p.section) : p.text} />
               <ul className="point-sources" aria-label="Sources">
                 {p.sources.map((s, i) => (
                   <li key={i}>
@@ -413,6 +413,13 @@ function SourcePoints({ points, looseThreshold }) {
       </ol>
     </div>
   );
+}
+
+/** Drop a passage's first line when it only repeats the section shown above it. */
+function withoutHeading(text, section) {
+  if (!section) return text;
+  const [first, ...rest] = String(text).split("\n");
+  return first.trim() === section.trim() && rest.length ? rest.join("\n") : text;
 }
 
 /** "Read in context": loads the passages just before and after this one. */

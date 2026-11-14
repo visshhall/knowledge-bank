@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.6.1 (topic grouping fix, readable source points, version badge)
+**Current version:** v0.6.2 (tables kept as tables, OCR rows, reading polish)
 **Last updated:** 14 November 2026
 
 ---
@@ -13,7 +13,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.6.1.exe` over the previous version (data and models are kept; text is re-organised automatically on first start)
+- [ ] Install `KnowledgeBank-Setup-0.6.2.exe` (keep the original PDFs where they are: the app re-reads them once on first start; watch Library until all are "In the bank")
 - [ ] Topics → Rebuild topics (expect roughly 10–14 topics for the 6 PDFs, none holding most of the points)
 - [ ] Source points → check reading order, document-part headers and "Read in context"
 - [ ] Import Subnet-Guide.xlsx in Library, Rebuild topics, then "Write remaining" (writes lessons too) — check the lesson for that topic
@@ -85,6 +85,12 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Writing model chosen from the benchmark: qwen3.5:4b
 - [ ] "Rewrite all articles" button (engine supports it; UI later)
 - [ ] Deeper conflict detection between sources (beyond the article's "Where sources disagree")
+
+## v0.6.2 — Reading polish ✅ delivered
+- [x] PDF tables and scanned tables shown as real tables (+ saved for lessons)
+- [x] OCR row rebuilding, IP/date repair
+- [x] Distinct bullet markers; heading rule fixes
+- [ ] Owner check on the 45 scanned pages after re-read
 
 ## v0.6.1 — Fixes from owner's real test ✅ delivered
 - [x] Topic grouping on centred embeddings (no more one giant topic)

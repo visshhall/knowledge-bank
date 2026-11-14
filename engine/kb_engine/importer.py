@@ -18,6 +18,9 @@ WHAT:  1. add_paths(): accepts files and/or folders (folders are searched
           owner's chosen folders are imported automatically.
        4. remove_source(): takes a file out of the bank (its pages,
           passages and images go with it). The original file is untouched.
+       6. reread_all(): when the way files are READ changes (EXTRACT_VERSION,
+          v0.6.2: tables kept, OCR rows rebuilt), re-reads every original
+          file still in place; others are re-organised from stored text.
        5. rechunk_all(): when the passage rules change (CHUNKER_VERSION in
           chunking.py), rebuilds every passage from the page text already
           stored — no PDF is read again.
@@ -45,6 +48,7 @@ CONNECTED TO: db.py (sources, pages, passages, images, duplicate_files,
 
 import hashlib
 import json
+import re
 import os
 import threading
 import time
@@ -446,6 +450,58 @@ def _embedded_images(doc, page) -> list[dict]:
     return records
 
 
+def _page_text(page) -> tuple[str, list[tuple[str, list[list[str]]]]]:
+    """
+    A PDF page's text with its TABLES kept as tables.
+
+    WHY (v0.6.2, owner's screenshot): plain text extraction reads a table
+        cell by cell, so a "Step | Action" table came out as the headers on
+        their own lines and every row run together ("1 Lock the user account
+        2 Block the IP …").
+    HOW:  PyMuPDF's table finder locates ruled/aligned tables. Text blocks
+        mostly inside a table are left out; instead each table row is
+        written as one line with cells joined by " · " (empty cells as "—"),
+        placed where the table sits on the page. The exact grid is also
+        returned so it can be saved to doc_tables (lessons draw it as a real
+        table). Any failure falls back to plain text.
+    RETURNS (text, [(table name, rows)]).
+    """
+    plain = page.get_text("text")
+    try:
+        found = [t for t in page.find_tables().tables if t.row_count >= 2 and t.col_count >= 2]
+    except Exception:
+        return plain, []
+    if not found:
+        return plain, []
+    rects = [pymupdf.Rect(t.bbox) for t in found]
+    tables, table_items = [], []
+    for i, t in enumerate(found, start=1):
+        rows = []
+        for row in t.extract():
+            cells = [re.sub(r"\s+", " ", c or "").strip() for c in row]
+            if any(cells):
+                rows.append(cells)
+        if len(rows) < 2:
+            continue
+        tables.append((f"Table {i} on page {page.number + 1}", rows))
+        table_items.append((t.bbox[1], "\n".join(" · ".join(c or "—" for c in r) for r in rows)))
+    items: list[tuple[float, str]] = []
+    for b in page.get_text("blocks"):
+        if b[6] != 0:  # image block
+            continue
+        r = pymupdf.Rect(b[:4])
+        area = max(r.get_area(), 1e-6)
+        if any((r & tr).get_area() > 0.5 * area for tr in rects):
+            continue  # this text is part of a table — written from the grid instead
+        items.append((b[1], b[4].rstrip("\n")))
+    # Keep the page's natural block order; slot each table in before the
+    # first block that starts below it.
+    for y, text in sorted(table_items):
+        pos = next((k for k, (by, _t) in enumerate(items) if by > y), len(items))
+        items.insert(pos, (y, text))
+    return "\n".join(t for _y, t in items), tables
+
+
 def _extract_pdf(sid: int, path: Path) -> int:
     """
     Extract a PDF page by page. RETURNS the page count.
@@ -463,7 +519,7 @@ def _extract_pdf(sid: int, path: Path) -> int:
         sections: dict = {}  # document part carried from page to page
         for index, page in enumerate(doc):
             _set(current_page=index + 1)
-            text = page.get_text("text")
+            text, tables = _page_text(page)
             ocr_used = False
             images: list[dict] = []
             if len(text.strip()) < SCANNED_PAGE_CHAR_THRESHOLD:
@@ -471,9 +527,16 @@ def _extract_pdf(sid: int, path: Path) -> int:
                 pix = page.get_pixmap(dpi=OCR_RENDER_DPI)
                 text = ocr.read_text(pix.tobytes("png"))
                 ocr_used = True
+                tables = []
             else:
                 images = _embedded_images(doc, page)
             _store_page(sid, index + 1, text, ocr_used, images, sections)
+            if tables:
+                with db.connect() as conn:
+                    conn.executemany(
+                        "INSERT INTO doc_tables(source_id, page_number, name, rows_json) VALUES (?, ?, ?, ?)",
+                        [(sid, index + 1, name, json.dumps(rows)) for name, rows in tables],
+                    )
         return total
 
 
@@ -669,6 +732,40 @@ def rechunk_all() -> int:
     return created
 
 
+# Bump when the way text is READ from files changes (not just how it is cut
+# into passages): existing banks then re-read their original files once.
+#   2 (v0.6.2): PDF tables kept as tables; OCR rebuilds table rows and
+#               repairs broken IPs/dates.
+EXTRACT_VERSION = 2
+
+
+def reread_all() -> int:
+    """
+    One-time upgrade after EXTRACT_VERSION changes.
+
+    PDFs and images whose original file is still in place are re-read from
+    scratch (marked 'pending', so the normal import worker does it, with
+    progress shown in the Library). Files whose original has moved, and
+    spreadsheets, keep their stored text and are only re-organised with the
+    current passage rules (rechunk_all). Topics are cleared because passage
+    ids change — the owner presses "Build topics" again.
+    RETURNS how many files will be re-read.
+    """
+    with db.connect() as conn:
+        conn.execute("DELETE FROM topics")
+        rows = conn.execute(
+            "SELECT id, original_path, file_type FROM sources WHERE status = 'extracted'").fetchall()
+        again = [r["id"] for r in rows
+                 if r["file_type"] in ("pdf", "image") and Path(r["original_path"]).exists()]
+        for sid in again:
+            conn.execute("DELETE FROM passages WHERE source_id = ?", (sid,))
+            conn.execute("UPDATE sources SET status = 'pending' WHERE id = ?", (sid,))
+    db.set_setting("distill_last_run", None)
+    rechunk_all()  # everything not being re-read gets the current text rules
+    db.set_setting("extract_version", EXTRACT_VERSION)
+    return len(again)
+
+
 def resume_interrupted() -> int:
     """
     A file left in 'extracting' means the app was closed mid-import.
@@ -692,6 +789,13 @@ def start() -> None:
     # in the background (before any new imports run).
     with db.connect() as conn:
         has_passages = conn.execute("SELECT 1 FROM passages LIMIT 1").fetchone()
+    if db.get_setting("extract_version") != EXTRACT_VERSION:
+        if has_passages:
+            threading.Thread(target=lambda: (reread_all(), _ensure_worker()),
+                             name="kb-reread", daemon=True).start()
+            threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()
+            return
+        db.set_setting("extract_version", EXTRACT_VERSION)
     if db.get_setting("chunker_version") != chunking.CHUNKER_VERSION:
         if has_passages:
             threading.Thread(target=lambda: (rechunk_all(), _ensure_worker()),

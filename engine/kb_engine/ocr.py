@@ -24,6 +24,7 @@ PERFORMANCE: ~1–2 s per page-sized image. The engine is loaded once, on
 """
 
 import io
+import re
 import threading
 
 from PIL import Image
@@ -102,12 +103,76 @@ def read_text(image_bytes: bytes) -> str:
         return ""
     if not result:
         return ""
-    # Each item: [box_points, text, confidence]. Sort by the top-left corner:
-    # rows first (rounded to ~10 px so words on one line stay together), then x.
-    lines = [
-        (round(item[0][0][1] / 10), item[0][0][0], item[1])
-        for item in result
-        if float(item[2]) >= MIN_CONFIDENCE and item[1].strip()
-    ]
-    lines.sort()
-    return "\n".join(text for _row, _x, text in lines)
+    items = [(item[0], item[1]) for item in result
+             if float(item[2]) >= MIN_CONFIDENCE and item[1].strip()]
+    return fix_ocr_text(assemble_rows(items))
+
+
+def assemble_rows(items: list) -> str:
+    """
+    Rebuild lines (and table rows) from OCR boxes.
+
+    WHY (v0.6.2, owner's screenshot of a scanned log table): the OCR engine
+        returns one box per word group. The old code put every box on its
+        own line, so a table row "2025-07-28 18:21:10 | WINRDP01 | 4624 |
+        SUCCESS" became four separate lines, and short ones looked like
+        headings.
+    HOW:  boxes whose vertical centres fall within half a line height of each
+        other are one row; inside a row boxes are sorted left to right. A
+        horizontal gap wider than ~1.5 characters means a new table cell and is
+        written as " · " (the same cell separator spreadsheets use, which
+        chunking keeps as structure and the app draws as a table); a small
+        gap is a normal space.
+    items: [(box 4×[x, y], text)]. RETURNS text, one row per line.
+    """
+    boxes = []
+    for box, text in items:
+        xs = [p[0] for p in box]
+        ys = [p[1] for p in box]
+        boxes.append({"x0": min(xs), "x1": max(xs), "yc": (min(ys) + max(ys)) / 2,
+                      "h": max(1.0, max(ys) - min(ys)), "text": text.strip()})
+    boxes.sort(key=lambda b: (b["yc"], b["x0"]))
+    rows: list[list[dict]] = []
+    for b in boxes:
+        row = rows[-1] if rows else None
+        if row is not None:
+            yc = sum(r["yc"] for r in row) / len(row)
+            h = sum(r["h"] for r in row) / len(row)
+            if abs(b["yc"] - yc) <= 0.5 * max(h, b["h"]):
+                row.append(b)
+                continue
+        rows.append([b])
+    out = []
+    for row in rows:
+        row.sort(key=lambda b: b["x0"])
+        line = row[0]["text"]
+        for prev, cur in zip(row, row[1:]):
+            char_w = (prev["x1"] - prev["x0"]) / max(1, len(prev["text"]))
+            gap = cur["x0"] - prev["x1"]
+            # The OCR engine already groups words of one phrase into one box,
+            # so two boxes on a row are usually separate cells; only a
+            # gap of about one character is treated as an ordinary space.
+            # A lower-case word after a gap, following a word, continues the
+            # sentence (justified or spaced-out prose) — not a new cell. Data
+            # such as "10" → "admin@corp.local" still splits.
+            continues = cur["text"][:1].islower() and prev["text"][-1:].isalpha() \
+                and "@" not in cur["text"].split(" ")[0]
+            new_cell = gap > max(1.5 * char_w, 0.5 * prev["h"]) and not continues
+            line += (" · " if new_cell else " ") + cur["text"]
+        out.append(line)
+    return "\n".join(out)
+
+
+# Common OCR breaks in security text: "192.168.1. 88" → "192.168.1.88",
+# "2025-0728" → "2025-07-28", "10 . 0 . 0 . 5" → "10.0.0.5",
+# "2025-07-2818:21:10" → "2025-07-28 18:21:10".
+_IP_SPLIT = re.compile(r"\b(\d{1,3})\s*\.\s*(\d{1,3})\s*\.\s*(\d{1,3})\s*\.\s*(\d{1,3})\b")
+_DATE_SQUASH = re.compile(r"\b((?:19|20)\d{2})-(\d{2})(\d{2})\b")
+_DATE_TIME_GLUED = re.compile(r"\b((?:19|20)\d{2}-\d{2}-\d{2})(\d{2}:\d{2})")
+
+
+def fix_ocr_text(text: str) -> str:
+    """Repair predictable OCR spacing mistakes in IP addresses and dates."""
+    text = _IP_SPLIT.sub(r"\1.\2.\3.\4", text)
+    text = _DATE_SQUASH.sub(r"\1-\2-\3", text)
+    return _DATE_TIME_GLUED.sub(r"\1 \2", text)  # "2025-07-2818:21" → "2025-07-28 18:21"

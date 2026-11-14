@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.6.1 — automatic visual lessons (diagrams + quiz, fact-checked) and Excel/CSV import, on top of written articles and the AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.6.2 — automatic visual lessons (diagrams + quiz, fact-checked) and Excel/CSV import, on top of written articles and the AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---

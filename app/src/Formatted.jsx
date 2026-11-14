@@ -39,11 +39,15 @@ const CODE_LINE = /^\s*(\||let\s|union\s|search\s|index=|(SecurityEvent|SigninLo
 const KQL_WORDS = /\b(where|project|summarize|extend|join|order by|sort by|take|top|count|distinct|mv-expand|parse|union|render|let|by|bin|ago|has_any|has|contains|startswith|endswith|in~|in|and|or|not|stats|eval|table|dedup|rex|search)\b/gi;
 const TOKEN = /(\bT\d{4}(?:\.\d{3})?\b|\bEvent ID\s*\d{1,5}\b|\bEventID\s*==\s*\d{1,5}\b)/g;
 
+// Small joining words don't count against a title ("Containment and Response").
+const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "of", "on", "or", "the", "to", "vs", "via", "with"]);
+
 /** Is a short line a heading? Same rule as chunking.py: mostly capitalised, no end punctuation. */
 function isHeading(line) {
   const s = line.trim();
-  if (s.length < 3 || s.length > 70 || /[.,;]$/.test(s)) return false;
-  const words = s.match(/[A-Za-z][A-Za-z'-]*/g) || [];
+  if (s.length < 3 || s.length > 70 || /[.,;]$/.test(s) || s.includes(" · ")) return false;
+  if (!s.includes(" ") && /\d/.test(s)) return false; // "WINRDP01", "4624" are data
+  const words = (s.match(/[A-Za-z][A-Za-z'-]*/g) || []).filter((w) => !SMALL_WORDS.has(w.toLowerCase()));
   if (!words.length) return false;
   return words.filter((w) => w[0] === w[0].toUpperCase()).length / words.length >= 0.7;
 }
@@ -114,7 +118,8 @@ function toBlocks(text) {
   for (const raw of String(text).split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    if (CODE_LINE.test(line)) push("code", line);
+    if (line.includes(" · ")) push("table", line.split(" · ").map((c) => (c === "—" ? "" : c)));
+    else if (CODE_LINE.test(line)) push("code", line);
     else if (BULLET.test(line)) {
       const sym = line.match(BULLET)[1];
       push("list", { marker: null, level: LEVEL[sym] ?? 1, text: line.replace(BULLET, "") });
@@ -130,6 +135,42 @@ function toBlocks(text) {
   return blocks;
 }
 
+/**
+ * Table rows (cells joined by " · " — from PDF tables, scanned tables and
+ * spreadsheets) drawn as a real table. The first row is a header when all
+ * its cells are short words without digits ("Step | Action").
+ */
+function RowTable({ rows }) {
+  const width = Math.max(...rows.map((r) => r.length));
+  const head = rows.length > 1 && rows[0].every((c) => c && c.length <= 30 && !/\d/.test(c));
+  const body = head ? rows.slice(1) : rows;
+  const pad = (r) => [...r, ...Array(width - r.length).fill("")];
+  return (
+    <div className="fmt-table-wrap">
+      <table className="fmt-table">
+        {head && (
+          <thead>
+            <tr>
+              {pad(rows[0]).map((c, j) => (
+                <th key={j}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {body.map((r, i) => (
+            <tr key={i}>
+              {pad(r).map((c, j) => (
+                <td key={j}>{withTags(c, `r${i}-${j}-`)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** A source passage, structured, with Show more/less beyond `collapseAt` blocks. */
 export function Formatted({ text, collapseAt = 6 }) {
   const [open, setOpen] = useState(false);
@@ -140,6 +181,10 @@ export function Formatted({ text, collapseAt = 6 }) {
       {shown.map((b, i) => {
         if (b.type === "heading") return <p key={i} className="fmt-heading">{withTags(b.lines[0])}</p>;
         if (b.type === "code") return <CodeBlock key={i} code={b.lines.join("\n")} />;
+        // A single stray row is shown as a sentence; 2+ rows are a table.
+        if (b.type === "table" && b.lines.length === 1)
+          return <p key={i} className="fmt-para">{withTags(b.lines[0].filter(Boolean).join(" · "))}</p>;
+        if (b.type === "table") return <RowTable key={i} rows={b.lines} />;
         if (b.type === "list")
           return (
             // One list for numbered items and nested bullets together, so

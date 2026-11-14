@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.6.1 — topic grouping fixed, readable source points with context, version shown in the app |
-| Document version | 2.1 |
+| Current version | KB v0.6.2 — tables kept as tables (PDF + scanned), clearer list markers, heading fixes |
+| Document version | 2.2 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -282,11 +282,25 @@ Owner imported 6 PDFs (281 pages, 304 passages; 45 pages read by OCR) with v0.5.
 
 Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
 
+## 9h. v0.6.2 — reading polish from the owner's screenshot (14 Nov 2026)
+
+| Problem seen | Cause | Fix |
+|---|---|---|
+| Sub-points looked like the letter "o" | v0.6.1 drew level-2 bullets as a hollow ring | Three distinct markers: dot (level 1), dash (level 2), small square (level 3) |
+| "Step / Action" table became "1 Lock… 2 Block… 3 Notify…" on one line | Plain PDF text extraction reads tables cell by cell | `importer._page_text` uses PyMuPDF's table finder: each row becomes one line with cells joined by " · ", in its place on the page; the exact grid is saved to `doc_tables`, which lessons draw as tables. The app draws 2+ such rows as a real table. |
+| Scanned log table: every cell on its own line, "WINRDPO1"/"SUCCESS" shown as headings | OCR boxes were written one per line | `ocr.assemble_rows` rebuilds rows from box positions (wide gap = new cell). A lower-case word after a word continues a sentence. |
+| "192.168.1. 88", "2025-0728", "2025-07-2818:21" | OCR spacing errors | `ocr.fix_ocr_text` repairs IP addresses, squashed dates and glued date+time |
+| "Containment and Response" not a heading | Lower-case "and" counted against it | Small joining words are ignored. Single tokens containing digits and list items are never headings. |
+| A bullet "▪ VPN?" became a document section | ALL-CAPS short bullet passed the part-heading test | Covered by the same rule (list items are never headings) |
+| Heading repeated under the file › section bar | — | The repeated first line is hidden |
+
+**Upgrade:** `EXTRACT_VERSION` = 2. On first start, every PDF or image whose original file is still in place is re-read once, with progress shown in the Library. Files that have moved keep their stored text and are only re-organised. Topics must then be rebuilt.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
 - **Merged articles are AI-written.** Every line links to its source so it can be checked in one click.
-- **Poor scans or handwriting** reduce OCR accuracy.
+- **Poor scans or handwriting** reduce OCR accuracy. Letter/number look-alikes (O/0, l/1, as in "WINRDPO1") can't be corrected automatically.
 - **Password-protected PDFs** are listed as failed with a clear message; remove the password and add them again (entering a password inside the app is a planned improvement).
 - If an original file is **moved or deleted** before it is imported, that file fails with a message; once imported, its text stays in the bank regardless.
 - **Topics are rebuilt as a whole** each time "Build topics" runs (embeddings are reused, so it's quick). Automatic per-file topic updates come with Phase 7.
@@ -342,3 +356,4 @@ Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
 | 14 Nov 2026 | Doc 1.9 / KB v0.5.1 | Benchmark received: qwen3.5:4b chosen for everything; comparison-model removal; writer sized for 4 GB (no cut-off answers); GPU cleared before embedding/writing to fix 1.2 passages/s embedding; live embedding speed + time left. Added section 9e. |
 | 14 Nov 2026 | Doc 2.0 / KB v0.6.0 | Automatic visual lessons for every topic (profile → calculated steps → AI plan from a fixed visual menu → fact check), ELK-laid-out diagrams, quiz, regenerate; Excel/CSV import with exact grids; schema v5; stricter number checks. Added section 9f. |
 | 14 Nov 2026 | Doc 2.1 / KB v0.6.1 | Owner test: 3 topics / 298 points in one → grouping on centred embeddings with re-measured thresholds, split/fold safety net. Unreadable source points → chunker v3 (Word bullet levels, ligatures, wrapped bullets), schema v6 passages.section, reading order + document-part headers + Read in context. Version shown top-right. Added section 9g. |
+| 14 Nov 2026 | Doc 2.2 / KB v0.6.2 | Owner screenshot polish: PDF and scanned tables kept as tables, OCR row rebuilding + IP/date repair, distinct bullet markers, heading rule fixes, one-time re-read of original files (EXTRACT_VERSION 2). Added section 9h. |

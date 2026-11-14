@@ -55,7 +55,7 @@ import hashlib
 import re
 import unicodedata
 
-CHUNKER_VERSION = 3  # bump when clean()/split_passages() rules change
+CHUNKER_VERSION = 4  # bump when clean()/split_passages() rules change
 
 TARGET_WORDS = 180   # aim for passages about this long
 MAX_WORDS = 260      # never longer than this (long blocks get split)
@@ -100,6 +100,10 @@ _CODE_START = re.compile(
 )
 
 
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "of", "on",
+                "or", "the", "to", "vs", "via", "with"}
+
+
 def _is_heading(line: str) -> bool:
     """
     Short line that looks like a title: under ~70 characters, no sentence
@@ -107,9 +111,16 @@ def _is_heading(line: str) -> bool:
     Logic", "USE CASE 9: DLL SIDELOADING").
     """
     s = line.strip()
-    if not (3 <= len(s) <= 70) or s.endswith((".", ",", ";")):
+    if not (3 <= len(s) <= 70) or s.endswith((".", ",", ";")) or " · " in s:
         return False
-    words = [w for w in re.findall(r"[A-Za-z][A-Za-z\-']*", s)]
+    if _BULLET.match(s):  # a list item ("▪ VPN?", "1. Step") is never a heading
+        return False
+    # A single token with digits ("WINRDP01", "4624") is data, not a title.
+    if " " not in s and re.search(r"\d", s):
+        return False
+    # Small joining words don't count against a title (v0.6.2): "Containment
+    # and Response" is a heading even though "and" is lower-case.
+    words = [w for w in re.findall(r"[A-Za-z][A-Za-z\-']*", s) if w.lower() not in _SMALL_WORDS]
     if not words:
         return False
     caps = sum(1 for w in words if w[0].isupper())

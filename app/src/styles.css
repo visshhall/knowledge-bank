@@ -410,9 +410,18 @@ td { padding: 12px 10px 12px 0; border-bottom: 1px solid var(--line); vertical-a
 .fmt-tree li.lvl-2 { margin-left: 26px; }
 .fmt-tree li.lvl-3 { margin-left: 52px; }
 .fmt-tree .mk { position: absolute; left: 0; top: 0; width: 22px; text-align: right; color: var(--coral); font-weight: 700; }
-.fmt-tree .mk:not(.num)::before { content: ""; position: absolute; right: 6px; top: 0.7em; width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
-.fmt-tree li.lvl-2 .mk:not(.num)::before { background: transparent; border: 1.5px solid var(--teal); }
-.fmt-tree li.lvl-3 .mk:not(.num)::before { border-radius: 1px; background: var(--muted); width: 5px; height: 5px; }
+/* Bullet markers by level — three clearly different shapes, none of which
+   can be read as a letter: filled dot, short dash, small square. */
+.fmt-tree .mk:not(.num)::before { content: ""; position: absolute; right: 6px; top: 0.68em; width: 7px; height: 7px; border-radius: 50%; background: var(--teal); }
+.fmt-tree li.lvl-2 .mk:not(.num)::before { width: 9px; height: 2.5px; border-radius: 2px; top: 0.78em; background: var(--coral); }
+.fmt-tree li.lvl-3 .mk:not(.num)::before { width: 5px; height: 5px; border-radius: 1px; top: 0.74em; background: var(--muted); }
+
+/* Tables inside passages (PDF, scanned and spreadsheet rows) */
+.fmt-table-wrap { overflow-x: auto; margin: 8px 0 12px; }
+.fmt-table { border-collapse: collapse; font-size: 14px; background: var(--surface); }
+.fmt-table th, .fmt-table td { padding: 7px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.fmt-table th { background: var(--violet-soft); font-weight: 700; }
+.fmt-table td:first-child { font-variant-numeric: tabular-nums; }
 
 /* Source points: order switch, document-part headers, context (v0.6.1) */
 .points-bar { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface-2); margin: 4px 0 14px; }
