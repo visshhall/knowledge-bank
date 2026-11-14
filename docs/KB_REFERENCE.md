@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.4.1 — Phase 2 (Topics) + Sage Vivid design; benchmark fixed for 4 GB GPU; benchmark report still pending |
-| Document version | 1.7 |
+| Current version | KB v0.5 — Phase 3 (written articles), readable structured text, AI update checker |
+| Document version | 1.8 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -131,7 +131,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 0 | Foundation | Finalise models and storage for RTX 3050 4 GB / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
 | 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | **Delivered (v0.4)** — plus Topics screen |
-| 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | Not started |
+| 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | **Delivered (v0.5)** |
 | 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | Not started |
 | 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | Not started |
 | 6 | Web assist + cyber tools | Web fallback, MITRE ATT&CK tagging, IOC extraction, KQL library | Not started |
@@ -196,6 +196,23 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 **Tested (v0.4):** on Linux — topics built end-to-end from 6 PDFs (24 passages): embedding, grouping, 16 repeats merged, loose fit flagged, AI naming via a mock model, topic list and detail; grouping verified to separate three subjects perfectly with restarts; 60,000-passage scale test (~10 s per k-means run); all four screens screenshotted in the new design; database upgrade v2 → v3 on an existing bank. On the Windows build under Wine — engine starts, upgrades a v0.3 database to v3, serves stats/topics/status. **Not verifiable under Wine:** building topics and OCR (both need numpy maths that Wine lacks; real Windows has it). Real embedding quality is checked on the owner's laptop.
 
+## 9d. v0.5 — readable text, written articles (Phase 3), AI updates: what and why
+
+**Why this release:** after the owner's first real test (6 PDFs, 14 Nov 2026) the source points showed as one giant paragraph ("it will again become boring"). Two causes: (1) import flattened every line into one paragraph, destroying bullets, MITRE lists and KQL pipelines; (2) topics showed raw passages because Phase 3 (written articles) didn't exist yet. He also asked how he'd know whether the AI engine and models are old or new.
+
+| Part | File(s) | What it does | Why it's built this way |
+|---|---|---|---|
+| Structure-keeping text (chunker v2) | `engine/kb_engine/chunking.py` | Keeps bullets, numbered items, headings and query pipelines on their own lines; splits inline bullets ("… • T1055 – …") and inline pipes ("Sysmon \| where … \| project …") back onto separate lines; only wrapped prose is joined | Readability. A table name followed by words ("Sysmon Event IDs:") is prose, not code — rule fixed during testing |
+| Automatic re-organise | `importer.rechunk_all()` | When `CHUNKER_VERSION` changes, rebuilds every passage from stored page/picture text — no PDF is read again — then the owner rebuilds topics | Existing banks upgrade themselves; nothing to re-import |
+| Formatted display | `app/src/Formatted.jsx` | Shows passages as headings, lists, code boxes (Copy button, KQL/SPL keywords coloured) and paragraphs; MITRE IDs (violet) and event IDs (yellow) as tags; long passages collapse with "Show more" | Built by hand, React elements only — no raw HTML ever injected, so text from PDFs or AI can never run as code |
+| Article writer (Phase 3) | `engine/kb_engine/writer.py` | "Write articles" job: for each topic (largest first) the writing model turns its points into a page with sections Overview, Key points, How it works, Detection, Queries, MITRE ATT&CK, Response, Where sources disagree — leaving out unsupported sections. Every statement carries [n] markers; unknown markers are deleted, never trusted | Owner's core request: one clean page per subject, nothing missed, every line traceable. Big topics are read in batches of 12 points (up to 96, most central first) condensed to cited notes, then written up — so large topics aren't judged from only their first few points. Each article is saved as soon as it's done; Cancel stops after the current one; the next run continues where it left off |
+| Article model | `writer.write_model()` | Uses the owner's saved choice (setting `write_model`, set after the benchmark) or the fast 4B model | Fits the RTX 3050's 4 GB; ~30–90 s per topic, so a big library is an overnight job |
+| Articles survive rebuilds | `distill._save()` | When topics are rebuilt, a new topic sharing ≥ 60% of its passages with an old written topic inherits its article | Adding a few files doesn't throw away hours of writing |
+| Citations | `topics.citations` (schema v4), `distill.topic_detail()` | Each [n] maps to a passage; shown as a clickable chip that opens the exact source text, file and page in a side panel | Every line can be checked in one click |
+| AI update checker | `engine/kb_engine/updates.py`, `app/src/Updates.jsx` | "Check for updates" (Setup): Ollama installed vs latest GitHub release; each model's local fingerprint vs the fingerprint published in Ollama's model library; Update buttons (models re-download only changed parts; Ollama via its official installer) | Exact, not date-based: Ollama's local model ID is the SHA-256 of the published manifest (verified: qwen3:8b → 500a1f067a9f, nomic-embed-text → 0a109f422b47). Online only when the button is pressed; sends only model names, never documents. "Couldn't check" when a comparison isn't possible — never a false "update available" |
+
+**Tested (v0.5):** on Linux — chunker v2 on real-world use-case text (MITRE lists, Event IDs, KQL pipelines), automatic re-organise of an existing bank, schema v3 → v4, article writing end-to-end (mock model) incl. removal of invalid citations, articles carried over after a topics rebuild, update check against the real Ollama model library, Topics screens (cards with "Article ready", article tab with coloured sections and steps, citation side panel, structured source points) screenshotted. On the Windows build under Wine — engine starts, upgrades a v0.4 bank to schema v4 and re-organises its text (chunker_version 2), search/write/update endpoints answer. **Not verifiable here:** article quality from the real 4B model on the owner's PDFs.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -251,3 +268,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.5 / KB v0.3 | Phase 1 Import delivered (importer, OCR via RapidOCR, passages, watched folders, duplicate tracking, instant search, Library screen); new blueprint design replacing the LumenSutra-like look; side-rail navigation; Overview schematic; database schema v2; OCR made non-fatal. Added section 9b. |
 | 14 Nov 2026 | Doc 1.6 / KB v0.4 | Phase 2 Topics delivered (distill.py: embeddings, spherical k-means with restarts, repeat groups, coverage + loose fits, topic links, AI/keyword naming; Topics screen). Owner-chosen Sage Vivid design replaces the blueprint look (DM Sans + Literata, four bold accents, icons). Schema v3 (topic_passages.fit). numpy loaded lazily. Added section 9c. |
 | 14 Nov 2026 | Doc 1.7 / KB v0.4.1 | Owner's first benchmark run (v0.2) appeared stuck on model 1 of 4. Cause: no progress shown inside a model, plus settings too heavy for a 4 GB GPU (1,800-word excerpts, 8,192-token window, no answer-length cap → work spilled onto the CPU). Fix: live per-summary progress and elapsed time, Cancel button (POST /setup/benchmark/cancel), 1,200-word excerpts, 4,096-token window, 700-token answer cap, 6 PDFs by default. Tested with a slow mock: progress per summary, cancel, full run to report. |
+| 14 Nov 2026 | Doc 1.8 / KB v0.5 | Owner found raw passages unreadable and asked about AI updates. Chunker v2 keeps structure + automatic re-organise of existing banks; Formatted.jsx display; Phase 3 article writer with citations, batching for big topics, carry-over on rebuild; schema v4; AI update checker (Ollama + model fingerprints). Added section 9d. |

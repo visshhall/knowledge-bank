@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.4 — Phase 2 (Topics) + Sage Vivid design, delivered as a Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.5 — Phase 3 (written articles), readable text, AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -46,7 +46,9 @@ knowledge-bank/
 │   ├── src/App.jsx           Side rail, engine status, Setup screen
 │   ├── src/Overview.jsx      Home: schematic of the bank, totals, next step
 │   ├── src/Schematic.jsx     Drawing of files → passages → topics
-│   ├── src/Topics.jsx        Build topics, topic cards, topic detail
+│   ├── src/Topics.jsx        Build topics, write articles, topic cards, article + sources
+│   ├── src/Formatted.jsx     Structured display of passages and articles (no raw HTML)
+│   ├── src/Updates.jsx       AI updates card (Setup)
 │   ├── src/icons.jsx         Inline line icons
 │   ├── src/Library.jsx       Import, watched folders, search, file list
 │   ├── src/SetupWizard.jsx   In-app setup: AI engine, model downloads, benchmark
@@ -66,6 +68,8 @@ knowledge-bank/
 │       ├── chunking.py       Cuts page text into citable passages
 │       ├── search.py         Instant exact-word search
 │       ├── distill.py        Phase 2: embeddings, topics, repeats, links, names
+│       ├── writer.py         Phase 3: one structured, cited article per topic
+│       ├── updates.py        Checks/updates Ollama and the AI models
 │       ├── system_check.py   GPU / RAM / disk / Ollama / models readiness
 │       ├── ollama_client.py  Talks to the local AI models
 │       └── benchmark.py      Picks the best models for this laptop

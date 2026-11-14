@@ -74,6 +74,15 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "GET /distill/status",
   "GET /topics",
   "GET /topic",
+  // Phase 3 — articles
+  "POST /write/start",
+  "GET /write/status",
+  "POST /write/cancel",
+  // AI updates
+  "POST /updates/check",
+  "GET /updates/status",
+  "POST /updates/model",
+  "POST /updates/ollama",
 ]);
 
 /*

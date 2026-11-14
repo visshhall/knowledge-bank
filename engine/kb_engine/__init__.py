@@ -33,8 +33,10 @@ MODULES:
        search.py        — instant exact-word search
        distill.py       — Phase 2: embeddings, topics, repeat groups,
                           topic links, topic names
+       writer.py        — Phase 3: one structured, cited article per topic
+       updates.py       — checks/updates Ollama and the AI models
 """
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.4.1"
+__version__ = "0.5.0"

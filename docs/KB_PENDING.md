@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.4.1 (benchmark fixed for 4 GB GPU — benchmark report still pending)
+**Current version:** v0.5 (articles, readable text, AI updates — benchmark report still pending)
 **Last updated:** 14 November 2026
 
 ---
@@ -12,8 +12,11 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] GitHub access granted — code is pushed to `visshhall/knowledge-bank`
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
-- [ ] Install `KnowledgeBank-Setup-0.4.1.exe` over the previous version (data and models are kept) — after model downloads finish
-- [ ] Topics screen → Build topics, then check the topic names and groupings make sense
+- [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
+- [ ] Install `KnowledgeBank-Setup-0.5.0.exe` over the previous version (data and models are kept) — after model downloads finish
+- [ ] Topics → Rebuild topics (needed once after v0.5's text re-organise), then Write articles
+- [ ] Read a few articles; report anything wrong (missing facts, wrong citations, bad sections)
+- [ ] Setup → AI updates → Check for updates
 - [ ] Add PDFs in Library and check: scanned pages show a count in the Scanned column (confirms OCR works on Windows)
 - [ ] Open the app → confirm "Engine ready" and the Setup panel
 - [ ] Setup step 1: Install AI engine · step 2: Download AI models · step 3: run the benchmark on a folder of 5–10 PDFs
@@ -65,8 +68,17 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [ ] Vector index for meaning-based search (Phase 4, with answer pages)
 - [ ] Tune thresholds on the owner's real library after first run
 
-## Phase 3 — Write the knowledge bank
-- [ ] Merged topic articles with per-line sources and conflict flags (overnight job)
+## Phase 3 — Write the knowledge bank ✅ delivered in v0.5
+- [x] One structured article per topic (Overview, Key points, How it works, Detection, Queries, MITRE, Response, Disagreements)
+- [x] Citations on every statement → clickable source panel (file + page)
+- [x] Big topics read in batches (up to 96 points)
+- [x] Resumable overnight job with progress and Cancel
+- [x] Articles carried over when topics are rebuilt
+- [x] Readable structured source text (chunker v2 + Formatted display)
+- [x] AI update checker (Ollama + models) with Update buttons
+- [ ] Choose writing model from the benchmark report (setting `write_model`)
+- [ ] "Rewrite all articles" button (engine supports it; UI later)
+- [ ] Deeper conflict detection between sources (beyond the article's "Where sources disagree")
 
 ## Phase 4 — Interface
 - [ ] Knowledge Map home (animated), topic pages, animated diagrams

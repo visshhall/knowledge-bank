@@ -471,19 +471,31 @@ def _run() -> None:
 
 def _save(ids, labels, fit, groups, names, links, k) -> None:
     """
-    Replace all draft topics in ONE transaction. Topics already written up
-    in Phase 3 ('written') are left untouched by design — they are rebuilt
-    by Phase 3's own update step, not here.
+    Replace all topics in ONE transaction.
+
+    Written articles (Phase 3) are carried over: each new topic that shares
+    at least 60% of its passages with an old written topic (Jaccard
+    similarity) inherits that article, so rebuilding topics after adding a
+    few files doesn't throw away hours of overnight writing. Topics that
+    changed a lot are marked unwritten and get a fresh article next run.
     """
     with db.connect() as conn:
+        old_written: list[dict] = []
+        for t in conn.execute(
+            "SELECT id, body_markdown, citations, model_used, written_at FROM topics WHERE status = 'written'"
+        ).fetchall():
+            members = {r[0] for r in conn.execute(
+                "SELECT passage_id FROM topic_passages WHERE topic_id = ?", (t["id"],))}
+            old_written.append({**dict(t), "members": members})
+
         conn.execute("UPDATE passages SET cluster_id = NULL")
         conn.executemany(
             "UPDATE passages SET cluster_id = ? WHERE id = ?",
             [(int(g), int(i)) for g, i in zip(groups, ids)],
         )
-        conn.execute("DELETE FROM topics WHERE status = 'draft'")  # cascades links/memberships
+        conn.execute("DELETE FROM topics")  # cascades links/memberships/conflicts
         topic_ids: list[int] = []
-        used_slugs: set[str] = {r[0] for r in conn.execute("SELECT slug FROM topics")}
+        used_slugs: set[str] = set()
         for t in range(k):
             title, summary = names[t]
             slug = base = _slugify(title)
@@ -506,6 +518,26 @@ def _save(ids, labels, fit, groups, names, links, k) -> None:
             [(topic_ids[a], topic_ids[b], w) for a, b, w in links],
         )
 
+        # Carry articles over to matching new topics.
+        if old_written:
+            new_members: dict[int, set[int]] = {}
+            for l, i in zip(labels, ids):
+                new_members.setdefault(int(l), set()).add(int(i))
+            for t, members in new_members.items():
+                best, best_score = None, 0.0
+                for old in old_written:
+                    union = len(members | old["members"])
+                    score = len(members & old["members"]) / union if union else 0.0
+                    if score > best_score:
+                        best, best_score = old, score
+                if best and best_score >= 0.6:
+                    conn.execute(
+                        "UPDATE topics SET body_markdown = ?, citations = ?, model_used = ?, "
+                        "written_at = ?, status = 'written' WHERE id = ?",
+                        (best["body_markdown"], best["citations"], best["model_used"],
+                         best["written_at"], topic_ids[t]),
+                    )
+
 
 # ---------------------------------------------------------------------------
 # Reading topics (Topics screen)
@@ -520,7 +552,7 @@ def list_topics() -> dict:
     with db.connect() as conn:
         rows = conn.execute(
             """
-            SELECT t.id, t.slug, t.title, t.summary, t.status,
+            SELECT t.id, t.slug, t.title, t.summary, t.status, t.written_at,
                    COUNT(tp.passage_id)                AS passages,
                    COUNT(DISTINCT p.cluster_id)        AS points,
                    COUNT(DISTINCT p.source_id)         AS sources,
@@ -546,8 +578,9 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
     shows its text once plus every file + page that said it.
     """
     with db.connect() as conn:
-        t = conn.execute("SELECT id, slug, title, summary, status FROM topics WHERE id = ?",
-                         (topic_id,)).fetchone()
+        t = conn.execute(
+            "SELECT id, slug, title, summary, status, body_markdown, citations, model_used, written_at "
+            "FROM topics WHERE id = ?", (topic_id,)).fetchone()
         if not t:
             return None
         rows = conn.execute(
@@ -580,5 +613,19 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
             point = points[key] = {"id": key, "text": r["text"], "fit": round(r["fit"], 3), "sources": []}
         point["sources"].append({"source_id": r["source_id"], "file_name": r["file_name"],
                                  "page": r["page_number"]})
-    return {"topic": dict(t), "points": list(points.values()),
+
+    # Article markers [n] → the point (repeat group) they cite. Stored
+    # citations hold passage ids; map each to its current group so the link
+    # survives a topic rebuild.
+    citations: dict[str, int] = {}
+    raw = json.loads(t["citations"]) if t["citations"] else {}
+    if raw:
+        with db.connect() as conn:
+            for marker, pid in raw.items():
+                row = conn.execute("SELECT cluster_id FROM passages WHERE id = ?", (pid,)).fetchone()
+                if row:
+                    citations[marker] = row["cluster_id"] or pid
+    topic = {k: t[k] for k in ("id", "slug", "title", "summary", "status", "model_used", "written_at")}
+    topic["article"] = t["body_markdown"] if t["status"] == "written" else None
+    return {"topic": topic, "points": list(points.values()), "citations": citations,
             "related": [dict(x) for x in related], "loose_threshold": LOOSE_FIT}

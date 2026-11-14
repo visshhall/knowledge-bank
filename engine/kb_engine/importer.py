@@ -16,6 +16,9 @@ WHAT:  1. add_paths(): accepts files and/or folders (folders are searched
           owner's chosen folders are imported automatically.
        4. remove_source(): takes a file out of the bank (its pages,
           passages and images go with it). The original file is untouched.
+       5. rechunk_all(): when the passage rules change (CHUNKER_VERSION in
+          chunking.py), rebuilds every passage from the page text already
+          stored — no PDF is read again.
 
 WHY:   Import is the foundation of everything else: distilling (Phase 2),
        topic writing (Phase 3) and search all work on the passages created
@@ -507,6 +510,64 @@ def _watch_loop() -> None:
 # Startup
 # ---------------------------------------------------------------------------
 
+def rechunk_all() -> int:
+    """
+    Rebuild every passage from stored page text using the current chunking
+    rules, then record the new CHUNKER_VERSION.
+
+    WHY:   v0.5 changed how text is kept (bullets/queries on their own
+           lines). Existing banks are upgraded without re-reading any PDF:
+           page text (pages.text) and picture text (images.ocr_text) are
+           already stored.
+    SIDE EFFECTS: passage ids change, so meaning-vectors and topics built on
+           the old passages are cleared — the owner presses "Build topics"
+           again (the Topics screen says so).
+    RETURNS the number of passages created.
+    """
+    with db.connect() as conn:
+        sources = [r["id"] for r in conn.execute("SELECT id FROM sources WHERE status = 'extracted'")]
+    _set(state="running", current_file="Re-organising text for easier reading", files_done=0,
+         files_queued=len(sources), current_page=0, page_count=0)
+    created = 0
+    try:
+        with db.connect() as conn:
+            conn.execute("DELETE FROM topics")                 # built on old passage ids
+        db.set_setting("distill_last_run", None)
+        for n, sid in enumerate(sources, start=1):
+            with db.connect() as conn:
+                conn.execute("DELETE FROM passages WHERE source_id = ?", (sid,))
+                pages = conn.execute(
+                    "SELECT id, page_number, text FROM pages WHERE source_id = ? ORDER BY page_number", (sid,)
+                ).fetchall()
+                images = conn.execute(
+                    "SELECT page_number, ocr_text FROM images WHERE source_id = ?", (sid,)
+                ).fetchall()
+                by_page: dict[int, list[str]] = {}
+                for img in images:
+                    by_page.setdefault(img["page_number"], []).append(img["ocr_text"] or "")
+                for pg in pages:
+                    ordinal = 0
+                    pieces = [(p, p) for p in chunking.split_passages(pg["text"])]
+                    for ocr_text in by_page.get(pg["page_number"], []):
+                        if len(ocr_text.split()) >= MIN_IMAGE_WORDS:
+                            pieces += [(f"[Image on page {pg['page_number']}] {p}", p)
+                                       for p in chunking.split_passages(ocr_text)]
+                    for shown, core in pieces:
+                        conn.execute(
+                            "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
+                            "token_count, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (sid, pg["id"], pg["page_number"], ordinal, shown,
+                             chunking.approx_tokens(shown), chunking.fingerprint(core)),
+                        )
+                        ordinal += 1
+                        created += 1
+            _set(files_done=n, files_queued=len(sources) - n)
+        db.set_setting("chunker_version", chunking.CHUNKER_VERSION)
+    finally:
+        _set(state="idle", current_file=None, files_queued=0)
+    return created
+
+
 def resume_interrupted() -> int:
     """
     A file left in 'extracting' means the app was closed mid-import.
@@ -526,5 +587,16 @@ def start() -> None:
     watched-folder scanner.
     """
     resume_interrupted()
+    # New install → just record the version. Older bank → re-organise text
+    # in the background (before any new imports run).
+    with db.connect() as conn:
+        has_passages = conn.execute("SELECT 1 FROM passages LIMIT 1").fetchone()
+    if db.get_setting("chunker_version") != chunking.CHUNKER_VERSION:
+        if has_passages:
+            threading.Thread(target=lambda: (rechunk_all(), _ensure_worker()),
+                             name="kb-rechunk", daemon=True).start()
+            threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()
+            return
+        db.set_setting("chunker_version", chunking.CHUNKER_VERSION)
     _ensure_worker()
     threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()

@@ -47,13 +47,15 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
 # Version 2 = Phase 1 (import): settings + duplicate_files tables.
 # Version 3 = Phase 2 (distil): topic_passages.fit — how well each passage
 #             fits its topic (cosine similarity to the topic centre).
+# Version 4 = Phase 3 (articles): topics.citations (JSON map from the
+#             article's [n] markers to passage ids) and topics.written_at.
 _MIGRATIONS: list[tuple[int, list[str]]] = [
     (
         1,
@@ -268,6 +270,15 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
             # shown as "loose fits" for the owner to review.
             "ALTER TABLE topic_passages ADD COLUMN fit REAL NOT NULL DEFAULT 1.0",
             "CREATE INDEX IF NOT EXISTS idx_tp_topic ON topic_passages(topic_id)",
+        ],
+    ),
+    (
+        4,
+        [
+            # {"1": 812, "2": 77, ...}: article marker [1] → passage 812, so
+            # every line of a written article can show its exact file + page.
+            "ALTER TABLE topics ADD COLUMN citations TEXT",
+            "ALTER TABLE topics ADD COLUMN written_at TEXT",
         ],
     ),
 ]

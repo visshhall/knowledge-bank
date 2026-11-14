@@ -20,7 +20,7 @@
  *
  * WHEN:  Loaded once by main.jsx.
  * CONNECTED TO: class names in App.jsx, Overview.jsx, Schematic.jsx,
- *        Library.jsx, Topics.jsx, SetupWizard.jsx.
+ *        Library.jsx, Topics.jsx, Formatted.jsx, Updates.jsx, SetupWizard.jsx.
  */
 
 :root {
@@ -327,6 +327,96 @@ td { padding: 12px 10px 12px 0; border-bottom: 1px solid var(--line); vertical-a
 .point-sources li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--teal-soft); color: #165045; }
 .point-sources li span { font-weight: 500; }
 .points .small { margin-top: 8px; }
+
+/* ------------------------------------------------------------------------ */
+/* Topics: job panels (build + write)                                        */
+/* ------------------------------------------------------------------------ */
+.job-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.job { display: flex; gap: 16px; align-items: flex-start; }
+.job-icon { flex: none; width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--tone); color: var(--on-tone); }
+.job-body { flex: 1; min-width: 0; display: grid; gap: 10px; justify-items: start; }
+.job-body h2 { font-size: 18px; }
+.job-body .stages { margin-top: 0; width: 100%; }
+.job-body > div { width: 100%; }
+.bar.coral > div { background: var(--coral); }
+.topic-meta .ready { display: inline-flex; align-items: center; gap: 4px; background: var(--teal); color: var(--on-teal); }
+
+/* Tabs */
+.tabs { display: flex; gap: 6px; border-bottom: 2px solid var(--line); }
+.tab {
+  min-height: 40px; border-radius: 10px 10px 0 0; padding: 8px 18px; margin-bottom: -2px;
+  background: transparent; color: var(--muted); border: 0; border-bottom: 3px solid transparent;
+}
+.tab:hover:not(:disabled) { background: rgba(29, 41, 33, 0.05); color: var(--ink); }
+.tab.on { color: var(--violet); border-bottom-color: var(--violet); background: transparent; }
+.tab-count { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--violet-soft); color: #3f2a6e; }
+
+/* Article + source panel */
+.article-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.article { padding: 30px 34px; }
+.source-panel { position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow: auto; }
+.source-panel-head { display: flex; align-items: center; gap: 8px; font-weight: 800; margin-bottom: 10px; }
+
+.md { display: grid; gap: 12px; max-width: 76ch; }
+.md-h { display: flex; align-items: center; gap: 10px; font-size: 20px; margin-top: 14px; }
+.md-h:first-child { margin-top: 0; }
+.md-h-mark { width: 12px; height: 12px; border-radius: 4px; background: var(--tone); flex: none; }
+.md-p { font-family: var(--read); font-size: 16.5px; line-height: 1.7; }
+.md-list, .md-steps { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 8px; }
+.md-list li { position: relative; padding-left: 22px; font-family: var(--read); font-size: 16px; line-height: 1.6; }
+.md-list li::before { content: ""; position: absolute; left: 4px; top: 0.62em; width: 7px; height: 7px; border-radius: 2px; background: var(--forest); }
+.md-steps { counter-reset: step; }
+.md-steps li { counter-increment: step; position: relative; padding: 10px 14px 10px 50px; background: var(--surface-2); border-radius: var(--radius-sm); font-family: var(--read); font-size: 16px; line-height: 1.55; }
+.md-steps li::before { content: counter(step); position: absolute; left: 12px; top: 9px; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-family: var(--sans); font-weight: 800; font-size: 13px; background: var(--violet); color: var(--on-violet); }
+.md strong { font-weight: 700; }
+.inline-code { font-family: Consolas, "Cascadia Code", monospace; font-size: 0.9em; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+
+.cite {
+  min-height: 0; display: inline-grid; place-items: center; vertical-align: 2px;
+  min-width: 22px; height: 20px; padding: 0 6px; margin-left: 3px; border-radius: 6px;
+  font-family: var(--sans); font-size: 11.5px; font-weight: 800;
+  background: var(--teal-soft); color: #165045; border: 0;
+}
+.cite:hover:not(:disabled) { background: var(--teal); color: var(--on-teal); }
+.cite.static { cursor: default; }
+
+/* Tags for MITRE technique IDs and event IDs */
+.tag { display: inline-block; font-family: var(--sans); font-size: 0.86em; font-weight: 700; padding: 0 7px; border-radius: 6px; line-height: 1.6; }
+.tag-mitre { background: var(--violet-soft); color: #3f2a6e; }
+.tag-event { background: var(--mustard-soft); color: #5c4400; }
+
+/* Code blocks */
+.code-block { border-radius: var(--radius-sm); overflow: hidden; background: #1f3a2e; color: #e4efe6; }
+.code-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: #19302590; font-size: 12px; font-weight: 700; color: #9ed9b8; }
+.code-head .link { color: #cfe3d6; font-size: 12px; }
+.code-head .link:hover:not(:disabled) { color: #ffffff; }
+.code-block pre { margin: 0; padding: 12px 16px 14px; overflow-x: auto; font-family: Consolas, "Cascadia Code", monospace; font-size: 13.5px; line-height: 1.6; }
+.code-block .kw { color: #f2a98c; font-weight: 700; }
+.code-block .tag { background: transparent; color: #f5d477; padding: 0; }
+
+/* Structured source passages */
+.fmt { display: grid; gap: 8px; max-width: 78ch; }
+.fmt-heading { font-weight: 800; font-size: 15.5px; color: var(--forest); }
+.fmt-para { font-family: var(--read); font-size: 15.5px; line-height: 1.65; }
+.fmt-list { margin: 0; padding-left: 22px; display: grid; gap: 4px; font-family: var(--read); font-size: 15.5px; line-height: 1.55; }
+.fmt-list li::marker { color: var(--coral); }
+.more { justify-self: start; }
+
+/* AI updates */
+.update-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.update-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 12px 14px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.update-name { font-weight: 700; }
+.state { font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.state-up_to_date { background: var(--teal-soft); color: #165045; }
+.state-update_available { background: var(--coral); color: var(--on-coral); }
+.state-unknown, .state-not_installed { background: var(--line); color: var(--ink); }
+.foot-note { margin-top: 12px; }
+
+@media (max-width: 1100px) {
+  .article-layout { grid-template-columns: 1fr; }
+  .source-panel { position: static; max-height: none; }
+  .job-row { grid-template-columns: 1fr; }
+}
 
 /* ------------------------------------------------------------------------ */
 /* Setup wizard + readiness                                                  */

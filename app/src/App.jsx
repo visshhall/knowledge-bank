@@ -13,13 +13,14 @@
  *        and leaves the full width for content like tables and search.
  * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
  * CONNECTED TO: Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
- *        icons.jsx, bridge.js (engine status, /system), styles.css.
+ *        Updates.jsx, icons.jsx, bridge.js (engine status, /system), styles.css.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
 import Library from "./Library.jsx";
 import Topics from "./Topics.jsx";
 import SetupWizard from "./SetupWizard.jsx";
+import Updates from "./Updates.jsx";
 import Icon from "./icons.jsx";
 import { kb } from "./bridge.js";
 
@@ -107,7 +108,7 @@ export default function App() {
 }
 
 /**
- * Setup screen: the three-step wizard plus the readiness checklist.
+ * Setup screen: the three-step wizard, AI updates, and the readiness checklist.
  * The checklist refreshes by itself when Ollama starts/stops or setup
  * completes (fix from v0.2.1: it used to stay on "not answering").
  */
@@ -149,6 +150,8 @@ function SetupScreen() {
       </header>
 
       <SetupWizard onStatus={handleSetupStatus} />
+
+      <Updates />
 
       <section className="card readiness" aria-label="System readiness">
         <div className="section-head">

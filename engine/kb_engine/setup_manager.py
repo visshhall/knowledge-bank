@@ -213,8 +213,12 @@ def _install_ollama_worker() -> None:
         _update(_ollama_job, state="error", message=f"Could not install the AI engine: {exc}")
 
 
-def start_ollama_install() -> dict:
-    """Begin Job 1 in the background (ignored if it's already running)."""
+def start_ollama_install(force: bool = False) -> dict:
+    """
+    Begin Job 1 in the background (ignored if it's already running).
+    force=True is used by updates.py to install a newer Ollama over the
+    current one (the official installer upgrades in place).
+    """
     with _lock:
         if _ollama_job["state"] in ("downloading", "installing"):
             return {"ok": True, "message": "Already in progress."}
@@ -227,7 +231,7 @@ def start_ollama_install() -> dict:
 # Job 2: models
 # --------------------------------------------------------------------------- #
 
-def _pull_models_worker(names: list[str]) -> None:
+def _pull_models_worker(names: list[str], force: bool = False) -> None:
     """
     Background thread: download each missing model through Ollama's
     /api/pull, which streams one JSON line per progress update
@@ -237,8 +241,8 @@ def _pull_models_worker(names: list[str]) -> None:
     try:
         installed = ollama_client.installed_models()
         for name in names:
-            if ollama_client.has_model(name, installed):
-                continue
+            if not force and ollama_client.has_model(name, installed):
+                continue  # force=True (updates.py) re-pulls to fetch a newer version
             _update(_models_job, current=name, message=f"Downloading {name}…")
             with httpx.stream("POST", f"{config.OLLAMA_URL}/api/pull",
                               json={"model": name, "stream": True}, timeout=None) as r:
@@ -260,19 +264,26 @@ def _pull_models_worker(names: list[str]) -> None:
         _update(_models_job, state="error", current=None, message=f"Download stopped: {exc}")
 
 
-def start_model_downloads(include_benchmark_extras: bool = True) -> dict:
+def start_model_downloads(include_benchmark_extras: bool = True,
+                          names: list[str] | None = None, force: bool = False) -> dict:
     """
     Begin Job 2. include_benchmark_extras=False downloads only the three
     required models (~8 GB) instead of all candidates (~15 GB).
+    names + force=True: re-download exactly these models even if present —
+    used by updates.py to fetch a newer published version.
     """
     if not ollama_client.is_running():
         return {"ok": False, "message": "Start the AI engine first."}
-    names = WIZARD_MODELS if include_benchmark_extras else REQUIRED_MODELS
+    if names is None:
+        names = WIZARD_MODELS if include_benchmark_extras else REQUIRED_MODELS
     with _lock:
         if _models_job["state"] == "running":
             return {"ok": True, "message": "Already downloading."}
         _models_job.update(state="running", message="Starting downloads…", current=None)
-    threading.Thread(target=_pull_models_worker, args=(names,), daemon=True).start()
+    with _lock:
+        for n in names:                      # reset bars for re-downloads
+            _models_job["progress"].pop(n, None)
+    threading.Thread(target=_pull_models_worker, args=(names, force), daemon=True).start()
     return {"ok": True, "message": "Started."}
 
 

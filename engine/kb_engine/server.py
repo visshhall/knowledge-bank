@@ -23,7 +23,14 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /distill/start           — build topics (Phase 2)
          GET  /distill/status          — live progress of building topics
          GET  /topics                  — all topics with sizes + links
-         GET  /topic?id=...            — one topic's points and sources
+         GET  /topic?id=...            — one topic's article, points and sources
+         POST /write/start             — write topic articles (Phase 3)
+         GET  /write/status            — live progress of article writing
+         POST /write/cancel            — stop after the current article
+         POST /updates/check           — online check for Ollama/model updates
+         GET  /updates/status          — result of the last check
+         POST /updates/model           — update one model
+         POST /updates/ollama          — install the latest Ollama
        Later phases add written topic pages, answer pages, learn mode, etc.
 
 WHY:   Separating the window (Electron) from the engine (Python) means
@@ -44,7 +51,7 @@ SECURITY:
          and a warning is printed.
 
 CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
-       importer.py, search.py, distill.py; called by
+       importer.py, search.py, distill.py, writer.py, updates.py; called by
        app/electron/main.js (which relays requests from the window).
 """
 
@@ -57,7 +64,8 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import __version__, config, db, distill, importer, search, setup_manager, system_check
+from . import (__version__, config, db, distill, importer, search, setup_manager,
+               system_check, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -239,6 +247,58 @@ def topic(id: int) -> dict:
     if detail is None:
         raise HTTPException(status_code=404, detail="Topic not found")
     return detail
+
+
+# ---------------------------------------------------------------------------
+# Articles (Phase 3 — see writer.py)
+# ---------------------------------------------------------------------------
+
+class WriteRequest(BaseModel):
+    """rewrite_all=True rewrites existing articles too (e.g. after a model change)."""
+    rewrite_all: bool = False
+
+
+@app.post("/write/start", dependencies=[Depends(require_token)])
+def write_start(body: WriteRequest) -> dict:
+    return writer.start(body.rewrite_all)
+
+
+@app.get("/write/status", dependencies=[Depends(require_token)])
+def write_status() -> dict:
+    return writer.status()
+
+
+@app.post("/write/cancel", dependencies=[Depends(require_token)])
+def write_cancel() -> dict:
+    return writer.cancel()
+
+
+# ---------------------------------------------------------------------------
+# AI updates (see updates.py)
+# ---------------------------------------------------------------------------
+
+class ModelRequest(BaseModel):
+    name: str
+
+
+@app.post("/updates/check", dependencies=[Depends(require_token)])
+def updates_check() -> dict:
+    return updates.check()
+
+
+@app.get("/updates/status", dependencies=[Depends(require_token)])
+def updates_status() -> dict:
+    return updates.last_result()
+
+
+@app.post("/updates/model", dependencies=[Depends(require_token)])
+def updates_model(body: ModelRequest) -> dict:
+    return updates.update_model(body.name)
+
+
+@app.post("/updates/ollama", dependencies=[Depends(require_token)])
+def updates_ollama() -> dict:
+    return updates.update_ollama()
 
 
 def main() -> None:
