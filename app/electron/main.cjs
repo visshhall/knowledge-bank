@@ -60,6 +60,7 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /setup/models/pull",
   "POST /setup/benchmark/start",
   "POST /setup/benchmark/cancel",
+  "POST /setup/models/remove",
   // Phase 1 — import, library, search
   "GET /library",
   "POST /library/add",

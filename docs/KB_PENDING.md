@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.5 (articles, readable text, AI updates — benchmark report still pending)
+**Current version:** v0.5.1 (model decided: qwen3.5:4b)
 **Last updated:** 14 November 2026
 
 ---
@@ -13,14 +13,16 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.5.0.exe` over the previous version (data and models are kept) — after model downloads finish
+- [ ] Install `KnowledgeBank-Setup-0.5.1.exe` over the previous version
+- [ ] Setup → Remove comparison models (frees ~13 GB)
+- [ ] While topics build, note the "passages/s" speed shown and tell Claude (checks the embedding fix) (data and models are kept) — after model downloads finish
 - [ ] Topics → Rebuild topics (needed once after v0.5's text re-organise), then Write articles
 - [ ] Read a few articles; report anything wrong (missing facts, wrong citations, bad sections)
 - [ ] Setup → AI updates → Check for updates
 - [ ] Add PDFs in Library and check: scanned pages show a count in the Scanned column (confirms OCR works on Windows)
 - [ ] Open the app → confirm "Engine ready" and the Setup panel
 - [ ] Setup step 1: Install AI engine · step 2: Download AI models · step 3: run the benchmark on a folder of 5–10 PDFs
-- [ ] Send the benchmark `.md` report (Open report folder) to Claude
+- [x] Benchmark report sent (14 Nov) → qwen3.5:4b chosen
 
 ## Phase 0 — Foundation ✅ code complete
 
@@ -38,7 +40,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] v0.2: Windows installer with bundled private Python 3.12, per-user install, shortcuts, custom icon + version details
 - [x] v0.2: installer verified under Wine (installs, shortcuts, bundled engine runs and passes setup/benchmark flow against a mock AI service)
 - [x] Tested in Claude's workspace: DB create/upgrade/cascade/full-text sync, server token enforcement, benchmark end-to-end (against a mock AI service), Electron app launched and screenshotted, engine stops on close, PowerShell scripts parse-checked
-- [ ] Final model choice — from owner's benchmark
+- [x] Final model choice — qwen3.5:4b (benchmark 14 Nov)
 
 ## Phase 1 — Import ✅ delivered in v0.3
 
@@ -76,7 +78,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Articles carried over when topics are rebuilt
 - [x] Readable structured source text (chunker v2 + Formatted display)
 - [x] AI update checker (Ollama + models) with Update buttons
-- [ ] Choose writing model from the benchmark report (setting `write_model`)
+- [x] Writing model chosen from the benchmark: qwen3.5:4b
 - [ ] "Rewrite all articles" button (engine supports it; UI later)
 - [ ] Deeper conflict detection between sources (beyond the article's "Where sources disagree")
 

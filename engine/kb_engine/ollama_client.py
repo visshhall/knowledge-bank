@@ -219,3 +219,47 @@ def unload(model: str) -> None:
         )
     except httpx.HTTPError:
         pass
+
+
+def running_models() -> list[str]:
+    """Models currently loaded in memory (Ollama's /api/ps). [] if unreachable."""
+    try:
+        r = httpx.get(f"{config.OLLAMA_URL}/api/ps", timeout=5)
+        r.raise_for_status()
+        return [m["name"] for m in r.json().get("models", [])]
+    except httpx.HTTPError:
+        return []
+
+
+def clear_gpu_except(keep: str | None = None, wait_seconds: float = 20) -> None:
+    """
+    Unload every loaded model except `keep`, and WAIT until they're gone.
+
+    WHY:   The owner's benchmark measured embedding at 1.2 passages/second —
+           far too slow for a GPU. The likely cause: a big model was still
+           occupying the 4 GB card, so the embedding model was placed on the
+           CPU. unload() only *asks* Ollama to unload; this waits until
+           /api/ps confirms the memory is free before the next model loads.
+    CALLED BY: distill.py before embedding; writer.py before writing.
+    """
+    import time as _time
+
+    def others() -> list[str]:
+        k = keep if keep is None or ":" in keep else f"{keep}:latest"
+        return [m for m in running_models() if m not in (keep, k)]
+
+    for name in others():
+        unload(name)
+    deadline = _time.time() + wait_seconds
+    while others() and _time.time() < deadline:
+        _time.sleep(0.5)
+
+
+def delete_model(name: str) -> bool:
+    """Delete a downloaded model from disk (frees its space). True if deleted."""
+    try:
+        r = httpx.request("DELETE", f"{config.OLLAMA_URL}/api/delete", json={"model": name}, timeout=60)
+        return r.status_code == 200
+    except httpx.HTTPError:
+        return False
+

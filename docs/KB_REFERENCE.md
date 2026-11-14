@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.5 — Phase 3 (written articles), readable structured text, AI update checker |
-| Document version | 1.8 |
+| Current version | KB v0.5.1 — model decided by benchmark (qwen3.5:4b for everything); Phases 0–3 delivered |
+| Document version | 1.9 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -118,7 +118,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | PDF reading | PyMuPDF (candidate) | Fast, page-by-page, handles large files |
 | OCR | **RapidOCR** (onnxruntime, CPU) — decided in v0.3 | Installs as a normal Python package inside the app (Tesseract would need a separate Windows install); models ship inside it, so fully offline; runs on the CPU so it never competes with the AI models for the 4 GB graphics card |
 | Local AI runtime | Ollama | Runs AI models on the RTX 3050 |
-| Writing model | Two-model strategy, decided by benchmark in Phase 0: a ~4B model (e.g. Qwen 3.5 4B) for fast interactive answers, and possibly an ~8B model (e.g. Qwen3 8B) for the overnight topic-writing job only if its quality gain justifies running mostly from RAM | The RTX 3050's 4 GB fits ~4B models only; 8B would be slow and is used only where speed doesn't matter |
+| Writing model | **qwen3.5:4b for everything** (decided 14 Nov 2026 by the owner's benchmark — see 9e) | Fastest and most faithful to the sources on his RTX 3050 4 GB; the 8B models were 2× slower without better accuracy |
 | Embedding model | Local embedding model (chosen in Phase 0) | Powers meaning-based search and clustering |
 | Vision model | Small local vision model (chosen in Phase 0) | Describes diagrams |
 | Storage | SQLite with full-text search + a vector index (sqlite-vec or LanceDB, decided in Phase 0) | Single-file, fast, offline |
@@ -213,6 +213,23 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 **Tested (v0.5):** on Linux — chunker v2 on real-world use-case text (MITRE lists, Event IDs, KQL pipelines), automatic re-organise of an existing bank, schema v3 → v4, article writing end-to-end (mock model) incl. removal of invalid citations, articles carried over after a topics rebuild, update check against the real Ollama model library, Topics screens (cards with "Article ready", article tab with coloured sections and steps, citation side panel, structured source points) screenshotted. On the Windows build under Wine — engine starts, upgrades a v0.4 bank to schema v4 and re-organises its text (chunker_version 2), search/write/update endpoints answer. **Not verifiable here:** article quality from the real 4B model on the owner's PDFs.
 
+## 9e. Benchmark result and decisions (14 Nov 2026, v0.5.1)
+
+Run on the owner's laptop (RTX 3050 Laptop 4 GB) with 6 of his own PDFs (281 pages):
+
+| Model | Speed | Per article | Verdict |
+|---|---|---|---|
+| **qwen3.5:4b** | 11.6 tok/s | 86 s | **Chosen.** Accurate, well structured, kept MITRE IDs, event IDs and commands exactly |
+| qwen3:8b | 5.9 tok/s | 162 s | Good, but 2× slower; once listed tool names as "commands" |
+| llama3.1:8b | 6.2 tok/s | 160 s | Rejected: added facts not in the sources (e.g. an invented 10th method) |
+| qwen3:4b | 8.5 tok/s | 126 s | Rejected: printed its private reasoning instead of the article |
+
+**Decisions:** `DEEP_MODEL` = `FAST_MODEL` = qwen3.5:4b; required models are now only qwen3.5:4b + nomic-embed-text; Setup offers "Remove comparison models" (frees ~13 GB; required models can't be removed). Writer sized to keep the model fully on the GPU: 4,096-token window, 8 points × ≤800 characters per request, up to 1,300 tokens out (the benchmark's 700 cut some answers short), and an unclosed query block is closed automatically.
+
+**Problem found: embedding at 1.2 passages/s** (too slow — a large library would take most of a day). Likely cause: the embedding model was placed on the CPU because a large model still occupied the GPU. Fix: before embedding and before writing, the app now unloads every other model and waits until Ollama confirms the memory is free (`ollama_client.clear_gpu_except`), and the Topics screen shows live speed and time left. **To verify on the owner's laptop:** the speed shown while "Reading meaning" — it should be tens to hundreds per second.
+
+Also from the report: one PDF is fully scanned (42/42 pages) — handled by OCR (since v0.3).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -269,3 +286,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.6 / KB v0.4 | Phase 2 Topics delivered (distill.py: embeddings, spherical k-means with restarts, repeat groups, coverage + loose fits, topic links, AI/keyword naming; Topics screen). Owner-chosen Sage Vivid design replaces the blueprint look (DM Sans + Literata, four bold accents, icons). Schema v3 (topic_passages.fit). numpy loaded lazily. Added section 9c. |
 | 14 Nov 2026 | Doc 1.7 / KB v0.4.1 | Owner's first benchmark run (v0.2) appeared stuck on model 1 of 4. Cause: no progress shown inside a model, plus settings too heavy for a 4 GB GPU (1,800-word excerpts, 8,192-token window, no answer-length cap → work spilled onto the CPU). Fix: live per-summary progress and elapsed time, Cancel button (POST /setup/benchmark/cancel), 1,200-word excerpts, 4,096-token window, 700-token answer cap, 6 PDFs by default. Tested with a slow mock: progress per summary, cancel, full run to report. |
 | 14 Nov 2026 | Doc 1.8 / KB v0.5 | Owner found raw passages unreadable and asked about AI updates. Chunker v2 keeps structure + automatic re-organise of existing banks; Formatted.jsx display; Phase 3 article writer with citations, batching for big topics, carry-over on rebuild; schema v4; AI update checker (Ollama + model fingerprints). Added section 9d. |
+| 14 Nov 2026 | Doc 1.9 / KB v0.5.1 | Benchmark received: qwen3.5:4b chosen for everything; comparison-model removal; writer sized for 4 GB (no cut-off answers); GPU cleared before embedding/writing to fix 1.2 passages/s embedding; live embedding speed + time left. Added section 9e. |

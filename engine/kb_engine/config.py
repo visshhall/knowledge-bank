@@ -72,11 +72,14 @@ OLLAMA_URL = os.environ.get("KB_OLLAMA_URL", "http://127.0.0.1:11434")
 # Final choice is made from the Phase 0 benchmark. Override: KB_FAST_MODEL
 FAST_MODEL = os.environ.get("KB_FAST_MODEL", "qwen3.5:4b")
 
-# DEEP model: used only for the overnight job that writes Knowledge Topics,
-# where quality matters more than speed. An ~8B model does not fit in 4 GB and
-# may spill partly into system RAM (slower), which is acceptable overnight.
-# Override: KB_DEEP_MODEL
-DEEP_MODEL = os.environ.get("KB_DEEP_MODEL", "qwen3:8b")
+# DEEP model: the model that writes topic articles (Phase 3).
+# DECIDED by the owner's benchmark (14 Nov 2026, RTX 3050 4 GB, his own PDFs):
+#   qwen3.5:4b  11.6 tok/s,  86 s/article — most accurate and best structured
+#   qwen3:8b     5.9 tok/s, 162 s/article — good but twice as slow
+#   llama3.1:8b  6.2 tok/s, 160 s/article — added facts not in the sources
+#   qwen3:4b     8.5 tok/s, 126 s/article — leaked its reasoning text
+# So the same 4B model writes articles too. Override: KB_DEEP_MODEL
+DEEP_MODEL = os.environ.get("KB_DEEP_MODEL", "qwen3.5:4b")
 
 # EMBEDDING model: turns text into numbers that capture meaning, so the app
 # can find passages that say the same thing in different words.

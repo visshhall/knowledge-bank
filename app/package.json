@@ -1,6 +1,6 @@
 {
   "name": "knowledge-bank",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Offline, interactive knowledge bank built from the owner's cybersecurity PDFs.",
   "private": true,
   "type": "module",

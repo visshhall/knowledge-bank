@@ -160,8 +160,11 @@ def _embed_missing() -> None:
 
     with db.connect() as conn:
         total = conn.execute("SELECT COUNT(*) FROM passages WHERE embedding IS NULL").fetchone()[0]
-    _set(stage="embed", done=0, total=total, message="Reading the meaning of each passage…")
+    _set(stage="embed", done=0, total=total, message="Freeing the graphics card…")
+    ollama_client.clear_gpu_except(model)   # so the embedding model gets the GPU
+    _set(message="Reading the meaning of each passage…")
     done = 0
+    t0 = time.time()
     while True:
         with db.connect() as conn:
             rows = conn.execute(
@@ -180,7 +183,10 @@ def _embed_missing() -> None:
                 [(_to_blob(v), r["id"]) for v, r in zip(vectors, rows)],
             )
         done += len(rows)
-        _set(done=done)
+        rate = done / max(time.time() - t0, 0.001)
+        left = (total - done) / rate if rate else 0
+        eta = f"{left / 60:.0f} min left" if left >= 90 else f"{left:.0f} s left"
+        _set(done=done, message=f"Reading meaning: {rate:.0f} passages/s, about {eta}")
 
 
 def _load_vectors() -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:

@@ -12,6 +12,7 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /setup/models/pull       — download AI models (with progress)
          POST /setup/benchmark/start   — run the benchmark on a chosen folder
          POST /setup/benchmark/cancel  — stop a running benchmark
+         POST /setup/models/remove     — delete comparison models (frees disk)
          GET  /library                 — every imported file with its counts
          POST /library/add             — import files/folders
          POST /library/remove          — take one file out of the bank
@@ -175,6 +176,15 @@ class SourceRequest(BaseModel):
 
 class WatchRequest(BaseModel):
     folders: list[str]
+
+
+class RemoveModelsRequest(BaseModel):
+    names: list[str]
+
+
+@app.post("/setup/models/remove", dependencies=[Depends(require_token)])
+def setup_models_remove(body: RemoveModelsRequest) -> dict:
+    return setup_manager.remove_models(body.names)
 
 
 @app.post("/setup/benchmark/cancel", dependencies=[Depends(require_token)])

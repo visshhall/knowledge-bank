@@ -55,7 +55,9 @@ _OLLAMA_DEFAULT_EXE = (
 
 # Every model the wizard downloads, in download order. Required ones first,
 # then the extra candidates used only for the benchmark comparison.
-REQUIRED_MODELS = [config.FAST_MODEL, config.EMBED_MODEL, config.DEEP_MODEL]
+# dict.fromkeys keeps order and drops duplicates (FAST and DEEP are the same
+# model since the owner's benchmark).
+REQUIRED_MODELS = list(dict.fromkeys([config.FAST_MODEL, config.EMBED_MODEL, config.DEEP_MODEL]))
 WIZARD_MODELS = REQUIRED_MODELS + [m for m in config.BENCHMARK_MODELS if m not in REQUIRED_MODELS]
 
 # One lock guards all shared state below (threads write, the server reads).
@@ -285,6 +287,23 @@ def start_model_downloads(include_benchmark_extras: bool = True,
             _models_job["progress"].pop(n, None)
     threading.Thread(target=_pull_models_worker, args=(names, force), daemon=True).start()
     return {"ok": True, "message": "Started."}
+
+
+def remove_models(names: list[str]) -> dict:
+    """
+    Delete downloaded models the app no longer needs (the benchmark's
+    comparison models) to free disk space. Required models are refused.
+    """
+    removed, failed = [], []
+    for n in names:
+        if n in REQUIRED_MODELS or n not in WIZARD_MODELS:
+            failed.append(n)
+            continue
+        (removed if ollama_client.delete_model(n) else failed).append(n)
+    msg = f"Removed {len(removed)} model(s)." if removed else "Nothing removed."
+    if failed:
+        msg += f" Kept: {', '.join(failed)}."
+    return {"ok": bool(removed), "message": msg, "removed": removed}
 
 
 # --------------------------------------------------------------------------- #

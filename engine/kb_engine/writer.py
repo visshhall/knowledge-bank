@@ -46,11 +46,15 @@ import time
 
 from . import config, db, ollama_client
 
-POINTS_PER_REQUEST = 12     # points sent per AI request (fits 4,096+ tokens)
-POINT_MAX_CHARS = 900       # each point is trimmed to this for the prompt
-MAX_BATCHES = 8             # up to 96 points read per topic (most central first)
-NUM_CTX = 6144              # model window for writing requests
-MAX_OUTPUT = 1100           # cap on each answer's length (tokens)
+# Sized from the owner's benchmark (RTX 3050, 4 GB): a 4,096-token window
+# keeps qwen3.5:4b fully on the GPU (11.6 tokens/s). 8 points × ≤800 chars ≈
+# 1,600 tokens in + ≤1,300 out fits that window; 1,300 avoids the cut-off
+# endings seen in the benchmark (which allowed only 700).
+POINTS_PER_REQUEST = 8      # points sent per AI request
+POINT_MAX_CHARS = 800       # each point is trimmed to this for the prompt
+MAX_BATCHES = 12            # up to 96 points read per topic (most central first)
+NUM_CTX = 4096              # model window for writing requests
+MAX_OUTPUT = 1300           # cap on each answer's length (tokens)
 
 SYSTEM = (
     "You write study articles for a cybersecurity analyst's private knowledge bank. "
@@ -194,6 +198,8 @@ def _clean_article(text: str, valid: set[int]) -> str:
     text = re.sub(r"^\s*#\s+.*\n", "", text.strip())
     text = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if int(m.group(1)) in valid else "", text)
     text = re.sub(r"[ \t]+([.,;:])", r"\1", text)          # "force ." → "force."
+    if text.count("```") % 2 == 1:                          # answer cut off inside a query
+        text += "\n```"
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -247,6 +253,7 @@ def _run(rewrite_all: bool) -> None:
             raise RuntimeError("The AI engine (Ollama) isn't running. Start it from Setup.")
         if not ollama_client.has_model(write_model()):
             raise RuntimeError(f"The writing model {write_model()} isn't downloaded. Download it from Setup.")
+        ollama_client.clear_gpu_except(write_model())   # whole 4 GB for the writer
         with db.connect() as conn:
             where = "" if rewrite_all else "WHERE t.status != 'written'"
             todo = [r["id"] for r in conn.execute(

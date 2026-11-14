@@ -4,7 +4,9 @@
  * WHAT:  Three step cards:
  *          1. AI engine  — install (downloads Ollama's official installer and
  *                          opens it) or start Ollama
- *          2. AI models  — download all models, one progress bar per model
+ *          2. AI models  — download the models, one progress bar per model;
+ *                          after the benchmark, remove the comparison models
+ *                          the app doesn't use (frees ~13 GB)
  *          3. Benchmark  — pick a folder of PDFs, run (live step + elapsed
  *                          time + Cancel), open the report
  * WHY:   The owner wants a normal Windows app: no PowerShell, no commands.
@@ -34,7 +36,9 @@ function elapsed(startedAt) {
 export default function SetupWizard({ onStatus }) {
   const [status, setStatus] = useState(null);
   const [notice, setNotice] = useState(""); // short message from the last button press
-  const [includeExtras, setIncludeExtras] = useState(true);
+  // Off by default since the benchmark is done (v0.5.1): only the two models
+  // the app actually uses are downloaded unless the owner wants to re-test.
+  const [includeExtras, setIncludeExtras] = useState(false);
 
   /** Load the latest job states from the engine. */
   const poll = useCallback(async () => {
@@ -163,6 +167,18 @@ export default function SetupWizard({ onStatus }) {
                 Download AI models
               </button>
             </>
+          )}
+          {models.list.some((m) => !m.required && m.present) && modelsJob.state !== "running" && (
+            <button
+              className="secondary"
+              onClick={() =>
+                act("/setup/models/remove", {
+                  names: models.list.filter((m) => !m.required && m.present).map((m) => m.name),
+                })
+              }
+            >
+              Remove comparison models (frees ~13 GB)
+            </button>
           )}
           {modelsJob.state === "running" && <p className="small muted">{modelsJob.message}</p>}
           {modelsJob.state === "error" && <p className="error-text small">{modelsJob.message}</p>}
