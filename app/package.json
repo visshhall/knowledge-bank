@@ -1,6 +1,6 @@
 {
   "name": "knowledge-bank",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Offline, interactive knowledge bank built from the owner's cybersecurity PDFs.",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "dist:win": "vite build && electron-builder --win nsis --x64"
   },
   "devDependencies": {
-    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
-    "@fontsource/atkinson-hyperlegible": "^5.3.0",
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/literata": "^5.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",

@@ -19,7 +19,11 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /settings/watch          — watched folders
          POST /settings/watch          — change watched folders
          GET  /search?q=...            — instant exact-word search
-       Later phases add distilling, topics, answer pages, learn mode, etc.
+         POST /distill/start           — build topics (Phase 2)
+         GET  /distill/status          — live progress of building topics
+         GET  /topics                  — all topics with sizes + links
+         GET  /topic?id=...            — one topic's points and sources
+       Later phases add written topic pages, answer pages, learn mode, etc.
 
 WHY:   Separating the window (Electron) from the engine (Python) means
        hours-long processing never freezes the interface, and each side uses
@@ -39,7 +43,7 @@ SECURITY:
          and a warning is printed.
 
 CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
-       importer.py, search.py; called by
+       importer.py, search.py, distill.py; called by
        app/electron/main.js (which relays requests from the window).
 """
 
@@ -52,7 +56,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import __version__, config, db, importer, search, setup_manager, system_check
+from . import __version__, config, db, distill, importer, search, setup_manager, system_check
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -202,6 +206,33 @@ def set_watch(body: WatchRequest) -> dict:
 @app.get("/search", dependencies=[Depends(require_token)])
 def search_passages(q: str = "") -> dict:
     return search.search(q)
+
+
+# ---------------------------------------------------------------------------
+# Topics (Phase 2 — see distill.py)
+# ---------------------------------------------------------------------------
+
+@app.post("/distill/start", dependencies=[Depends(require_token)])
+def distill_start() -> dict:
+    return distill.start()
+
+
+@app.get("/distill/status", dependencies=[Depends(require_token)])
+def distill_status() -> dict:
+    return distill.status()
+
+
+@app.get("/topics", dependencies=[Depends(require_token)])
+def topics() -> dict:
+    return distill.list_topics()
+
+
+@app.get("/topic", dependencies=[Depends(require_token)])
+def topic(id: int) -> dict:
+    detail = distill.topic_detail(id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return detail
 
 
 def main() -> None:

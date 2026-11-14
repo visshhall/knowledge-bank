@@ -8,10 +8,10 @@
  *        Node counts and labels come from real totals (sources, passages,
  *        topics). Anything not built yet is drawn dashed, like a planned
  *        part on a blueprint.
- * WHY:   It replaces the old floating-dots background (too close to the
- *        owner's other app, LumenSutra). The blueprint look suits a tool
- *        that maps knowledge, and the drawing explains the app's whole idea
- *        — many files in, one organised bank out — at a glance.
+ * WHY:   The drawing explains the app's whole idea — many files in, one
+ *        organised bank out — at a glance. Files are coral, the bank is
+ *        forest green and topics are violet, the same colours those screens
+ *        use in the side rail (Sage Vivid theme, v0.4).
  * WHEN:  Shown at the top of the Overview screen. It draws itself once,
  *        line by line, when the screen opens (the app's single deliberate
  *        animation), then stays still. Windows' "reduce animations" setting
@@ -70,7 +70,7 @@ export default function Schematic({ sources = 0, passages = 0, topics = 0 }) {
             d={`M 62 ${y} H 200 V ${MID} H ${bank.x}`}
           />
           <rect
-            className="sch-node"
+            className="sch-node src"
             x={36}
             y={y - 9}
             width={26}
@@ -94,10 +94,10 @@ export default function Schematic({ sources = 0, passages = 0, topics = 0 }) {
         height={bank.h}
         style={{ animationDelay: `${0.08 * step++ + 0.2}s` }}
       />
-      <text className="sch-value" x={bank.x + 16} y={bank.y + 40}>
+      <text className="sch-value on-bank" x={bank.x + 16} y={bank.y + 40}>
         {passages.toLocaleString("en-US")}
       </text>
-      <text className="sch-label" x={bank.x + 16} y={bank.y + 64}>
+      <text className="sch-label on-bank" x={bank.x + 16} y={bank.y + 64}>
         passages in the bank
       </text>
 
@@ -117,7 +117,7 @@ export default function Schematic({ sources = 0, passages = 0, topics = 0 }) {
             d={`M ${bank.x + bank.w} ${MID} H 500 V ${y} H 560`}
           />
           <circle
-            className="sch-node"
+            className="sch-node topic"
             cx={572}
             cy={y}
             r={11}

@@ -58,7 +58,7 @@ export default function SetupWizard({ onStatus }) {
   }
 
   if (!status) {
-    return <section className="frame wizard">Loading setup status…</section>;
+    return <section className="card wizard">Loading setup status…</section>;
   }
 
   const { ollama, models, benchmark } = status;
@@ -69,7 +69,7 @@ export default function SetupWizard({ onStatus }) {
   const requiredPresent = models.list.filter((m) => m.required).every((m) => m.present);
 
   return (
-    <section className="frame wizard" aria-label="Setup steps">
+    <section className="card wizard" aria-label="Setup steps">
       <div className="section-head">
         <h2>Three steps, once</h2>
         {status.setup_complete && <span className="pill-ok">Ready to use</span>}

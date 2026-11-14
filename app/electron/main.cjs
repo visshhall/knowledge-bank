@@ -68,6 +68,11 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "GET /settings/watch",
   "POST /settings/watch",
   "GET /search",
+  // Phase 2 — topics
+  "POST /distill/start",
+  "GET /distill/status",
+  "GET /topics",
+  "GET /topic",
 ]);
 
 /*
@@ -305,7 +310,7 @@ function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: "#13235e", // matches the interface so there's no white flash
+    backgroundColor: "#e2e8df", // matches the interface so there's no white flash
     title: "Knowledge Bank",
     autoHideMenuBar: true, // hides File/Edit/View menu (press Alt to show)
     webPreferences: {

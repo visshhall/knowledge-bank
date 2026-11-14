@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.3 — Phase 1 (Import) + new blueprint design, Windows installer; benchmark report still pending |
-| Document version | 1.5 |
+| Current version | KB v0.4 — Phase 2 (Topics) + Sage Vivid design, Windows installer; benchmark report still pending |
+| Document version | 1.6 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -130,7 +130,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 |---|---|---|---|
 | 0 | Foundation | Finalise models and storage for RTX 3050 4 GB / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
 | 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
-| 2 | Distil | Clustering, topic list, topic connections, coverage check | Not started |
+| 2 | Distil | Clustering, topic list, topic connections, coverage check | **Delivered (v0.4)** — plus Topics screen |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | Not started |
 | 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | Not started |
 | 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | Not started |
@@ -180,6 +180,22 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 **Tested (v0.3):** on Linux — full import of text PDFs, a scanned PDF, standalone image, embedded diagram (OCR'd into a labelled passage), exact-copy skipping, password-protected PDF message, resume after an interrupted import, search incl. prefix and odd characters, all three screens screenshotted. On the Windows build under Wine — import of a 40-page PDF, duplicate skip, password message, search. **Not verifiable under Wine:** OCR at runtime (Wine lacks a maths function the OCR libraries use; real Windows has it) — the OCR libraries do load on the Windows Python, and an OCR failure can no longer stop a file importing.
 
+## 9c. Phase 2 — Topics (v0.4) and the Sage Vivid design: what and why
+
+| Part | File(s) | What it does | Why it's built this way |
+|---|---|---|---|
+| Distil job | `engine/kb_engine/distill.py` | "Build topics": (1) embeds passages without a meaning-vector (only new ones on later runs), (2) groups passages by meaning into topics, (3) joins repeating passages into one "point", (4) links related topics, (5) names each topic | The core of "no duplicates, nothing missed". Results replace old draft topics in one transaction at the end, so the screen never shows a half-built state; any error leaves existing topics untouched |
+| Grouping | `distill.py` (`_kmeans`, `_best_kmeans`, `_merge_similar`) | Spherical k-means on unit vectors (cosine similarity), k ≈ √(passages ÷ 2) (max 400), k-means++ seeding, 4 restarts keeping the tightest result, then topics whose centres are ≥ 0.88 similar are merged | Fast with numpy alone (≈10 s per run for 60,000 passages on a laptop CPU), no extra libraries, repeatable (fixed seeds). Restarts were added after testing showed a single unlucky start can mix subjects |
+| Repeats | `_repeat_groups` | Inside each topic: same fingerprint, or ≥ 0.95 similarity → one point. Stored as `passages.cluster_id` = the first passage of the group | Shows each piece of knowledge once while keeping every file + page that said it. Comparing only inside a topic keeps it fast |
+| Coverage | `topic_passages.fit` (schema v3) | Every passage is assigned to exactly one topic (coverage 100%). Its similarity to the topic centre is stored; below 0.45 it's a "loose fit" shown for review | "Nothing missed" is provable: no passage is ever dropped; doubtful placements are flagged, not hidden |
+| Names | `_ai_name`, `_keyword_title` | The fast model (qwen3.5:4b) reads the 6 most central points and returns a 2–6 word title + one-sentence summary. Without the model, a keyword title (TF-IDF) is used | The job never stalls if the AI isn't ready; names improve automatically once it is |
+| Topics screen | `app/src/Topics.jsx` | Build/rebuild button with five live stages, run results (topics, repeats merged, loose fits, coverage), colourful topic cards, topic detail with each point once, its sources as chips, loose fits flagged, related topics as jump buttons | Lets the owner check the grouping before Phase 3 writes the merged articles |
+| Resilience | `distill.py` `_load_numpy()` | numpy loads only when topics are built | If it ever failed on a machine, only "Build topics" would report it — import and search keep working |
+
+**Sage Vivid design (v0.4) — why:** the owner found the v0.3 blue blueprint look ugly and asked to see options first. Six directions were shown on a design canvas; he chose "Sage Study", asked for more colour, and picked the bold variant. Result: soft sage page (#E2E8DF), white-ish cards, forest green (#2C5A43) as the main action colour, and four bold accents — teal #23705F, coral #F08A68, violet #6A4BA8, mustard #E8B840 — each screen owning one (Overview forest, Library coral, Topics violet, Setup mustard) and topic cards cycling through them. DM Sans for the interface, Literata (a book typeface) for reading points and snippets. Inline SVG icons (`app/src/icons.jsx`), no icon fonts — offline and crisp. All text/background pairs chosen for WCAG AA contrast; keyboard focus visible; reduced-motion respected.
+
+**Tested (v0.4):** on Linux — topics built end-to-end from 6 PDFs (24 passages): embedding, grouping, 16 repeats merged, loose fit flagged, AI naming via a mock model, topic list and detail; grouping verified to separate three subjects perfectly with restarts; 60,000-passage scale test (~10 s per k-means run); all four screens screenshotted in the new design; database upgrade v2 → v3 on an existing bank. On the Windows build under Wine — engine starts, upgrades a v0.3 database to v3, serves stats/topics/status. **Not verifiable under Wine:** building topics and OCR (both need numpy maths that Wine lacks; real Windows has it). Real embedding quality is checked on the owner's laptop.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -187,6 +203,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 - **Poor scans or handwriting** reduce OCR accuracy.
 - **Password-protected PDFs** are listed as failed with a clear message; remove the password and add them again (entering a password inside the app is a planned improvement).
 - If an original file is **moved or deleted** before it is imported, that file fails with a message; once imported, its text stays in the bank regardless.
+- **Topics are rebuilt as a whole** each time "Build topics" runs (embeddings are reused, so it's quick). Automatic per-file topic updates come with Phase 7.
 - A local 4–8B model writes well but is less capable than large cloud models; the source-link design compensates for this.
 
 ## 11. How we work on this project
@@ -232,3 +249,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.3 / KB v0.2 | Owner rejected PowerShell setup. Replaced it with an in-app setup wizard (Ollama install/start, model downloads with progress, benchmark with folder picker) and a Windows installer bundling a private Python. Removed setup/*.ps1. Added tools/build-windows.sh. Fixed model-name matching (`name` vs `name:latest`). |
 | 14 Nov 2026 | Doc 1.4 | Owner's first real run: app installed and works on Windows. System check revealed the GPU is an RTX 3050 Laptop 4 GB (not RTX 3060 6 GB) — hardware table and model strategy corrected. Fixed: readiness list now refreshes automatically when Ollama starts (fix ships in next installer). |
 | 14 Nov 2026 | Doc 1.5 / KB v0.3 | Phase 1 Import delivered (importer, OCR via RapidOCR, passages, watched folders, duplicate tracking, instant search, Library screen); new blueprint design replacing the LumenSutra-like look; side-rail navigation; Overview schematic; database schema v2; OCR made non-fatal. Added section 9b. |
+| 14 Nov 2026 | Doc 1.6 / KB v0.4 | Phase 2 Topics delivered (distill.py: embeddings, spherical k-means with restarts, repeat groups, coverage + loose fits, topic links, AI/keyword naming; Topics screen). Owner-chosen Sage Vivid design replaces the blueprint look (DM Sans + Literata, four bold accents, icons). Schema v3 (topic_passages.fit). numpy loaded lazily. Added section 9c. |

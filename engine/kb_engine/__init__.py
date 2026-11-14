@@ -31,8 +31,10 @@ MODULES:
        chunking.py      — cuts page text into citable passages
        ocr.py           — reads text from scans, screenshots, diagrams
        search.py        — instant exact-word search
+       distill.py       — Phase 2: embeddings, topics, repeat groups,
+                          topic links, topic names
 """
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.3.0"
+__version__ = "0.4.0"

@@ -47,11 +47,13 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
 # Version 2 = Phase 1 (import): settings + duplicate_files tables.
+# Version 3 = Phase 2 (distil): topic_passages.fit — how well each passage
+#             fits its topic (cosine similarity to the topic centre).
 _MIGRATIONS: list[tuple[int, list[str]]] = [
     (
         1,
@@ -259,6 +261,15 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
             "CREATE INDEX IF NOT EXISTS idx_images_sha ON images(sha256)",
         ],
     ),
+    (
+        3,
+        [
+            # 1.0 = the passage is exactly on-topic; low values (< 0.45) are
+            # shown as "loose fits" for the owner to review.
+            "ALTER TABLE topic_passages ADD COLUMN fit REAL NOT NULL DEFAULT 1.0",
+            "CREATE INDEX IF NOT EXISTS idx_tp_topic ON topic_passages(topic_id)",
+        ],
+    ),
 ]
 
 
@@ -376,7 +387,8 @@ def stats() -> dict:
     Count what the knowledge bank currently holds.
 
     WHAT:    Returns totals for the dashboard (sources, images, OCR'd pages,
-             duplicates skipped, pages, passages, topics, conflicts) plus coverage = % of passages that belong
+             duplicate files skipped, repeated passages merged, pages,
+             passages, topics, conflicts) plus coverage = % of passages that belong
              to at least one topic (the "nothing missed" number).
     CALLED BY: server.py → GET /stats → shown on the app's home screen.
     """
@@ -391,6 +403,9 @@ def stats() -> dict:
             "images": count("SELECT COUNT(*) FROM images"),
             "ocr_pages": count("SELECT COUNT(*) FROM pages WHERE ocr_used = 1"),
             "duplicates_skipped": count("SELECT COUNT(*) FROM duplicate_files"),
+            "repeats_merged": count(
+                "SELECT COUNT(*) - COUNT(DISTINCT cluster_id) FROM passages WHERE cluster_id IS NOT NULL"
+            ),
             "pages": count("SELECT COUNT(*) FROM pages"),
             "passages": passages,
             "topics": count("SELECT COUNT(*) FROM topics"),

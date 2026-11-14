@@ -16,9 +16,10 @@
  * CONNECTED TO: bridge.js → engine /library, /library/add, /library/remove,
  *        /library/retry, /import/status, /settings/watch, /search
  *        (server.py → importer.py, search.py). ImportProgress is also used
- *        by Overview.jsx.
+ *        by Overview.jsx. icons.jsx for button and drop-zone icons.
  */
 import { useEffect, useState } from "react";
+import Icon from "./icons.jsx";
 import { formatBytes, formatCount, kb, percent, usePoll } from "./bridge.js";
 
 /** Human wording for each source status (matches db.py's allowed values). */
@@ -92,7 +93,7 @@ export default function Library() {
       </header>
 
       <section
-        className={`frame dropzone ${dragging ? "dragging" : ""}`}
+        className={`card dropzone ${dragging ? "dragging" : ""}`}
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
@@ -101,9 +102,15 @@ export default function Library() {
         onDrop={onDrop}
         aria-label="Add files"
       >
+        <span className="drop-icon" aria-hidden="true">
+          <Icon name="upload" size={26} />
+        </span>
         <p className="drop-title">Drop PDFs, images or whole folders here</p>
         <div className="actions">
-          <button onClick={async () => addPaths(await kb.pickFiles())}>Add files</button>
+          <button className="primary" onClick={async () => addPaths(await kb.pickFiles())}>
+            <Icon name="file" size={18} />
+            Add files
+          </button>
           <button
             className="secondary"
             onClick={async () => {
@@ -111,6 +118,7 @@ export default function Library() {
               if (folder) addPaths([folder]);
             }}
           >
+            <Icon name="folder" size={18} />
             Add a folder
           </button>
         </div>
@@ -132,13 +140,14 @@ export default function Library() {
 
       <WatchedFolders />
 
-      <section className="frame file-list" aria-label="Files in the bank">
+      <section className="card file-list" aria-label="Files in the bank">
         <div className="section-head">
           <h2>
             Files <span className="count">{formatCount(sources.length)}</span>
           </h2>
           {failed > 0 && (
             <button className="secondary" onClick={retryFailed}>
+              <Icon name="refresh" size={16} />
               Retry {failed} failed
             </button>
           )}
@@ -204,7 +213,7 @@ export function ImportProgress({ status }) {
     ? `page ${formatCount(status.current_page)} of ${formatCount(status.page_count)}`
     : "starting";
   return (
-    <section className="frame import-progress" aria-live="polite">
+    <section className="card import-progress" aria-live="polite">
       <div className="section-head">
         <h2>Importing</h2>
         <span className="muted">
@@ -246,20 +255,23 @@ function SearchPanel({ hasData }) {
   }, [q]);
 
   return (
-    <section className="frame search" aria-label="Search">
+    <section className="card search" aria-label="Search">
       <label className="search-label" htmlFor="kb-search">
         Search every page
       </label>
-      <input
-        id="kb-search"
-        type="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={hasData ? "Try 4625, SigninLogs, lateral movement…" : "Search becomes available once files are imported"}
-        disabled={!hasData}
-        autoComplete="off"
-        spellCheck="false"
-      />
+      <div className="search-field">
+        <Icon name="search" size={20} />
+        <input
+          id="kb-search"
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={hasData ? "Try 4625, SigninLogs, lateral movement…" : "Search becomes available once files are imported"}
+          disabled={!hasData}
+          autoComplete="off"
+          spellCheck="false"
+        />
+      </div>
       {res && (
         <div className="results">
           <p className="muted small">
@@ -306,7 +318,7 @@ function WatchedFolders() {
   }
 
   return (
-    <section className="frame watched" aria-label="Watched folders">
+    <section className="card watched" aria-label="Watched folders">
       <div className="section-head">
         <h2>Watched folders</h2>
         <button
@@ -316,6 +328,7 @@ function WatchedFolders() {
             if (f) save([...folders, f]);
           }}
         >
+          <Icon name="eye" size={16} />
           Watch a folder
         </button>
       </div>

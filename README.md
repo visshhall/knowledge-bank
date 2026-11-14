@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.3 — Phase 1 (Import) + new blueprint design, delivered as a Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.4 — Phase 2 (Topics) + Sage Vivid design, delivered as a Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -45,7 +45,9 @@ knowledge-bank/
 │   ├── electron/preload.cjs  The only bridge the page may use (window.kb)
 │   ├── src/App.jsx           Side rail, engine status, Setup screen
 │   ├── src/Overview.jsx      Home: schematic of the bank, totals, next step
-│   ├── src/Schematic.jsx     Blueprint drawing files → passages → topics
+│   ├── src/Schematic.jsx     Drawing of files → passages → topics
+│   ├── src/Topics.jsx        Build topics, topic cards, topic detail
+│   ├── src/icons.jsx         Inline line icons
 │   ├── src/Library.jsx       Import, watched folders, search, file list
 │   ├── src/SetupWizard.jsx   In-app setup: AI engine, model downloads, benchmark
 │   ├── src/bridge.js         Shared access to window.kb + helpers
@@ -63,6 +65,7 @@ knowledge-bank/
 │       ├── ocr.py            Reads text from scans, screenshots, diagrams (offline)
 │       ├── chunking.py       Cuts page text into citable passages
 │       ├── search.py         Instant exact-word search
+│       ├── distill.py        Phase 2: embeddings, topics, repeats, links, names
 │       ├── system_check.py   GPU / RAM / disk / Ollama / models readiness
 │       ├── ollama_client.py  Talks to the local AI models
 │       └── benchmark.py      Picks the best models for this laptop

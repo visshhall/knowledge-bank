@@ -2,7 +2,8 @@
  * App.jsx — the app's frame: side rail, engine status, and the screens.
  *
  * WHAT:  - Side rail with the screens that exist so far: Overview, Library,
- *          Setup (more appear as phases are built: Map, Learn…)
+ *          Topics, Setup — each with its own icon and colour (more appear
+ *          as phases are built: Map, Learn…)
  *        - Engine status at the foot of the rail (starting / ready / problem)
  *        - Shows the chosen screen once the engine is ready; a "starting"
  *          or "problem" panel before that
@@ -11,20 +12,26 @@
  *        simple navigation. A side rail keeps every screen one click away
  *        and leaves the full width for content like tables and search.
  * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
- * CONNECTED TO: Overview.jsx, Library.jsx, SetupWizard.jsx, bridge.js
- *        (engine status, /system), styles.css.
+ * CONNECTED TO: Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
+ *        icons.jsx, bridge.js (engine status, /system), styles.css.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
 import Library from "./Library.jsx";
+import Topics from "./Topics.jsx";
 import SetupWizard from "./SetupWizard.jsx";
+import Icon from "./icons.jsx";
 import { kb } from "./bridge.js";
 
-/** Screens in the side rail, in order. `id` is used for navigation. */
+/**
+ * Screens in the side rail, in order. `id` is used for navigation, `tone`
+ * picks the screen's colour (its icon tile in the rail), `icon` its icon.
+ */
 const SCREENS = [
-  { id: "overview", label: "Overview" },
-  { id: "library", label: "Library" },
-  { id: "setup", label: "Setup" },
+  { id: "overview", label: "Overview", icon: "overview", tone: "forest" },
+  { id: "library", label: "Library", icon: "library", tone: "coral" },
+  { id: "topics", label: "Topics", icon: "topics", tone: "violet" },
+  { id: "setup", label: "Setup", icon: "setup", tone: "mustard" },
 ];
 
 export default function App() {
@@ -40,23 +47,27 @@ export default function App() {
   return (
     <div className="shell">
       <nav className="rail" aria-label="Screens">
-        <div className="wordmark" aria-label="Knowledge Bank">
-          <span className="wm-mark" aria-hidden="true" />
-          <span>
-            Knowledge
-            <br />
-            Bank
+        <div className="wordmark">
+          <span className="wm-mark" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
           </span>
+          <span>Knowledge Bank</span>
         </div>
         <ul>
           {SCREENS.map((s) => (
             <li key={s.id}>
               <button
-                className={`rail-item ${screen === s.id ? "current" : ""}`}
+                className={`rail-item tone-${s.tone} ${screen === s.id ? "current" : ""}`}
                 aria-current={screen === s.id ? "page" : undefined}
                 onClick={() => setScreen(s.id)}
                 disabled={engine.status !== "ready"}
               >
+                <span className="rail-icon">
+                  <Icon name={s.icon} size={18} />
+                </span>
                 {s.label}
               </button>
             </li>
@@ -67,7 +78,7 @@ export default function App() {
 
       <main className="stage">
         {engine.status === "starting" && (
-          <section className="frame center-note">
+          <section className="card center-note">
             <div className="pulse" aria-hidden="true" />
             <h1>Starting the engine</h1>
             <p className="muted">Opening the database and checking your laptop.</p>
@@ -75,7 +86,7 @@ export default function App() {
         )}
 
         {engine.status === "error" && (
-          <section className="frame center-note problem">
+          <section className="card center-note problem">
             <h1>The engine didn't start</h1>
             <p>{engine.detail}</p>
             <p className="muted">Close the app and open it again. If this keeps happening, reinstall it.</p>
@@ -86,6 +97,7 @@ export default function App() {
           <>
             {screen === "overview" && <Overview onNavigate={setScreen} />}
             {screen === "library" && <Library />}
+            {screen === "topics" && <Topics />}
             {screen === "setup" && <SetupScreen />}
           </>
         )}
@@ -138,7 +150,7 @@ function SetupScreen() {
 
       <SetupWizard onStatus={handleSetupStatus} />
 
-      <section className="frame readiness" aria-label="System readiness">
+      <section className="card readiness" aria-label="System readiness">
         <div className="section-head">
           <h2>System readiness</h2>
           <button className="secondary" onClick={refresh} disabled={loading}>

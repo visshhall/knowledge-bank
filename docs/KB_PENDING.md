@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.3 (Phase 1 Import + new design — benchmark report still pending)
+**Current version:** v0.4 (Phase 2 Topics + Sage Vivid design — benchmark report still pending)
 **Last updated:** 14 November 2026
 
 ---
@@ -11,7 +11,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 
 - [x] GitHub access granted — code is pushed to `visshhall/knowledge-bank`
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
-- [ ] Install `KnowledgeBank-Setup-0.3.0.exe` over v0.2 (data and models are kept)
+- [ ] Install `KnowledgeBank-Setup-0.4.0.exe` over the previous version (data and models are kept) — after model downloads finish
+- [ ] Topics screen → Build topics, then check the topic names and groupings make sense
 - [ ] Add PDFs in Library and check: scanned pages show a count in the Scanned column (confirms OCR works on Windows)
 - [ ] Open the app → confirm "Engine ready" and the Setup panel
 - [ ] Setup step 1: Install AI engine · step 2: Download AI models · step 3: run the benchmark on a folder of 5–10 PDFs
@@ -51,10 +52,17 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [ ] Enter a PDF password inside the app (improvement)
 - [ ] Open the original PDF at the cited page from a search result (Phase 4)
 
-## Phase 2 — Distil
-- [ ] Embeddings for all passages; vector index (sqlite-vec vs LanceDB decision)
-- [ ] Near-duplicate grouping, topic list, topic connections
-- [ ] Coverage check
+## Phase 2 — Distil ✅ delivered in v0.4
+- [x] Embeddings for all passages (nomic-embed-text via Ollama; only new passages re-embedded)
+- [x] Topic grouping by meaning (spherical k-means, restarts, merge of near-identical topics)
+- [x] Repeat groups (same or ≥ 0.95-similar passages shown once with all sources)
+- [x] Coverage check (100% assignment) + loose fits flagged for review
+- [x] Topic connections (for the Knowledge Map)
+- [x] Topic names + one-line summaries (fast AI model; keyword fallback)
+- [x] Topics screen (build with live stages, results, colourful cards, topic detail)
+- [x] Sage Vivid design across the whole app (owner's choice)
+- [ ] Vector index for meaning-based search (Phase 4, with answer pages)
+- [ ] Tune thresholds on the owner's real library after first run
 
 ## Phase 3 — Write the knowledge bank
 - [ ] Merged topic articles with per-line sources and conflict flags (overnight job)
