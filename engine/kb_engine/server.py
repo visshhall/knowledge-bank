@@ -80,7 +80,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, config, datapages, db, distill, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, config, datapages, db, distill, gpu, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -123,6 +123,14 @@ async def lifespan(_app: FastAPI):
         except Exception as exc:  # never block startup over a bad sheet
             print(f"[engine] spreadsheet topics skipped: {exc}", flush=True)
     threading.Thread(target=_data_topics, daemon=True).start()
+    # v0.8.2: Windows — turn on Ollama's memory savers once (gpu.py).
+    def _gpu_settings():
+        try:
+            if gpu.apply_ollama_settings():
+                print("[engine] Ollama memory savers turned on", flush=True)
+        except Exception as exc:
+            print(f"[engine] Ollama settings skipped: {exc}", flush=True)
+    threading.Thread(target=_gpu_settings, daemon=True).start()
     yield
     print("[engine] shutting down", flush=True)
 
@@ -227,7 +235,43 @@ def library() -> dict:
 
 @app.post("/library/add", dependencies=[Depends(require_token)])
 def library_add(body: AddPathsRequest) -> dict:
-    return importer.add_paths(body.paths)
+    # picked=True: the owner chose these in the window, so a removed file
+    # picked directly comes back (folder adds still skip removed files).
+    return importer.add_paths(body.paths, picked=True)
+
+
+@app.get("/gpu/status", dependencies=[Depends(require_token)])
+def gpu_status() -> dict:
+    """v0.8.2: graphics card, model split, speeds, advice (Setup screen)."""
+    return gpu.report()
+
+
+@app.post("/gpu/tune", dependencies=[Depends(require_token)])
+def gpu_tune() -> dict:
+    """v0.8.2: measure and choose the fastest graphics-card placement."""
+    return gpu.start_tune()
+
+
+@app.post("/library/keep", dependencies=[Depends(require_token)])
+def library_keep(body: SourceRequest) -> dict:
+    """v0.8.2: import a set-aside (not-cybersecurity) file anyway."""
+    return importer.keep_anyway(body.source_id)
+
+
+class FlagRequest(BaseModel):
+    on: bool
+
+
+@app.get("/library/filter", dependencies=[Depends(require_token)])
+def library_filter_get() -> dict:
+    return {"on": importer.relevance_filter_on()}
+
+
+@app.post("/library/filter", dependencies=[Depends(require_token)])
+def library_filter_set(body: FlagRequest) -> dict:
+    """v0.8.2: the 'Only keep cybersecurity files' switch in Library."""
+    db.set_setting("relevance_filter", bool(body.on))
+    return {"on": bool(body.on)}
 
 
 @app.post("/library/remove", dependencies=[Depends(require_token)])

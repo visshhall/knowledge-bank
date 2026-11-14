@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -521,6 +521,83 @@ def _migrate_v9() -> None:
         )
 
 
+def _migrate_v10() -> None:
+    """
+    Schema v10 (KB v0.8.2). Owner: "PDFs not related to cybersecurity should
+    be removed automatically" and "files I remove keep coming back".
+
+    1. sources.status may now be 'set_aside' — a file judged NOT about
+       cybersecurity (relevance.py). Its text is not kept in the bank, but
+       the row stays so the file is never re-imported and the owner can
+       press "Keep anyway". SQLite can't change a CHECK in place, so the
+       table is rebuilt exactly like _migrate_v5 (foreign keys OFF during
+       the swap, foreign_key_check before commit, full rollback on error).
+       New columns: relevance_json (the check's result, shown in Library)
+       and keep_anyway (1 = the owner overrode the check).
+    2. removed_files: every file the owner removed (by fingerprint, path
+       and size). Watched-folder scans and folder adds skip these, so a
+       removed file stays removed. Picking that exact file again with
+       "Add files" brings it back (importer.add_paths).
+    Runs only when the CHECK doesn't allow 'set_aside' yet; the table part
+    is idempotent.
+    """
+    conn = sqlite3.connect(config.DB_PATH, isolation_level=None)
+    try:
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'sources'").fetchone()[0]
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS removed_files (
+                sha256      TEXT NOT NULL,
+                path        TEXT NOT NULL,
+                size_bytes  INTEGER NOT NULL,
+                removed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (sha256, path)
+            )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_removed_path ON removed_files(path, size_bytes)")
+        if "set_aside" not in sql:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN")
+            conn.execute("""
+                CREATE TABLE sources_v10 (
+                    id             INTEGER PRIMARY KEY,
+                    sha256         TEXT NOT NULL UNIQUE,
+                    file_name      TEXT NOT NULL,
+                    original_path  TEXT NOT NULL,
+                    file_type      TEXT NOT NULL CHECK (file_type IN ('pdf','image','table')),
+                    size_bytes     INTEGER NOT NULL,
+                    page_count     INTEGER,
+                    status         TEXT NOT NULL DEFAULT 'pending'
+                                   CHECK (status IN ('pending','extracting','extracted','failed','set_aside')),
+                    error          TEXT,
+                    added_at       TEXT NOT NULL DEFAULT (datetime('now')),
+                    processed_at   TEXT,
+                    relevance_json TEXT,
+                    keep_anyway    INTEGER NOT NULL DEFAULT 0
+                )""")
+            conn.execute("INSERT INTO sources_v10(id, sha256, file_name, original_path, file_type, size_bytes, "
+                         "page_count, status, error, added_at, processed_at) "
+                         "SELECT id, sha256, file_name, original_path, file_type, size_bytes, page_count, "
+                         "status, error, added_at, processed_at FROM sources")
+            conn.execute("DROP TABLE sources")
+            conn.execute("ALTER TABLE sources_v10 RENAME TO sources")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_path ON sources(original_path)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status)")
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"Upgrade check failed ({len(problems)} broken links); nothing was changed.")
+            conn.execute("COMMIT")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '10') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -593,7 +670,8 @@ def init_db() -> int:
         version = 7
     _migrate_v8()  # idempotent: also repairs a pre-release bank missing a v8 column
     _migrate_v9()  # idempotent (v0.8.1: pictures read in a second pass)
-    return 9
+    _migrate_v10()  # idempotent (v0.8.2: set-aside files, removed-files list)
+    return 10
 
 
 def stats() -> dict:

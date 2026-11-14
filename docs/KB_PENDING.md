@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.8.1 (faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.8.2 (relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 15 November 2026
 
 ---
@@ -13,7 +13,10 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Import a few PDFs with v0.8.1: Library should say "read on the graphics card" — report seconds per scanned page and whether it says "processor" instead
+- [ ] Install `KnowledgeBank-Setup-0.8.2.exe`; open Library: unrelated files show "Not cybersecurity" — check none of your security PDFs was set aside (use Keep anyway if one was, and tell Claude its name)
+- [ ] Setup → Graphics card → "Test and tune speed"; report the words/s and the "% on graphics card"
+- [ ] Remove a file that sits in a watched folder; confirm it does not come back after 3+ minutes
+- [ ] Import a few PDFs with v0.8.1+: Library should say "read on the graphics card" — report seconds per scanned page and whether it says "processor" instead
 - [ ] Install `KnowledgeBank-Setup-0.8.1.exe` (was 0.8.0) — then open Topics: Subnet-Guide appears as a "Spreadsheet · calculated" topic within seconds (no rebuild needed); check charts, "Checking your sheet", Subnet Lab
 - [ ] Press **Regenerate lesson** on a couple of topics (lessons written before v0.8 often have no diagrams) and try **Play lesson** / **Walk me through**
 - [ ] Time one topic with **Write this topic now** on the GPU and report the minutes (target 2–3)
@@ -104,6 +107,13 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.8.2 — Relevance, removed files, graphics card ✅ delivered
+- [x] Removed files remembered (schema v10 removed_files); watched folders and folder adds skip them
+- [x] Relevance check (relevance.py) before slow work; set aside + reason + Keep anyway + Library switch
+- [x] One-time relevance check of the existing bank (stale/empty topics handled)
+- [x] gpu.py: Ollama memory savers, speed tuning (forced layers only if measured faster), Graphics card card
+- [ ] Owner: real words/s on the RTX 3050 after tuning (target 30+)
 
 ## v0.8.1 — Faster import ✅ delivered
 - [x] Two-pass import: files searchable first, pictures inside them read afterwards (schema v9)

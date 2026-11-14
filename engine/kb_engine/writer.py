@@ -354,6 +354,11 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
         if not ollama_client.has_model(write_model()):
             raise RuntimeError(f"The writing model {write_model()} isn't downloaded. Download it from Setup.")
         ollama_client.clear_gpu_except(write_model())   # whole 4 GB for the writer
+        # v0.8.2: the first time a model writes, measure whether forcing every
+        # layer onto the graphics card is faster, and keep the faster way.
+        _set(message="Checking the graphics card speed (first time only, about a minute)…")
+        from . import gpu
+        gpu.tune_once(write_model())
         with db.connect() as conn:
             if only_topic is not None:
                 todo = [only_topic]

@@ -107,6 +107,64 @@ def has_model(name: str, installed: list[str] | None = None) -> bool:
     return ":" not in name and f"{name}:latest" in installed
 
 
+# ---------------------------------------------------------------------------
+# Graphics-card placement and measured speeds (v0.8.2, see gpu.py)
+# ---------------------------------------------------------------------------
+_layers: dict[str, int] | None = None   # model → num_gpu chosen by gpu.tune()
+_speeds: dict[str, dict] = {}           # model → last measured speed
+
+
+def set_layer_choices(layers: dict) -> None:
+    """gpu.tune() saves which models run faster with every layer forced on."""
+    global _layers
+    _layers = dict(layers or {})
+
+
+def _layer_choice(model: str) -> int | None:
+    global _layers
+    if _layers is None:
+        try:
+            from . import db
+            _layers = dict(db.get_setting("ollama_num_gpu", {}) or {})
+        except Exception:
+            _layers = {}
+    return _layers.get(model)
+
+
+def _record_speed(model: str, kind: str, value: float) -> None:
+    import time as _time
+    if value > 0:
+        _speeds[model] = {"kind": kind, "value": round(value, 1), "at": _time.strftime("%H:%M")}
+
+
+def speeds() -> dict:
+    """Last measured speed per model ({"kind": "tokens/s"|"passages/s", "value"})."""
+    return dict(_speeds)
+
+
+def gpu_share(model: str) -> float | None:
+    """Fraction (0–1) of a LOADED model held in video memory, from /api/ps."""
+    for m in loaded_split():
+        if m["name"] in (model, f"{model}:latest") or m["name"].split(":")[0] == model:
+            return m["gpu_share"]
+    return None
+
+
+def loaded_split() -> list[dict]:
+    """Each loaded model with its size and share on the graphics card."""
+    try:
+        r = httpx.get(f"{config.OLLAMA_URL}/api/ps", timeout=5)
+        r.raise_for_status()
+        out = []
+        for m in r.json().get("models", []):
+            size, vram = int(m.get("size") or 0), int(m.get("size_vram") or 0)
+            out.append({"name": m.get("name"), "size_mb": size // 2**20, "vram_mb": vram // 2**20,
+                        "gpu_share": round(vram / size, 3) if size else None})
+        return out
+    except (httpx.HTTPError, ValueError):
+        return []
+
+
 def generate(
     model: str,
     prompt: str,
@@ -116,6 +174,8 @@ def generate(
     think: bool = False,
     num_predict: int | None = None,
     on_text=None,
+    num_gpu: int | None = None,
+    fallback: bool = True,
 ) -> GenerationResult:
     """
     Ask a model to write a response (non-streaming: waits for the full answer).
@@ -141,9 +201,34 @@ def generate(
                      4× a second, so the app can show it being written live
                      (v0.8). The final result is the same as without it.
 
+      num_gpu      — layers to put on the graphics card (v0.8.2). None = the
+                     value gpu.tune() measured as fastest for this model, or
+                     Ollama's own choice. If a forced value fails (e.g. out
+                     of video memory) the request is retried once with
+                     Ollama's choice and the forced value is forgotten
+                     (fallback=False turns that off — used while tuning).
+
     RETURNS: GenerationResult with the text and timing figures.
     RAISES:  OllamaError with a readable message on any failure.
     """
+    forced = num_gpu if num_gpu is not None else _layer_choice(model)
+    try:
+        result = _generate_once(model, prompt, system, temperature, num_ctx, think,
+                                num_predict, on_text, forced)
+    except OllamaError:
+        if forced is None or not fallback:
+            raise
+        if _layers is not None:
+            _layers.pop(model, None)  # forced placement failed: stop forcing
+        result = _generate_once(model, prompt, system, temperature, num_ctx, think,
+                                num_predict, on_text, None)
+    _record_speed(model, "tokens/s", result.tokens_per_second)
+    return result
+
+
+def _generate_once(model, prompt, system, temperature, num_ctx, think, num_predict,
+                   on_text, num_gpu) -> GenerationResult:
+    """One request to Ollama (see generate() for the parameters)."""
     payload: dict = {
         "model": model,
         "prompt": prompt,
@@ -153,6 +238,8 @@ def generate(
     }
     if num_predict:
         payload["options"]["num_predict"] = num_predict
+    if num_gpu is not None:
+        payload["options"]["num_gpu"] = num_gpu
     if system:
         payload["system"] = system
     if on_text is not None:
@@ -244,6 +331,8 @@ def embed(model: str, texts: list[str]) -> list[list[float]]:
            of merging duplicates in Phase 2.
     CALLED BY: benchmark.py now (speed test); Phase 2 clustering later.
     """
+    import time as _time
+    started = _time.monotonic()
     try:
         r = httpx.post(
             f"{config.OLLAMA_URL}/api/embed",
@@ -251,7 +340,10 @@ def embed(model: str, texts: list[str]) -> list[list[float]]:
             timeout=config.OLLAMA_TIMEOUT_SECONDS,
         )
         r.raise_for_status()
-        return r.json()["embeddings"]
+        out = r.json()["embeddings"]
+        if len(texts) >= 4:  # tiny batches say little about speed
+            _record_speed(model, "passages/s", len(texts) / max(_time.monotonic() - started, 1e-3))
+        return out
     except (httpx.HTTPError, KeyError) as exc:
         raise OllamaError(f"Embedding failed for model {model}: {exc}") from exc
 

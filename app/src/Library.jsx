@@ -28,6 +28,7 @@ const STATUS_TEXT = {
   extracting: "Reading…",
   extracted: "In the bank",
   failed: "Failed",
+  set_aside: "Not cybersecurity", // v0.8.2: set aside by the relevance check
 };
 
 export default function Library() {
@@ -52,6 +53,10 @@ export default function Library() {
     parts.push(`${r.added} new file${r.added === 1 ? "" : "s"} added`);
     if (r.duplicates) parts.push(`${r.duplicates} exact cop${r.duplicates === 1 ? "y" : "ies"} skipped`);
     if (r.already_in_bank) parts.push(`${r.already_in_bank} already in the bank`);
+    if (r.removed_before)
+      parts.push(
+        `${r.removed_before} you removed before (skipped — pick the file itself with Add files to bring it back)`
+      );
     if (r.unsupported) parts.push(`${r.unsupported} not a PDF, image or spreadsheet (ignored)`);
     if (r.errors?.length) parts.push(`${r.errors.length} couldn't be opened: ${r.errors.slice(0, 2).join("; ")}`);
     setNotice({ kind: r.errors?.length ? "error" : "ok", text: parts.join(" · ") + "." });
@@ -73,6 +78,14 @@ export default function Library() {
     reloadLib();
   }
 
+  /** v0.8.2: import a file the relevance check set aside. */
+  async function keepAnyway(source) {
+    const r = await kb.post("/library/keep", { source_id: source.id });
+    setNotice({ kind: r.ok ? "ok" : "error", text: r.ok ? `${source.file_name}: ${r.message}` : r.message || r.error });
+    reloadLib();
+    reloadImp();
+  }
+
   async function retryFailed() {
     const r = await kb.post("/library/retry", {});
     setNotice({ kind: r.error ? "error" : "ok", text: r.message || r.error });
@@ -81,6 +94,7 @@ export default function Library() {
 
   const sources = lib?.sources ?? [];
   const failed = sources.filter((s) => s.status === "failed").length;
+  const setAside = sources.filter((s) => s.status === "set_aside").length;
 
   return (
     <div className="library">
@@ -145,6 +159,7 @@ export default function Library() {
           <h2>
             Files <span className="count">{formatCount(sources.length)}</span>
           </h2>
+          <RelevanceSwitch setAside={setAside} />
           {failed > 0 && (
             <button className="secondary" onClick={retryFailed}>
               <Icon name="refresh" size={16} />
@@ -176,6 +191,14 @@ export default function Library() {
                     <span className="file-meta">{formatBytes(s.size_bytes)}</span>
                     {s.error && <span className="file-error">{s.error}</span>}
                     {s.status === "failed" && /password/i.test(s.error ?? "") && <Unlock source={s} />}
+                    {s.status === "set_aside" && (
+                      <span className="aside-note">
+                        Set aside: {s.relevance?.reason ?? "not about cybersecurity"}.{" "}
+                        <button className="link" onClick={() => keepAnyway(s)}>
+                          Keep anyway
+                        </button>
+                      </span>
+                    )}
                   </td>
                   <td>
                     <span className={`status status-${s.status}`}>{STATUS_TEXT[s.status]}</span>
@@ -209,6 +232,33 @@ export default function Library() {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * v0.8.2 switch: "Only keep cybersecurity files". When on (the default),
+ * each new file is checked on a sample of its text BEFORE the slow work, and
+ * files not about security are set aside (shown in the list with the reason
+ * and a "Keep anyway" button). Turning it off only affects new files.
+ */
+function RelevanceSwitch({ setAside }) {
+  const [on, setOn] = useState(null);
+  useEffect(() => {
+    kb.get("/library/filter").then((r) => !r.error && setOn(r.on));
+  }, []);
+  if (on === null) return null;
+  async function toggle() {
+    const r = await kb.post("/library/filter", { on: !on });
+    if (!r.error) setOn(r.on);
+  }
+  return (
+    <label className="relevance-switch" title="Files that aren't about cybersecurity are set aside, not deleted">
+      <input type="checkbox" checked={on} onChange={toggle} />
+      <span>
+        Only keep cybersecurity files
+        {setAside > 0 && <span className="muted"> · {setAside} set aside</span>}
+      </span>
+    </label>
   );
 }
 

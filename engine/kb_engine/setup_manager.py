@@ -165,7 +165,10 @@ def start_ollama() -> dict:
     flags = _no_window_flags()
     if sys.platform == "win32":
         flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-    subprocess.Popen([exe, "serve"], creationflags=flags,
+    # v0.8.2: start it with the memory savers from gpu.py (flash attention
+    # + 8-bit attention cache) so the writing model fits the 4 GB card.
+    from .gpu import OLLAMA_ENV
+    subprocess.Popen([exe, "serve"], creationflags=flags, env={**os.environ, **OLLAMA_ENV},
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(30):
         if ollama_client.is_running():

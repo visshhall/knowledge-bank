@@ -13,7 +13,7 @@
  *        and leaves the full width for content like tables and search.
  * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
  * CONNECTED TO: Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
- *        Updates.jsx, icons.jsx, bridge.js (engine status, /system), styles.css.
+ *        Updates.jsx, GpuCard.jsx (v0.8.2), icons.jsx, bridge.js (engine status, /system), styles.css.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
@@ -22,6 +22,7 @@ import Answers from "./Answers.jsx";
 import Learn from "./Learn.jsx";
 import Tools from "./Tools.jsx";
 import Backup from "./Backup.jsx";
+import GpuCard from "./GpuCard.jsx";
 import Library from "./Library.jsx";
 import Topics from "./Topics.jsx";
 import SetupWizard from "./SetupWizard.jsx";
@@ -210,6 +211,8 @@ function SetupScreen() {
       </header>
 
       <SetupWizard onStatus={handleSetupStatus} />
+
+      <GpuCard />
 
       <Updates />
 

@@ -60,7 +60,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import chunking, db, ocr
+from . import chunking, db, ocr, relevance
 
 PDF_EXTENSIONS = {".pdf"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
@@ -191,7 +191,15 @@ def _already_known(conn, path: Path, size: int) -> bool:
                              (sp, size)).fetchone())
 
 
-def add_paths(paths: list[str]) -> dict:
+def _removed_before(conn, path: Path, size: int, sha: str | None = None) -> bool:
+    """Did the owner remove this file (same path+size, or same bytes)?"""
+    if conn.execute("SELECT 1 FROM removed_files WHERE path = ? AND size_bytes = ?",
+                    (str(path), size)).fetchone():
+        return True
+    return bool(sha and conn.execute("SELECT 1 FROM removed_files WHERE sha256 = ?", (sha,)).fetchone())
+
+
+def add_paths(paths: list[str], picked: bool = False) -> dict:
     """
     Register files/folders for import, then make sure the worker is running.
 
@@ -202,20 +210,37 @@ def add_paths(paths: list[str]) -> dict:
                        already in the bank — recorded, not imported twice
       already_in_bank  the very same file path was added before
       unsupported      files that aren't PDFs or images (ignored)
+      removed_before   files the owner removed earlier (v0.8.2) — skipped
+
+    picked (v0.8.2): True when the owner chose these paths in the window.
+      A removed file comes back ONLY if the owner picked that exact file
+      (Add files / drag-and-drop of the file itself). Watched-folder scans
+      and folder adds always skip removed files — this is what stops
+      "files I removed keep coming back".
     """
     files, unsupported = _expand(paths)
+    direct = {str(Path(p)) for p in paths if picked and Path(p).is_file()}
     result = {"added": 0, "duplicates": 0, "already_in_bank": 0,
-              "unsupported": unsupported, "errors": []}
+              "unsupported": unsupported, "removed_before": 0, "errors": []}
 
     for fp in files:
         try:
             size = fp.stat().st_size
+            chosen = str(fp) in direct
             with db.connect() as conn:
                 if _already_known(conn, fp, size):
                     result["already_in_bank"] += 1
                     continue
+                if not chosen and _removed_before(conn, fp, size):
+                    result["removed_before"] += 1
+                    continue
             sha = _sha256_file(fp)  # outside the DB transaction: can take a while
             with db.connect() as conn:
+                if chosen:
+                    conn.execute("DELETE FROM removed_files WHERE sha256 = ? OR path = ?", (sha, str(fp)))
+                elif _removed_before(conn, fp, size, sha):
+                    result["removed_before"] += 1  # a renamed/moved copy of a removed file
+                    continue
                 existing = conn.execute("SELECT id FROM sources WHERE sha256 = ?", (sha,)).fetchone()
                 if existing:
                     conn.execute(
@@ -252,13 +277,79 @@ def remove_source(source_id: int) -> dict:
             return {"ok": False, "message": "Not found."}
         if row["status"] == "extracting":
             return {"ok": False, "message": "This file is being imported right now — try again in a moment."}
+        # v0.8.2: remember the file (and its copies) so watched folders and
+        # folder adds never bring it back. "Add files" on it undoes this.
+        conn.execute(
+            "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
+            "SELECT sha256, original_path, size_bytes FROM sources WHERE id = ?", (source_id,))
+        conn.execute(
+            "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
+            "SELECT sha256, path, size_bytes FROM duplicate_files WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
     try:
         from . import datapages
         datapages.rebuild_data_topics()  # a removed spreadsheet takes its data topic with it
     except Exception:
         pass
-    return {"ok": True, "message": "Removed from the knowledge bank. The original file is untouched."}
+    return {"ok": True, "message": "Removed from the knowledge bank and won't be imported again. "
+                                   "The original file is untouched."}
+
+
+def keep_anyway(source_id: int) -> dict:
+    """
+    v0.8.2: the owner overrides the relevance check for one set-aside file.
+    It is queued again and imported in full, without being checked.
+    """
+    with db.connect() as conn:
+        n = conn.execute("UPDATE sources SET keep_anyway = 1, status = 'pending', error = NULL "
+                         "WHERE id = ? AND status = 'set_aside'", (source_id,)).rowcount
+    if n:
+        _ensure_worker()
+    return {"ok": bool(n), "message": "Importing it in full." if n else "Not found."}
+
+
+def check_existing_relevance() -> int:
+    """
+    v0.8.2, once per bank: banks imported before the relevance check may
+    already hold unrelated files. Each file's stored text (no file is read
+    again, no OCR) is checked; unrelated ones are set aside — their pages,
+    passages and pictures are removed, the row stays for "Keep anyway".
+    Topics that lost passages are marked 'stale' (Write remaining refreshes
+    them) and topics left with no passages are deleted.
+    RETURNS how many files were set aside.
+    """
+    if db.get_setting("relevance_checked") or not relevance_filter_on():
+        return 0
+    aside = 0
+    with db.connect() as conn:
+        rows = conn.execute("SELECT id FROM sources WHERE status = 'extracted' AND keep_anyway = 0").fetchall()
+    for row in rows:
+        sid = row["id"]
+        with db.connect() as conn:
+            parts = [r[0] for r in conn.execute(
+                "SELECT text FROM pages WHERE source_id = ? ORDER BY page_number LIMIT ?",
+                (sid, SAMPLE_TEXT_PAGES))]
+            result = relevance.assess("\n".join(parts))
+            conn.execute("UPDATE sources SET relevance_json = ? WHERE id = ?", (json.dumps(result), sid))
+            if result["verdict"] != "not":
+                continue
+            touched = [r[0] for r in conn.execute(
+                "SELECT DISTINCT tp.topic_id FROM topic_passages tp JOIN passages p ON p.id = tp.passage_id "
+                "WHERE p.source_id = ?", (sid,))]
+            conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))
+            conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
+            conn.execute("DELETE FROM doc_tables WHERE source_id = ?", (sid,))
+            conn.execute("UPDATE sources SET status = 'set_aside' WHERE id = ?", (sid,))
+            for t in touched:
+                left = conn.execute("SELECT COUNT(*) FROM topic_passages WHERE topic_id = ?", (t,)).fetchone()[0]
+                if left == 0:
+                    conn.execute("DELETE FROM topics WHERE id = ?", (t,))
+                else:
+                    conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
+                                 "WHERE id = ? AND status = 'written'", (t,))
+            aside += 1
+    db.set_setting("relevance_checked", True)
+    return aside
 
 
 def retry_failed() -> dict:
@@ -282,6 +373,7 @@ def library(limit: int = 2000) -> list[dict]:
             """
             SELECT s.id, s.file_name, s.original_path, s.file_type, s.size_bytes,
                    s.page_count, s.status, s.error, s.added_at, s.processed_at,
+                   s.relevance_json, s.keep_anyway,
                    (SELECT COUNT(*) FROM passages p WHERE p.source_id = s.id)          AS passages,
                    (SELECT COUNT(*) FROM pages g WHERE g.source_id = s.id AND g.ocr_used = 1) AS ocr_pages,
                    (SELECT COUNT(*) FROM images i WHERE i.source_id = s.id)            AS images,
@@ -292,7 +384,15 @@ def library(limit: int = 2000) -> list[dict]:
             """,
             (limit,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:  # the relevance check's verdict and reason, for Library (v0.8.2)
+            d["relevance"] = json.loads(d.pop("relevance_json") or "null")
+        except ValueError:
+            d["relevance"] = None
+        out.append(d)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +614,16 @@ def _process_source(source: dict) -> None:
                 datapages.ensure_data_topic(sid)
             except Exception as exc:
                 _set(last_error=f"{source['file_name']}: couldn't build its data page ({exc})")
+    except SetAside as aside:
+        # Not about cybersecurity (v0.8.2): keep only the row (so it is never
+        # imported again and can be kept with one click), drop any text.
+        with db.connect() as conn:
+            conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))
+            conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
+            conn.execute("DELETE FROM doc_tables WHERE source_id = ?", (sid,))
+            conn.execute("UPDATE sources SET status = 'set_aside', error = NULL, "
+                         "processed_at = datetime('now'), relevance_json = ? WHERE id = ?",
+                         (json.dumps(aside.result), sid))
     except Exception as exc:
         message = str(exc) or exc.__class__.__name__
         _set(last_error=f"{source['file_name']}: {message}")
@@ -683,6 +793,7 @@ def _extract_pdf(sid: int, path: Path) -> int:
                 raise PermissionError("Wrong password for this PDF. Click \"Enter password\" to try again.")
         total = doc.page_count
         _set(page_count=total)
+        _check_pdf(sid, doc)  # v0.8.2: may raise SetAside before any slow work
         sections: dict = {}  # document part carried from page to page
         # v0.8.1: scanned pages are OCR'd SEVERAL AT A TIME (one per OCR
         # engine, see ocr.workers()) while this thread keeps reading the
@@ -720,6 +831,70 @@ def _extract_pdf(sid: int, path: Path) -> int:
         return total
 
 
+class SetAside(Exception):
+    """Raised by an extractor when relevance.assess() says the file is not
+    about cybersecurity; _process_source records it as 'set_aside'."""
+
+    def __init__(self, result: dict):
+        super().__init__(result.get("reason", "not about cybersecurity"))
+        self.result = result
+
+
+# Pages read for the relevance sample. The text layer is ~1 ms per page, so
+# a generous sample costs nothing; scanned PDFs OCR at most SAMPLE_OCR_PAGES.
+SAMPLE_TEXT_PAGES = 25
+SAMPLE_OCR_PAGES = 3
+
+
+def relevance_filter_on() -> bool:
+    """Owner's switch in Library (default ON): set aside non-security files."""
+    return bool(db.get_setting("relevance_filter", True))
+
+
+def _check_needed(sid: int) -> bool:
+    """Run the relevance check for this file? Not when the switch is off or
+    the owner pressed "Keep anyway" for it."""
+    if not relevance_filter_on():
+        return False
+    with db.connect() as conn:
+        row = conn.execute("SELECT keep_anyway FROM sources WHERE id = ?", (sid,)).fetchone()
+    return not (row and row["keep_anyway"])
+
+
+def _judge(sid: int, text: str) -> None:
+    """Record the verdict; raise SetAside when the file is not about security."""
+    result = relevance.assess(text)
+    with db.connect() as conn:
+        conn.execute("UPDATE sources SET relevance_json = ? WHERE id = ?", (json.dumps(result), sid))
+    if result["verdict"] == "not":
+        raise SetAside(result)
+
+
+def _check_pdf(sid: int, doc) -> None:
+    """
+    v0.8.2: decide BEFORE the slow work whether this PDF is about security.
+    Sample = text layer of the first SAMPLE_TEXT_PAGES pages. If that is
+    too short (a scanned PDF), up to SAMPLE_OCR_PAGES scanned pages spread
+    through the document are OCR'd side by side and added — so an unrelated
+    200-page scan costs ~3 pages of OCR instead of 200.
+    """
+    if not _check_needed(sid):
+        return
+    n = min(SAMPLE_TEXT_PAGES, doc.page_count)
+    text = "\n".join(doc[i].get_text("text") for i in range(n))
+    if len(text.split()) < relevance.MIN_WORDS:
+        scanned = [i for i in range(doc.page_count)
+                   if len(doc[i].get_text("text").strip()) < SCANNED_PAGE_CHAR_THRESHOLD]
+        if scanned:
+            k = min(SAMPLE_OCR_PAGES, len(scanned))
+            picks = sorted({scanned[(j * len(scanned)) // k] for j in range(k)})
+            _set(current_page=picks[0] + 1)
+            pngs = [doc[i].get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png") for i in picks]
+            with ThreadPoolExecutor(max_workers=max(1, min(len(pngs), ocr.workers()))) as pool:
+                text += "\n" + "\n".join(pool.map(ocr.read_text, pngs))
+    _judge(sid, text)
+
+
 def _has_scanned_pages(doc, sample: int = 40) -> bool:
     """Quick look (text layer only, ~1 ms/page) at the first pages: does
     this PDF need OCR at all? Avoids starting OCR engines for text PDFs."""
@@ -735,6 +910,8 @@ def _extract_image(sid: int, path: Path) -> int:
     data = path.read_bytes()
     sha = hashlib.sha256(data).hexdigest()
     text = ocr.read_text(data)
+    if _check_needed(sid):
+        _judge(sid, text)  # short screenshot text is "unsure" → kept
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO images(source_id, page_number, sha256, ocr_text) VALUES (?, 1, ?, ?)",
@@ -803,6 +980,8 @@ def _extract_table(sid: int, path: Path) -> int:
     if not sheets:
         raise ValueError("The spreadsheet has no readable sheets.")
     _set(page_count=len(sheets))
+    if _check_needed(sid):
+        _judge(sid, "\n".join(" ".join(c for c in row if c) for _n, rows in sheets for row in rows[:400]))
     for n, (name, rows) in enumerate(sheets, start=1):
         _set(current_page=n)
         lines = [f"Sheet: {name}"] + [" · ".join(c for c in row if c) for row in rows]
@@ -1010,5 +1189,19 @@ def start() -> None:
             threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()
             return
         db.set_setting("chunker_version", chunking.CHUNKER_VERSION)
+    # v0.8.2: once per bank, set aside files already imported that are not
+    # about cybersecurity (stored text only — quick, no OCR).
+    threading.Thread(target=lambda: _safe_log(check_existing_relevance, "relevance check"),
+                     name="kb-relevance", daemon=True).start()
     _ensure_worker()
     threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()
+
+
+def _safe_log(fn, label: str) -> None:
+    """Run a background helper; report a failure instead of crashing."""
+    try:
+        n = fn()
+        if n:
+            print(f"[engine] {label}: {n} file(s) set aside", flush=True)
+    except Exception as exc:
+        _set(last_error=f"{label} failed: {exc}")

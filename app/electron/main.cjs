@@ -67,6 +67,11 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /library/add",
   "POST /library/remove",
   "POST /library/retry",
+  "POST /library/keep", // v0.8.2: import a set-aside file anyway
+  "GET /gpu/status", // v0.8.2: graphics card report (Setup)
+  "POST /gpu/tune",
+  "GET /library/filter", // v0.8.2: "Only keep cybersecurity files" switch
+  "POST /library/filter",
   "GET /import/status",
   "GET /settings/watch",
   "POST /settings/watch",

@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
-| Document version | 2.6 |
+| Current version | KB v0.8.2 — non-cybersecurity files set aside automatically, removed files stay removed, AI kept on the graphics card · v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
+| Document version | 2.7 |
 | Last updated | 15 November 2026 |
 | Owner | Vishal Singh |
 
@@ -440,6 +440,47 @@ Owner: "the Library import is too slow."
 
 **Kept for accuracy:** the 180° text-line classifier. Turning it off was about 10% faster but changed the text read.
 
+## 9m. v0.8.2 — relevance filter, removed files, graphics card (15 Nov 2026)
+
+The owner raised three issues:
+- "PDFs not related to cybersecurity should be removed automatically."
+- "Make sure all of this runs on the GPU, not the CPU — it's very slow."
+- "Files I remove keep coming back."
+
+**Removed files stay removed** (schema v10 `removed_files`)
+- *Cause:* the watched-folder scan runs every 3 minutes and re-imported anything not in the bank, including files the owner had just removed.
+- *Fix:* removing a file now records it, along with its copies (by fingerprint, path and size).
+  - Watched folders and folder adds skip removed files, including renamed copies.
+  - Picking that exact file again with Add files brings it back.
+  - Library says "N you removed before (skipped)".
+
+**Non-cybersecurity files are set aside** (`relevance.py`; `sources.status` 'set_aside', `relevance_json`, `keep_anyway`)
+- The check uses a fixed vocabulary (no AI, instant, the same answer every time).
+  - About 150 "strong" terms that only security writing uses (malware, SIEM, KQL, lateral movement…).
+  - Patterns: CVE, ATT&CK IDs, event IDs, IPs, hashes, query pipes.
+  - About 165 "weak" terms that other writing also uses.
+- Verdicts:
+  - "cyber" = 3+ strong terms, or 2 strong + 5 weak.
+  - "not" = no strong term (or one strong term in 500+ words) in 150+ words.
+  - Anything else is "unsure", and is **kept**.
+- The check runs on a sample **before** the slow work: the text layer of the first 25 pages, or OCR of at most 3 pages spread through a scan. An unrelated 200-page scan therefore costs 3 pages of OCR.
+- Set-aside files keep only their row: they are never re-imported, Library shows the reason, and **Keep anyway** imports them in full. A Library switch, "Only keep cybersecurity files" (on by default), turns the check off for new files.
+- Banks imported earlier are checked once from their stored text. Topics that lose passages are marked stale, and empty topics are removed.
+- Tested:
+  - All 9 cyber PDFs and the subnet sheet in the test bank were judged "cyber", and a 45-word file was "unsure" and kept.
+  - 23 unrelated documents (font manuals, licences, technical tables) were judged "not", and 2 very short ones were "unsure".
+  - A 12-page scanned manual was set aside after OCR of only 3 pages.
+
+**AI kept on the graphics card** (`gpu.py`, `ollama_client.py`, `GpuCard.jsx`)
+- *Evidence:* the owner's benchmark showed 11.6 tokens/s writing and 1.2 passages/s embedding. Those are processor-like speeds; a 4B model fully on an RTX 3050 runs at roughly 30–50 tokens/s.
+- On a 4 GB card the writing model (≈3.5 GB loaded) only just fits, so Ollama often leaves part of it on the processor.
+- Fixes:
+  - **Memory savers:** Ollama's flash attention and 8-bit attention cache roughly halve attention memory. They are set once as Windows user variables (so Ollama's own tray app uses them too), Ollama is restarted when idle, and they are always passed when the app starts Ollama.
+  - **Speed tuning:** the first time a model writes, and from Setup → "Test and tune speed", the app measures Ollama's own split against all layers forced onto the card, and keeps forcing only if it is ≥15% faster. On Windows the driver can spill a forced model into shared memory, which is slower, so it is never forced blindly. If a forced request fails, the next try uses Ollama's own split.
+  - **Setup → Graphics card card:** the card and the memory in use; each loaded model's share on the card ("72% on graphics card" in orange when partial); measured words/s and passages/s; and advice (driver missing, close video/games).
+- Topic grouping and fact checks are plain arithmetic taking seconds, so they stay on the processor. Picture reading uses the card through DirectML (v0.8.1).
+- *Not measurable in Claude's workspace (no NVIDIA card); the mechanics were tested against the real Ollama.*
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -505,3 +546,4 @@ Owner: "the Library import is too slow."
 | 14 Nov 2026 | Doc 2.4 / KB v0.7.0 | All remaining phases: answer pages, open PDF at page, topic map (Phase 4); flashcards + spaced repetition + progress (Phase 5); IOC/ATT&CK/query tools + browser look-ups (Phase 6); automatic incremental topic updates + AES-256 encrypted backup/restore (Phase 7); Rewrite all; PDF passwords; quiz answer verification found with the real model. Schema v7. Added section 9j. |
 | 15 Nov 2026 | Doc 2.5 / KB v0.8.0 | Owner: weak diagrams, slow writing, invisible subnet spreadsheet. Spreadsheet data topics (datapages.py: charts, recalculated checks, bits explainer, Subnet Lab, quiz; schema v8); diagrams rewritten with walk-through animation + Play lesson; lesson prompt fixed so steps get pictures + verified fallback visuals; writer 3 calls instead of 5, live streaming, Write this topic now, line-by-line article fact check; crash guard. Added section 9k. |
 | 15 Nov 2026 | Doc 2.6 / KB v0.8.1 | Owner: import too slow. Two-pass import (text first, pictures after; schema v9 images.xref), OCR engine pool + parallel scanned pages (79 s → 30 s to searchable on 2 cores, identical passages), DirectML graphics-card OCR on Windows with automatic processor fallback, background OCR load. Added section 9l. |
+| 15 Nov 2026 | Doc 2.7 / KB v0.8.2 | Owner: unrelated PDFs, slow CPU-bound AI, removed files returning. Relevance check before slow work + set aside + Keep anyway + one-time check of existing bank (relevance.py, schema v10); removed_files so watched folders never re-add; gpu.py memory savers, speed tuning with safe fallback, Graphics card card in Setup. Added section 9m. |
