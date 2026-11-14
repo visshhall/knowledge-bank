@@ -584,6 +584,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 - The download is checked for size, the "MZ" header, and the SHA-256 published in the release notes.
 - It installs silently (/S --force-run), and the app reopens by itself. Only an installer the updater found or downloaded can be run.
 - A banner appears under the version badge. Setup → App updates has "Check for updates" and an automatic daily check (on by default; it sends nothing but the request).
+- *Publishing:* Claude's sessions are not allowed to create GitHub releases, so a release is published by the owner: GitHub → Releases → "Draft a new release", tag `v<version>`, attach the installer, and paste the `sha256: …` line Claude gives into the notes. Until a release exists, the Downloads route works: download the installer Claude sends, and the app offers Install.
 
 ## 10. Known limits (stated upfront)
 

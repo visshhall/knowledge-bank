@@ -122,6 +122,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Real names for files
 - [x] Garbled text re-read by OCR
 - [x] Automatic categories + Library filters
+- [ ] Owner: publish GitHub release v0.9.0 (attach KnowledgeBank-Setup-0.9.0.exe; notes line `sha256: d89909008acec35cc2a3401649975b940693e9d6695345521382d364eef5ccb6`) — Claude's session can't create releases
 - [ ] Owner checks: Library titles/categories look right; one hand edit; an update via Setup → App updates
 - [ ] Idea: store meaning-vectors as float16 on disk too (halves the bank size; needs a format marker)
 
