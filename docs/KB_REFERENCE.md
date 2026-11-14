@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.6.0 — automatic visual lessons + spreadsheet import; Phases 0–3 delivered, Learn mode started |
-| Document version | 2.0 |
+| Current version | KB v0.6.1 — topic grouping fixed, readable source points with context, version shown in the app |
+| Document version | 2.1 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -249,6 +249,39 @@ Also from the report: one PDF is fully scanned (42/42 pages) — handled by OCR 
 
 **To verify on the owner's laptop:** lesson quality from qwen3.5:4b on real topics; time per topic (expected ~1 extra minute).
 
+## 9g. v0.6.1 — fixes from the owner's real test (14 Nov 2026): what and why
+
+Owner imported 6 PDFs (281 pages, 304 passages; 45 pages read by OCR) with v0.5.1 and reported three problems.
+
+**1. Only 3 topics, one holding 298 of 304 points.**
+- *Cause (reproduced):* the embedding model gives all text a strong shared direction. Any two cybersecurity passages scored about 0.69 cosine similarity, and topic centres (averages) scored about 0.9. The rule "merge topics whose centres are ≥ 0.88 alike" therefore merged almost everything. The same collapse happened on a 317-passage labelled test set: 3 topics of 310/6/1.
+- *Fix (`distill.cluster`):*
+  - Grouping uses centred vectors: the collection's average direction is subtracted, so unrelated text scores about 0.
+  - The thresholds were re-measured in that space: merge 0.60, related-topic link 0.20, loose fit 0.25.
+  - Oversized topics (more than 4× the average and over 60 points) are split.
+  - Topics with 1–2 points are folded into the nearest topic.
+  - Repeat detection still uses the original vectors.
+- *Result:* the test set gives 13 topics of 11–39 points. A 72-passage end-to-end run with the real nomic-embed-text gives 6 topics of 7–17 points; the old code made 68 + 4 from the same passages.
+- *Not chosen:* nomic's "clustering:" prefix. It gave no gain in the test, and it would have meant re-embedding everything.
+
+**2. Source points "make no sense": "Step 3" / "Step 5" with no context, numbering restarting at 1, bullets glued together.**
+- *Cause:* Word documents use nested bullets • → o → §. These extract as the letters "o" and "§", sometimes on a line of their own. Points were also listed by match score, which mixes steps from different documents. Numbered items were renumbered from 1.
+- *Fix (chunker v3, schema v6):*
+  - "o" and "§" (and Wingdings private-use bullets) become levels ◦ and ▪.
+  - Wrapped bullet lines are re-joined. Ligatures are expanded ("oﬃcial" → "official").
+  - Each passage stores its section, the document part it belongs to (a heading such as "Use Case 7: …", "Scenario …", "Chapter …" or an ALL-CAPS heading; otherwise the document's first heading).
+- *Display:*
+  - Source points are listed in reading order (file → page → position) by default, grouped under "file › section".
+  - "Best match first" is still available.
+  - Lists keep their real numbers and show nested indentation.
+  - Every point has "Read in context" (GET `/passage/context`), which shows the passages just before and after it.
+- *AI:* the writer and lesson prompts now prefix each point with "(From: section)".
+- *Upgrade:* existing banks are re-organised automatically on first start. Topics must then be rebuilt once.
+
+**3. Version not visible.** The installed version is now shown top-right on every screen and in the window title (IPC `app:version`).
+
+Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -308,3 +341,4 @@ Also from the report: one PDF is fully scanned (42/42 pages) — handled by OCR 
 | 14 Nov 2026 | Doc 1.8 / KB v0.5 | Owner found raw passages unreadable and asked about AI updates. Chunker v2 keeps structure + automatic re-organise of existing banks; Formatted.jsx display; Phase 3 article writer with citations, batching for big topics, carry-over on rebuild; schema v4; AI update checker (Ollama + model fingerprints). Added section 9d. |
 | 14 Nov 2026 | Doc 1.9 / KB v0.5.1 | Benchmark received: qwen3.5:4b chosen for everything; comparison-model removal; writer sized for 4 GB (no cut-off answers); GPU cleared before embedding/writing to fix 1.2 passages/s embedding; live embedding speed + time left. Added section 9e. |
 | 14 Nov 2026 | Doc 2.0 / KB v0.6.0 | Automatic visual lessons for every topic (profile → calculated steps → AI plan from a fixed visual menu → fact check), ELK-laid-out diagrams, quiz, regenerate; Excel/CSV import with exact grids; schema v5; stricter number checks. Added section 9f. |
+| 14 Nov 2026 | Doc 2.1 / KB v0.6.1 | Owner test: 3 topics / 298 points in one → grouping on centred embeddings with re-measured thresholds, split/fold safety net. Unreadable source points → chunker v3 (Word bullet levels, ligatures, wrapped bullets), schema v6 passages.section, reading order + document-part headers + Read in context. Version shown top-right. Added section 9g. |

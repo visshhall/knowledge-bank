@@ -23,6 +23,7 @@ export const kb =
     pickFiles: async () => [],
     pathForFile: () => "",
     openReports: async () => NOT_IN_APP,
+    appVersion: async () => "dev",
     engineStatus: async () => ({ status: "error", detail: "Not running inside the app" }),
     onEngineStatus: () => () => {},
   };

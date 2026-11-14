@@ -404,6 +404,38 @@ td { padding: 12px 10px 12px 0; border-bottom: 1px solid var(--line); vertical-a
 .fmt-list li::marker { color: var(--coral); }
 .more { justify-self: start; }
 
+/* Nested lists in passages: numbers kept, sub-points indented (v0.6.1) */
+.fmt-tree { list-style: none; margin: 6px 0 10px; padding: 0; display: grid; gap: 4px; font-family: var(--read); font-size: 15.5px; }
+.fmt-tree li { position: relative; padding-left: 26px; line-height: 1.6; }
+.fmt-tree li.lvl-2 { margin-left: 26px; }
+.fmt-tree li.lvl-3 { margin-left: 52px; }
+.fmt-tree .mk { position: absolute; left: 0; top: 0; width: 22px; text-align: right; color: var(--coral); font-weight: 700; }
+.fmt-tree .mk:not(.num)::before { content: ""; position: absolute; right: 6px; top: 0.7em; width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+.fmt-tree li.lvl-2 .mk:not(.num)::before { background: transparent; border: 1.5px solid var(--teal); }
+.fmt-tree li.lvl-3 .mk:not(.num)::before { border-radius: 1px; background: var(--muted); width: 5px; height: 5px; }
+
+/* Source points: order switch, document-part headers, context (v0.6.1) */
+.points-bar { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface-2); margin: 4px 0 14px; }
+.points-bar .seg { padding: 6px 14px; border-radius: 999px; background: transparent; color: var(--ink); border-color: transparent; font-weight: 600; font-size: 13.5px; }
+.points-bar .seg.on { background: var(--violet); color: var(--on-violet); }
+.point-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--violet-soft); font-size: 13.5px; color: var(--ink); }
+.point-group strong { font-weight: 700; color: var(--violet); }
+.point-group strong::before { content: "›"; margin-right: 8px; color: var(--muted); font-weight: 400; }
+.point-section { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--violet); }
+.in-context { margin-top: 8px; }
+.context-box { margin-top: 10px; padding: 14px 16px; border-left: 4px solid var(--violet-soft); background: var(--surface-2); border-radius: var(--radius-sm); display: grid; gap: 12px; }
+.context-part .fmt { opacity: 0.85; }
+.context-here { margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--highlight); font-weight: 700; justify-self: start; }
+
+/* Installed version, top-right of every screen (v0.6.1) */
+.stage { position: relative; }
+.version-badge {
+  position: absolute; top: 18px; right: 28px; margin: 0; z-index: 2;
+  font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 4px 12px; border-radius: 999px; background: var(--surface); color: var(--forest);
+  border: 1px solid var(--line);
+}
+
 /* AI updates */
 .update-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
 .update-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 12px 14px; background: var(--surface-2); border-radius: var(--radius-sm); }

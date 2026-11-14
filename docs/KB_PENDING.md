@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.6.0 (automatic visual lessons + spreadsheet import)
+**Current version:** v0.6.1 (topic grouping fix, readable source points, version badge)
 **Last updated:** 14 November 2026
 
 ---
@@ -13,7 +13,9 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.6.0.exe` over the previous version (data and models are kept)
+- [ ] Install `KnowledgeBank-Setup-0.6.1.exe` over the previous version (data and models are kept; text is re-organised automatically on first start)
+- [ ] Topics → Rebuild topics (expect roughly 10–14 topics for the 6 PDFs, none holding most of the points)
+- [ ] Source points → check reading order, document-part headers and "Read in context"
 - [ ] Import Subnet-Guide.xlsx in Library, Rebuild topics, then "Write remaining" (writes lessons too) — check the lesson for that topic
 - [ ] Report lesson quality: wrong diagrams, missing facts, or too many items removed
 - [ ] Setup → Remove comparison models (frees ~13 GB)
@@ -83,6 +85,13 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Writing model chosen from the benchmark: qwen3.5:4b
 - [ ] "Rewrite all articles" button (engine supports it; UI later)
 - [ ] Deeper conflict detection between sources (beyond the article's "Where sources disagree")
+
+## v0.6.1 — Fixes from owner's real test ✅ delivered
+- [x] Topic grouping on centred embeddings (no more one giant topic)
+- [x] Word bullet levels (o / §), ligatures, wrapped bullets; passage sections (schema v6)
+- [x] Source points in reading order with document-part headers + Read in context
+- [x] Version shown top-right and in the title bar
+- [ ] Confirm topic count/sizes on the owner's library after rebuild
 
 ## v0.6 — Automatic visual lessons ✅ delivered
 - [x] Excel/CSV import with exact grids (schema v5)

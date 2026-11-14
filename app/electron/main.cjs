@@ -82,6 +82,8 @@ const ALLOWED_ENGINE_CALLS = new Set([
   // v0.6 — automatic visual lessons
   "GET /lesson",
   "POST /lesson/regenerate",
+  // v0.6.1 — "Read in context"
+  "GET /passage/context",
   // AI updates
   "POST /updates/check",
   "GET /updates/status",
@@ -288,7 +290,7 @@ ipcMain.handle("dialog:pickFolder", async (_event, purpose) => {
  */
 ipcMain.handle("dialog:pickFiles", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Add PDFs and images to the knowledge bank",
+    title: "Add PDFs, images and spreadsheets to the knowledge bank",
     properties: ["openFile", "multiSelections"],
     filters: [
       { name: "PDFs, images and spreadsheets", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "xlsx", "xlsm", "csv"] },
@@ -298,6 +300,10 @@ ipcMain.handle("dialog:pickFiles", async () => {
 });
 
 /** window.kb.openReports() → open the reports folder in File Explorer. */
+// The installed version (from package.json), shown in the top-right corner
+// of the window so the owner always knows which build is running (v0.6.1).
+ipcMain.handle("app:version", () => app.getVersion());
+
 ipcMain.handle("shell:openReports", async () => {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
   const err = await shell.openPath(REPORTS_DIR);
@@ -325,7 +331,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: "#e2e8df", // matches the interface so there's no white flash
-    title: "Knowledge Bank",
+    title: `Knowledge Bank ${app.getVersion()}`,
     autoHideMenuBar: true, // hides File/Edit/View menu (press Alt to show)
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -334,6 +340,10 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+
+  // Keep the version in the title bar: the page's own <title> would
+  // otherwise replace it once loaded.
+  mainWindow.on("page-title-updated", (event) => event.preventDefault());
 
   // Links to websites open in the normal browser, never inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

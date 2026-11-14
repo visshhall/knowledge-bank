@@ -229,7 +229,7 @@ export default function Topics() {
                       <Icon name="check" size={13} /> Article ready
                     </span>
                   )}
-                  {t.has_lesson && (
+                  {Boolean(t.has_lesson) && (
                     <span className="ready lesson-ready">
                       <Icon name="sparkle" size={13} /> Lesson ready
                     </span>
@@ -341,11 +341,57 @@ function TopicDetail({ id, onBack, onOpen }) {
         </div>
       )}
 
-      {view === "points" && (
-        <ol className="points">
-          {points.map((p) => (
-            <li key={p.id} className={p.fit < loose_threshold ? "is-loose" : ""}>
-              {p.fit < loose_threshold && (
+      {view === "points" && <SourcePoints points={points} looseThreshold={loose_threshold} />}
+    </div>
+  );
+}
+
+/**
+ * Source points tab (v0.6.1 — owner: "no context, random Step 3 / Step 5").
+ * WHAT: - "In reading order" (default): points sorted by file, page and
+ *         position, grouped under the document part they come from
+ *         ("Use Case 7: Insider Data Theft"), so steps read 1 → 2 → 3.
+ *       - "Best match first": the old order, most central to the topic first.
+ *       - Every point has "Read in context": the text just before and after
+ *         it in its file (GET /passage/context).
+ */
+function SourcePoints({ points, looseThreshold }) {
+  const [order, setOrder] = useState("reading");
+  const sorted =
+    order === "central"
+      ? points
+      : [...points].sort((a, b) => {
+          const x = a.order ?? [0, 0, a.id];
+          const y = b.order ?? [0, 0, b.id];
+          return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+        });
+  let lastGroup = null;
+  return (
+    <div>
+      <div className="points-bar" role="group" aria-label="Order of points">
+        <button className={order === "reading" ? "seg on" : "seg"} onClick={() => setOrder("reading")} aria-pressed={order === "reading"}>
+          In reading order
+        </button>
+        <button className={order === "central" ? "seg on" : "seg"} onClick={() => setOrder("central")} aria-pressed={order === "central"}>
+          Best match first
+        </button>
+      </div>
+      <ol className="points">
+        {sorted.map((p) => {
+          const group = `${p.sources[0]?.file_name ?? ""} › ${p.section ?? ""}`;
+          const showGroup = order === "reading" && group !== lastGroup;
+          lastGroup = group;
+          return (
+            <li key={p.id} className={p.fit < looseThreshold ? "is-loose" : ""}>
+              {showGroup && (
+                <p className="point-group">
+                  <Icon name="file" size={14} />
+                  <span>{p.sources[0]?.file_name}</span>
+                  {p.section && <strong>{p.section}</strong>}
+                </p>
+              )}
+              {order === "central" && p.section && <p className="point-section">From: {p.section}</p>}
+              {p.fit < looseThreshold && (
                 <p className="loose-flag">
                   <Icon name="alert" size={15} /> Loose fit: may belong to another topic
                 </p>
@@ -360,9 +406,46 @@ function TopicDetail({ id, onBack, onOpen }) {
                 ))}
               </ul>
               {p.sources.length > 1 && <p className="small muted">Said in {p.sources.length} places, shown once.</p>}
+              {p.passage_id && <InContext passageId={p.passage_id} />}
             </li>
-          ))}
-        </ol>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/** "Read in context": loads the passages just before and after this one. */
+function InContext({ passageId }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  async function toggle() {
+    if (!open && !data) {
+      const r = await kb.get("/passage/context", { id: passageId });
+      if (!r.error) setData(r);
+    }
+    setOpen(!open);
+  }
+  return (
+    <div className="in-context">
+      <button className="link small" onClick={toggle} aria-expanded={open}>
+        {open ? "Hide context" : "Read in context"}
+      </button>
+      {open && data && (
+        <div className="context-box">
+          {data.passages.map((c) =>
+            c.current ? (
+              <p key={c.id} className="context-here small">This point · page {c.page}</p>
+            ) : (
+              <div key={c.id} className="context-part">
+                <p className="small muted">
+                  {c.id < passageId ? "Just before" : "Just after"} · page {c.page}
+                </p>
+                <Formatted text={c.text} collapseAt={12} />
+              </div>
+            )
+          )}
+        </div>
       )}
     </div>
   );
@@ -390,6 +473,7 @@ function CitePanel({ cited, hint, onClose }) {
               </button>
             )}
           </p>
+          {cited.point.section && <p className="point-section">From: {cited.point.section}</p>}
           <Formatted text={cited.point.text} collapseAt={10} />
           <ul className="point-sources">
             {cited.point.sources.map((s, i) => (

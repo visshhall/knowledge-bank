@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -408,6 +408,23 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _migrate_v6() -> None:
+    """
+    Schema v6 (KB v0.6.1): `passages.section` — the document part a passage
+    belongs to (e.g. "Use Case 7: Insider Data Theft"), so a passage that
+    starts at "Step 3" is shown with its context. Filled by chunking v3
+    (importer.rechunk_all re-organises existing banks on next start).
+    """
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(passages)")}
+        if "section" not in cols:
+            conn.execute("ALTER TABLE passages ADD COLUMN section TEXT")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '6') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -472,6 +489,9 @@ def init_db() -> int:
     if version < 5:
         _migrate_v5()
         version = 5
+    if version < 6:
+        _migrate_v6()
+        version = 6
     return version
 
 

@@ -11,6 +11,7 @@
  *          kb.pathForFile(file)     → real disk path of a file dropped on
  *                                     the window (drag-and-drop import)
  *          kb.openReports()         → open the benchmark reports folder
+ *          kb.appVersion()          → installed version, e.g. "0.6.1"
  *          kb.engineStatus()        → current engine status
  *          kb.onEngineStatus(cb)    → be told whenever engine status changes
  *
@@ -23,7 +24,7 @@
  *
  * CONNECTED TO: electron/main.cjs (ipcMain handlers "engine:get",
  *        "engine:post", "dialog:pickFolder", "dialog:pickFiles",
- *        "shell:openReports", "engine:status", and the "engine:status"
+ *        "shell:openReports", "app:version", "engine:status", and the "engine:status"
  *        event); src/*.jsx via src/bridge.js.
  */
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
@@ -53,6 +54,9 @@ contextBridge.exposeInMainWorld("kb", {
       return "";
     }
   },
+
+  /** Resolve to the app version, e.g. "0.6.1" (shown top-right). */
+  appVersion: () => ipcRenderer.invoke("app:version"),
 
   /** Open the reports folder in File Explorer. */
   openReports: () => ipcRenderer.invoke("shell:openReports"),

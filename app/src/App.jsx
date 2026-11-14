@@ -38,6 +38,12 @@ const SCREENS = [
 export default function App() {
   const [engine, setEngine] = useState({ status: "starting", detail: "" });
   const [screen, setScreen] = useState("overview");
+  const [version, setVersion] = useState("");
+
+  // The running version, shown in the top-right corner (owner's request).
+  useEffect(() => {
+    kb.appVersion?.().then((v) => setVersion(v || ""));
+  }, []);
 
   // On mount: read the current engine status and subscribe to changes.
   useEffect(() => {
@@ -78,6 +84,11 @@ export default function App() {
       </nav>
 
       <main className="stage">
+        {version && (
+          <p className="version-badge" title="Installed version of Knowledge Bank">
+            v{version}
+          </p>
+        )}
         {engine.status === "starting" && (
           <section className="card center-note">
             <div className="pulse" aria-hidden="true" />

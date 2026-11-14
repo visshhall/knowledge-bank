@@ -361,8 +361,10 @@ def _process_source(source: dict) -> None:
 
 
 def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
-                image_records: list[dict]) -> None:
+                image_records: list[dict], sections: dict | None = None) -> None:
     """
+    sections: one dict per document carried page to page, so each passage
+    records the document part it belongs to (chunking.split_with_sections).
     Save one page (text + passages + embedded-image records) in a single
     transaction, so a crash can never leave a page half-stored.
     image_records: [{"sha256", "ocr_text"}] for pictures found on this page.
@@ -375,14 +377,17 @@ def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
         )
         page_id = cur.lastrowid
         ordinal = 0
-        for passage in chunking.split_passages(text):
+        state = sections if sections is not None else {}
+        section = None
+        for passage, section in chunking.split_with_sections(text, state):
             conn.execute(
                 "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
-                "token_count, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "token_count, content_hash, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (sid, page_id, page_number, ordinal, passage,
-                 chunking.approx_tokens(passage), chunking.fingerprint(passage)),
+                 chunking.approx_tokens(passage), chunking.fingerprint(passage), section),
             )
             ordinal += 1
+        section = state.get("major") or state.get("title")
         for img in image_records:
             conn.execute(
                 "INSERT INTO images(source_id, page_number, sha256, ocr_text) VALUES (?, ?, ?, ?)",
@@ -395,9 +400,9 @@ def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
                     labelled = f"[Image on page {page_number}] {passage}"
                     conn.execute(
                         "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
-                        "token_count, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "token_count, content_hash, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (sid, page_id, page_number, ordinal, labelled,
-                         chunking.approx_tokens(labelled), chunking.fingerprint(passage)),
+                         chunking.approx_tokens(labelled), chunking.fingerprint(passage), section),
                     )
                     ordinal += 1
 
@@ -455,6 +460,7 @@ def _extract_pdf(sid: int, path: Path) -> int:
             raise PermissionError("This PDF is password-protected. Remove the password and add it again.")
         total = doc.page_count
         _set(page_count=total)
+        sections: dict = {}  # document part carried from page to page
         for index, page in enumerate(doc):
             _set(current_page=index + 1)
             text = page.get_text("text")
@@ -467,7 +473,7 @@ def _extract_pdf(sid: int, path: Path) -> int:
                 ocr_used = True
             else:
                 images = _embedded_images(doc, page)
-            _store_page(sid, index + 1, text, ocr_used, images)
+            _store_page(sid, index + 1, text, ocr_used, images, sections)
         return total
 
 
@@ -554,7 +560,7 @@ def _extract_table(sid: int, path: Path) -> int:
                 "INSERT INTO doc_tables(source_id, page_number, name, rows_json) VALUES (?, ?, ?, ?)",
                 (sid, n, name, json.dumps(rows, ensure_ascii=False)),
             )
-        _store_page(sid, n, text, False, [])
+        _store_page(sid, n, text, False, [], {"title": f"Sheet: {name}"})
     return len(sheets)
 
 
@@ -638,19 +644,21 @@ def rechunk_all() -> int:
                 by_page: dict[int, list[str]] = {}
                 for img in images:
                     by_page.setdefault(img["page_number"], []).append(img["ocr_text"] or "")
+                sections: dict = {}  # document part, carried page to page
                 for pg in pages:
                     ordinal = 0
-                    pieces = [(p, p) for p in chunking.split_passages(pg["text"])]
+                    pieces = [(p, p, sec) for p, sec in chunking.split_with_sections(pg["text"], sections)]
+                    here = sections.get("major") or sections.get("title")
                     for ocr_text in by_page.get(pg["page_number"], []):
                         if len(ocr_text.split()) >= MIN_IMAGE_WORDS:
-                            pieces += [(f"[Image on page {pg['page_number']}] {p}", p)
+                            pieces += [(f"[Image on page {pg['page_number']}] {p}", p, here)
                                        for p in chunking.split_passages(ocr_text)]
-                    for shown, core in pieces:
+                    for shown, core, sec in pieces:
                         conn.execute(
                             "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
-                            "token_count, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            "token_count, content_hash, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (sid, pg["id"], pg["page_number"], ordinal, shown,
-                             chunking.approx_tokens(shown), chunking.fingerprint(core)),
+                             chunking.approx_tokens(shown), chunking.fingerprint(core), sec),
                         )
                         ordinal += 1
                         created += 1

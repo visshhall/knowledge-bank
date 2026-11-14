@@ -5,6 +5,12 @@ WHAT:  clean(text)          → tidy text that KEEPS its structure: bullet
                                lists, query lines and short headings stay on
                                their own lines; only ordinary wrapped prose
                                is joined into paragraphs.
+       split_with_sections(text, state) → [(passage, section)] where
+                               section is the document part (use case /
+                               scenario / chapter heading, else the
+                               document's title) the passage belongs to.
+                               `state` carries the current part from page to
+                               page of one document.
        split_passages(text) → passages of roughly 120–260 words, broken at
                                paragraph/line boundaries, never mid-line
                                where avoidable, never across a page.
@@ -24,6 +30,16 @@ WHY:   - Search results, merging and citations all work on passages: big
          Now bullets, numbered items, query pipelines and headings keep their
          own lines, and inline bullets / query pipes are split back onto
          separate lines.
+       - v3 (KB v0.6.1) change, owner feedback on real PDFs ("no context,
+         random Step 3 / Step 5"): Word documents use nested bullets
+         "•" → "o" → "§" (Symbol/Wingdings fonts), which extract as the
+         plain letters "o" and "§", sometimes alone on their own line. They
+         weren't recognised, so sub-points were glued onto the item above.
+         Now they become real bullets with their level kept (• / ◦ / ▪),
+         typographic ligatures (ﬁ, ﬃ) are expanded, and every passage
+         records the document part it belongs to (split_with_sections), so
+         "Step 3: Root Cause" is shown under "Use Case 7: …" instead of on
+         its own.
        - The fingerprint catches the same paragraph copied into several PDFs
          (same meaning in different words is caught in Phase 2).
 
@@ -37,8 +53,9 @@ CONNECTED TO: importer.py (caller); db.py `passages` table (stores text,
 
 import hashlib
 import re
+import unicodedata
 
-CHUNKER_VERSION = 2  # bump when clean()/split_passages() rules change
+CHUNKER_VERSION = 3  # bump when clean()/split_passages() rules change
 
 TARGET_WORDS = 180   # aim for passages about this long
 MAX_WORDS = 260      # never longer than this (long blocks get split)
@@ -49,6 +66,22 @@ _NON_WORD = re.compile(r"[^\w]+", re.UNICODE)
 
 # A line that starts a list item: •, ●, ▪, ◦, -, *, –, or "1." / "1)" / "a)".
 _BULLET = re.compile(r"^\s*(?:[•●▪◦‣∙\-\*–]|\d{1,2}[.)]|[a-z][.)])\s+")
+# Word's bullet glyphs. Symbol/Wingdings fonts put them in the private-use
+# area or extract them as letters: level 1 "•"/"", level 2 "o", level 3
+# "§"/"". They are rewritten to • / ◦ / ▪ so the level survives.
+_GLYPH_LEVEL = {"\uf0b7": "•", "\uf0a7": "▪", "\uf076": "•", "\uf0d8": "•", "\uf0fc": "•",
+                "\uf0a8": "•", "\uf0e8": "•", "➢": "•", "■": "▪", "Ø": "•", "ü": "•",
+                "o": "◦", "§": "▪", "•": "•", "●": "•", "◦": "◦", "▪": "▪"}
+# A line that is only a bullet glyph (the text followed on the next line).
+_LONE_GLYPH = re.compile(r"^\s*([\uf0b7\uf0a7\uf076\uf0d8\uf0fc\uf0a8\uf0e8➢■Øüo§•●◦▪])\s*$")
+# A glyph at the start of a line followed by text. "o"/"§"/"Ø"/"ü" only
+# count when a capital letter or quote/path follows ("o On the …", "§ The …")
+# so ordinary words and legal "§ 164" references are left alone.
+_LEAD_GLYPH = re.compile(r"^\s*(?:([\uf0b7\uf0a7\uf076\uf0d8\uf0fc\uf0a8\uf0e8➢■])\s*|([oØü§])\s+(?=[A-Z\"'“‘(\\]))")
+# Level-2/3 glyphs flattened INSIDE a line after a colon/full stop:
+# "Endpoint Analysis: o On the user's workstation: § QuickShareApp.exe …"
+_INLINE_WORD_BULLET = re.compile(r"(?<=[:.;!?)])\s+([o§])\s+(?=[A-Z\"'“‘(\\])")
+
 # Bullet characters appearing in the MIDDLE of a line (PDFs often flatten lists).
 _INLINE_BULLET = re.compile(r"\s+([•●▪◦‣])\s+")
 # Query-language pipe steps (KQL / Splunk SPL), e.g. "| where", "| project".
@@ -94,6 +127,31 @@ def _is_structural(line: str) -> bool:
             or _is_heading(line))
 
 
+def _normalise_bullets(text: str) -> str:
+    """
+    Turn Word's bullet glyphs into • / ◦ / ▪ (levels 1/2/3), join a bullet
+    that sits alone on its line with the text on the next line, and split
+    sub-bullets flattened into the middle of a line back onto their own line.
+    """
+    text = _INLINE_WORD_BULLET.sub(lambda m: "\n" + _GLYPH_LEVEL[m.group(1)] + " ", text)
+    out: list[str] = []
+    pending = ""
+    for line in text.split("\n"):
+        lone = _LONE_GLYPH.match(line)
+        if lone:
+            pending = _GLYPH_LEVEL.get(lone.group(1), "•")
+            continue
+        m = _LEAD_GLYPH.match(line)
+        if m:
+            line = _GLYPH_LEVEL.get(m.group(1) or m.group(2), "•") + " " + line[m.end():].lstrip()
+        elif pending and line.strip():
+            line = f"{pending} {line.strip()}"
+        if line.strip():
+            pending = ""
+        out.append(line)
+    return "\n".join(out)
+
+
 def clean(text: str) -> str:
     """
     Tidy raw PDF text while keeping its structure.
@@ -109,6 +167,8 @@ def clean(text: str) -> str:
     by single newlines.
     """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = unicodedata.normalize("NFKC", text.replace("\u00ad", ""))  # ﬁ→fi, soft hyphens out
+    text = _normalise_bullets(text)
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
     text = _INLINE_BULLET.sub(r"\n\1 ", text)
     text = "\n".join(_PIPE_STEP.sub("\n| ", line) if "|" in line else line for line in text.split("\n"))
@@ -125,8 +185,13 @@ def clean(text: str) -> str:
                 and not current[-1].endswith(":")):
             current[-1] = f"{current[-1]} {line}"   # wrapped prose → same line
         elif current and not _is_structural(line) and _BULLET.match(current[-1]) \
-                and not line[0].isupper():
-            current[-1] = f"{current[-1]} {line}"   # continuation of a bullet item
+                and (not line[0].isupper()
+                     or not current[-1].rstrip().endswith((".", ":", "?", "!", ";"))):
+            # Continuation of a bullet item: the item's text wrapped onto the
+            # next line. A capitalised line still continues it when the item
+            # hasn't finished its sentence ("…within the Amazon EC2" + "API
+            # that can return…") — v0.6.1 fix.
+            current[-1] = f"{current[-1]} {line}"
         else:
             current.append(line)
     return "\n\n".join("\n".join(b) for b in blocks if b)
@@ -184,6 +249,58 @@ def split_passages(text: str) -> list[str]:
         else:
             passages.append(current)
     return passages
+
+
+# A heading that starts a new PART of a document (not a step inside it).
+_MAJOR = re.compile(
+    r"^(?:use[\s-]?case|case[\s-]?study|scenario|incident|lab|exercise|chapter|module|section|part|"
+    r"playbook|runbook|investigation|appendix|lesson|unit|project|task|assignment|report)\b",
+    re.IGNORECASE,
+)
+_MINOR = re.compile(r"^(?:step|phase|stage)\b", re.IGNORECASE)
+
+
+def _is_major(line: str) -> bool:
+    s = line.strip()
+    if not _is_heading(s) or _MINOR.match(s):
+        return False
+    return bool(_MAJOR.match(s)) or (s.isupper() and len(s.split()) >= 2)
+
+
+def split_with_sections(text: str, state: dict) -> list[tuple[str, str | None]]:
+    """
+    Like split_passages, but also says which document part each passage
+    belongs to. `state` is one dict per document, passed page after page:
+      state["major"]  the latest part heading seen ("Use Case 7: …")
+      state["title"]  the first heading of the document (fallback)
+    RETURNS [(passage, section or None)].
+    """
+    out: list[tuple[str, str | None]] = []
+    for passage in split_passages(text):
+        lines = [l.strip() for l in passage.split("\n") if l.strip()]
+        if not state.get("title"):
+            first = next((l for l in lines if _is_heading(l) and not _MINOR.match(l)), None)
+            if first:
+                state["title"] = first
+        if lines and _is_major(lines[0]):
+            state["major"] = lines[0]
+        out.append((passage, state.get("major") or state.get("title")))
+        for l in lines[1:]:
+            if _is_major(l):
+                state["major"] = l
+    return out
+
+
+def with_section(text: str, section: str | None) -> str:
+    """
+    Prefix a passage with the document part it came from ("(From: Use Case
+    7: Insider Data Theft)") so the AI knows the context of a passage that
+    starts mid-way ("Step 3: …"). Skipped when the passage starts with that
+    heading anyway. Used by writer.py and lessons.py (v0.6.1).
+    """
+    if section and not text.lstrip().startswith(section):
+        return f"(From: {section})\n{text}"
+    return text
 
 
 def fingerprint(text: str) -> str:

@@ -50,7 +50,7 @@ import json
 import math
 import re
 
-from . import db, ollama_client
+from . import chunking, db, ollama_client
 
 NUM_CTX = 5120            # article (≤4,500 chars) + instructions + answer
 MAX_OUTPUT = 1500         # tokens for the lesson JSON
@@ -121,7 +121,7 @@ def _material(topic_id: int) -> dict:
         if not t:
             return {}
         rows = conn.execute(
-            """SELECT p.id, p.cluster_id, p.text, p.source_id, p.page_number FROM topic_passages tp
+            """SELECT p.id, p.cluster_id, p.text, p.section, p.source_id, p.page_number FROM topic_passages tp
                JOIN passages p ON p.id = tp.passage_id WHERE tp.topic_id = ? ORDER BY tp.fit DESC""",
             (topic_id,),
         ).fetchall()
@@ -139,7 +139,7 @@ def _material(topic_id: int) -> dict:
         key = r["cluster_id"] or r["id"]
         if key not in seen:
             seen.add(key)
-            points.append({"passage_id": key, "text": r["text"]})
+            points.append({"passage_id": key, "text": chunking.with_section(r["text"], r["section"])})
     citations = json.loads(t["citations"]) if t["citations"] else {}
     if not citations:  # no article yet: number the most central points ourselves
         citations = {str(i + 1): p["passage_id"] for i, p in enumerate(points[:8])}

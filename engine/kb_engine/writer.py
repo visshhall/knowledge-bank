@@ -49,7 +49,7 @@ import re
 import threading
 import time
 
-from . import config, db, lessons, ollama_client
+from . import chunking, config, db, lessons, ollama_client
 
 # Sized from the owner's benchmark (RTX 3050, 4 GB): a 4,096-token window
 # keeps qwen3.5:4b fully on the GPU (11.6 tokens/s). 8 points × ≤800 chars ≈
@@ -165,11 +165,11 @@ def cancel() -> dict:
 def _topic_points(conn, topic_id: int) -> list[dict]:
     """
     The topic's distinct points (one per repeat group), most central first.
-    Each: {"passage_id", "text"}.
+    Each: {"passage_id", "text"} — text carries its document part (with_section).
     """
     rows = conn.execute(
         """
-        SELECT p.id, p.cluster_id, p.text FROM topic_passages tp
+        SELECT p.id, p.cluster_id, p.text, p.section FROM topic_passages tp
         JOIN passages p ON p.id = tp.passage_id
         WHERE tp.topic_id = ? ORDER BY tp.fit DESC
         """,
@@ -182,8 +182,9 @@ def _topic_points(conn, topic_id: int) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        points.append({"passage_id": key, "text": r["text"]})
+        points.append({"passage_id": key, "text": chunking.with_section(r["text"], r["section"])})
     return points
+
 
 
 def _numbered(points: list[dict], start: int) -> str:

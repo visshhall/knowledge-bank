@@ -29,6 +29,10 @@ import { useState } from "react";
 
 const BULLET = /^\s*([•●▪◦‣∙\-*–])\s+/;
 const NUMBERED = /^\s*(\d{1,2})[.)]\s+/;
+const LETTERED = /^\s*([a-z])[.)]\s+/;
+// Bullet level from its symbol (chunking.py v3 turns Word's "o" / "§"
+// sub-bullets into ◦ / ▪): • level 1, ◦ level 2, ▪ level 3.
+const LEVEL = { "◦": 2, "▪": 3 };
 // Same rule as chunking.py: a table name only counts as code when it stands
 // alone or is followed by a pipe ("Sysmon Event IDs:" is a normal sentence).
 const CODE_LINE = /^\s*(\||let\s|union\s|search\s|index=|(SecurityEvent|SigninLogs|Device\w+Events|AuditLogs|Sysmon|Event)\s*(\||$))/i;
@@ -111,8 +115,15 @@ function toBlocks(text) {
     const line = raw.trim();
     if (!line) continue;
     if (CODE_LINE.test(line)) push("code", line);
-    else if (BULLET.test(line)) push("ul", line.replace(BULLET, ""));
-    else if (NUMBERED.test(line)) push("ol", line.replace(NUMBERED, ""));
+    else if (BULLET.test(line)) {
+      const sym = line.match(BULLET)[1];
+      push("list", { marker: null, level: LEVEL[sym] ?? 1, text: line.replace(BULLET, "") });
+    } else if (NUMBERED.test(line)) {
+      // Keep the document's own number ("3."), never renumber from 1.
+      push("list", { marker: `${line.match(NUMBERED)[1]}.`, level: 1, text: line.replace(NUMBERED, "") });
+    } else if (LETTERED.test(line)) {
+      push("list", { marker: `${line.match(LETTERED)[1]})`, level: 2, text: line.replace(LETTERED, "") });
+    }
     else if (isHeading(line)) push("heading", line);
     else push("para", line);
   }
@@ -129,17 +140,20 @@ export function Formatted({ text, collapseAt = 6 }) {
       {shown.map((b, i) => {
         if (b.type === "heading") return <p key={i} className="fmt-heading">{withTags(b.lines[0])}</p>;
         if (b.type === "code") return <CodeBlock key={i} code={b.lines.join("\n")} />;
-        if (b.type === "ul")
+        if (b.type === "list")
           return (
-            <ul key={i} className="fmt-list">
-              {b.lines.map((l, j) => <li key={j}>{withTags(l)}</li>)}
+            // One list for numbered items and nested bullets together, so
+            // sub-points sit indented under their item, as in the document.
+            <ul key={i} className="fmt-tree">
+              {b.lines.map((it, j) => (
+                <li key={j} className={`lvl-${it.level}`}>
+                  <span className={it.marker ? "mk num" : "mk"} aria-hidden={it.marker ? undefined : "true"}>
+                    {it.marker ?? ""}
+                  </span>
+                  <span>{withTags(it.text)}</span>
+                </li>
+              ))}
             </ul>
-          );
-        if (b.type === "ol")
-          return (
-            <ol key={i} className="fmt-list">
-              {b.lines.map((l, j) => <li key={j}>{withTags(l)}</li>)}
-            </ol>
           );
         return <p key={i} className="fmt-para">{withTags(b.lines[0])}</p>;
       })}

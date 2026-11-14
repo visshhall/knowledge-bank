@@ -28,6 +28,7 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /write/start             — write topic articles (Phase 3)
          GET  /write/status            — live progress of article writing
          POST /write/cancel            — stop after the current article
+         GET  /passage/context?id=...  — a passage with its neighbours (v0.6.1)
          GET  /lesson?id=...           — a topic's visual lesson + check results
          POST /lesson/regenerate       — redesign one topic's lesson
          POST /updates/check           — online check for Ollama/model updates
@@ -288,6 +289,15 @@ def write_cancel() -> dict:
 
 class TopicRequest(BaseModel):
     topic_id: int
+
+
+@app.get("/passage/context", dependencies=[Depends(require_token)])
+def passage_context(id: int) -> dict:
+    """A passage with the text just before and after it ("Read in context")."""
+    data = distill.passage_context(id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Passage not found")
+    return data
 
 
 @app.get("/lesson", dependencies=[Depends(require_token)])

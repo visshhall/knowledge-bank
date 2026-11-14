@@ -6,9 +6,11 @@ WHAT:  One background job ("Build topics") with five stages:
                         the local embedding model (Ollama). Only new passages
                         are embedded on later runs.
          2. Topics    — passages are grouped by meaning with spherical
-                        k-means (cosine similarity), so text that talks about
-                        the same subject lands in the same topic even when
-                        worded differently. Very similar topics are merged.
+                        k-means (cosine similarity) on centred vectors, so text
+                        that talks about the same subject lands in the same
+                        topic even when worded differently. Same-subject
+                        topics are merged; oversized ones are split; 1–2
+                        passage "topics" are folded into their nearest one.
          3. Repeats   — inside each topic, passages that say practically the
                         same thing (same fingerprint, or ≥ 0.95 similarity)
                         are joined into one "repeat group": shown once, with
@@ -70,10 +72,29 @@ def _load_numpy() -> None:
         np = numpy
 
 # --- Tunable thresholds (cosine similarity, -1..1; 1 = identical meaning) ---
-NEAR_DUPLICATE = 0.95     # two passages this similar are "the same thing"
-MERGE_TOPICS = 0.88       # two topic centres this similar become one topic
-LINK_TOPICS = 0.55        # topics at least this similar get a map link
-LOOSE_FIT = 0.45          # a passage this far from its topic is "loose"
+#
+# WHY TWO KINDS OF SIMILARITY (fixed in v0.6.1 after the owner's 6 PDFs /
+# 304 passages produced only 3 topics, one holding 298 points):
+# the embedding model gives ALL text a strong shared direction, so any two
+# cybersecurity passages — even on different subjects — score ~0.69, and
+# topic centres (averages) score ~0.9. The old merge rule (centres ≥ 0.88 →
+# same topic) therefore merged almost everything into one topic.
+# Fix: grouping, merging, loose-fit and links now use CENTRED vectors (the
+# collection's average direction is subtracted, then each vector is
+# re-normalised). In that space unrelated passages score ~0, so the
+# thresholds below mean what they say. Measured on a 317-passage labelled
+# cybersecurity test set (MITRE ATT&CK, real nomic-embed-text): a passage's
+# fit to its own topic has median 0.46, 5th percentile 0.25; topic centres
+# score −0.10 median, 0.19 at the 90th percentile, 0.44 at most.
+# Old result on that set: 3 topics (310/6/1). New: 13 topics, 11–39 each.
+# Repeat detection still uses the ORIGINAL vectors (0.95 there really does
+# mean "says the same thing").
+NEAR_DUPLICATE = 0.95     # (original vectors) two passages this similar are "the same thing"
+MERGE_TOPICS = 0.60       # (centred) two topic centres this similar become one topic
+LINK_TOPICS = 0.20        # (centred) topics at least this similar get a map link (~top 10%)
+LOOSE_FIT = 0.25          # (centred) a passage below this fits its topic only loosely (~5%)
+MIN_TOPIC_POINTS = 3      # smaller topics are folded into their nearest topic
+MAX_TOPIC_SHARE = 4       # a topic over 4× the average size (and > 60) is split
 MAX_TOPICS = 400          # upper bound on the number of topics
 EMBED_BATCH = 64          # passages sent to the embedding model per call
 EMBED_MAX_CHARS = 2000    # long passages are cut to this before embedding
@@ -281,6 +302,71 @@ def _best_kmeans(mat: np.ndarray, k: int, restarts: int = 4) -> tuple[np.ndarray
     return best[1], best[2]
 
 
+def _centre(mat: np.ndarray) -> np.ndarray:
+    """
+    Subtract the collection's average direction and re-normalise (see the
+    threshold notes at the top). RETURNS a new N×D matrix of unit vectors.
+    """
+    z = mat - mat.mean(axis=0, keepdims=True)
+    return z / np.maximum(np.linalg.norm(z, axis=1, keepdims=True), 1e-9)
+
+
+def _recentre(z: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Renumber labels 0..k-1 (dropping empty topics) and recompute centres."""
+    uniq, labels = np.unique(labels, return_inverse=True)
+    cents = np.zeros((len(uniq), z.shape[1]), dtype=np.float32)
+    np.add.at(cents, labels, z)
+    cents /= np.maximum(np.linalg.norm(cents, axis=1, keepdims=True), 1e-9)
+    return cents, labels
+
+
+def _balance(z: np.ndarray, centroids: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Safety net so one topic can never swallow the library again:
+      - a topic larger than MAX_TOPIC_SHARE × the average size (and over 60
+        passages) is split in two by k-means on its own passages, repeatedly;
+      - a topic with fewer than MIN_TOPIC_POINTS passages is folded into
+        the nearest other topic (a 1-point "topic" helps nobody).
+    """
+    for _ in range(50):  # bounded: each round splits at most one topic
+        sizes = np.bincount(labels, minlength=len(centroids))
+        limit = max(60, MAX_TOPIC_SHARE * len(labels) / max(1, len(centroids)))
+        big = int(sizes.argmax())
+        if sizes[big] <= limit or len(centroids) >= MAX_TOPICS:
+            break
+        members = np.nonzero(labels == big)[0]
+        _, sub = _best_kmeans(z[members], 2, restarts=2)
+        if sub.min() == sub.max():
+            break
+        labels = labels.copy()
+        labels[members[sub == 1]] = len(centroids)
+        centroids, labels = _recentre(z, labels)
+    sizes = np.bincount(labels, minlength=len(centroids))
+    small = np.nonzero(sizes < MIN_TOPIC_POINTS)[0]
+    if len(small) and len(small) < len(centroids):
+        keep = np.setdiff1d(np.arange(len(centroids)), small)
+        labels = labels.copy()
+        for i in np.nonzero(np.isin(labels, small))[0]:
+            labels[i] = keep[int(np.argmax(centroids[keep] @ z[i]))]
+        centroids, labels = _recentre(z, labels)
+    return centroids, labels
+
+
+def cluster(mat: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    The whole grouping step, kept separate so it can be tested on its own.
+    mat: original unit vectors (N×D).
+    RETURNS (labels N, fit N, centroids k×D, centred vectors N×D) — fit and
+    centroids are in the centred space where LOOSE_FIT/LINK_TOPICS apply.
+    """
+    z = _centre(mat)
+    centroids, labels = _best_kmeans(z, _choose_k(len(z)))
+    centroids, labels = _merge_similar(centroids, labels, z)
+    centroids, labels = _balance(z, centroids, labels)
+    fit = np.einsum("ij,ij->i", z, centroids[labels])
+    return labels, fit, centroids, z
+
+
 def _merge_similar(centroids: np.ndarray, labels: np.ndarray, mat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Merge topics whose centres are ≥ MERGE_TOPICS similar (the same subject
@@ -415,9 +501,9 @@ def _run() -> None:
             raise RuntimeError("No passages yet. Import some files in the Library first.")
 
         _set(stage="topics", done=0, total=1, message="Grouping passages by meaning…")
-        centroids, labels = _best_kmeans(mat, _choose_k(n))
-        centroids, labels = _merge_similar(centroids, labels, mat)
-        fit = np.einsum("ij,ij->i", mat, centroids[labels])  # similarity to own topic
+        # Grouping happens on centred vectors (see the threshold notes above);
+        # repeat detection below still uses the original vectors.
+        labels, fit, centroids, _ = cluster(mat)
         k = len(centroids)
         _set(done=1)
 
@@ -591,7 +677,8 @@ def list_topics() -> dict:
 def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
     """
     One topic: its points (repeat groups), most central first. Each point
-    shows its text once plus every file + page that said it.
+    shows its text once plus every file + page that said it, the document
+    part it comes from (section) and its position for reading order.
     """
     with db.connect() as conn:
         t = conn.execute(
@@ -601,7 +688,8 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
             return None
         rows = conn.execute(
             """
-            SELECT p.id, p.cluster_id, p.text, p.page_number, s.file_name, s.id AS source_id, tp.fit
+            SELECT p.id, p.cluster_id, p.text, p.page_number, p.ordinal, p.section,
+                   s.file_name, s.id AS source_id, tp.fit
             FROM topic_passages tp
             JOIN passages p ON p.id = tp.passage_id
             JOIN sources s ON s.id = p.source_id
@@ -626,7 +714,13 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
         if point is None:
             if len(points) >= limit:
                 continue
-            point = points[key] = {"id": key, "text": r["text"], "fit": round(r["fit"], 3), "sources": []}
+            # section + passage_id + order let the screen show where the
+            # point sits in its document, list points in reading order and
+            # open "Read in context" (v0.6.1).
+            point = points[key] = {"id": key, "text": r["text"], "fit": round(r["fit"], 3),
+                                   "section": r["section"], "passage_id": r["id"],
+                                   "order": [r["source_id"], r["page_number"], r["ordinal"]],
+                                   "sources": []}
         point["sources"].append({"source_id": r["source_id"], "file_name": r["file_name"],
                                  "page": r["page_number"]})
 
@@ -645,3 +739,34 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
     topic["article"] = t["body_markdown"] if t["status"] == "written" else None
     return {"topic": topic, "points": list(points.values()), "citations": citations,
             "related": [dict(x) for x in related], "loose_threshold": LOOSE_FIT}
+
+
+def passage_context(passage_id: int, around: int = 1) -> dict | None:
+    """
+    "Read in context": the passage plus the `around` passages just before
+    and after it in the same file (by page, then position on the page), so
+    a point that starts mid-way ("Step 3 …") can be read with what came
+    before and after it. RETURNS {"file_name", "section", "passages": [...]}.
+    """
+    with db.connect() as conn:
+        me = conn.execute(
+            "SELECT p.id, p.source_id, p.page_number, p.ordinal, p.section, s.file_name FROM passages p "
+            "JOIN sources s ON s.id = p.source_id WHERE p.id = ?", (passage_id,)).fetchone()
+        if not me:
+            return None
+        before = conn.execute(
+            "SELECT id, text, page_number, section FROM passages WHERE source_id = ? AND "
+            "(page_number < ? OR (page_number = ? AND ordinal < ?)) "
+            "ORDER BY page_number DESC, ordinal DESC LIMIT ?",
+            (me["source_id"], me["page_number"], me["page_number"], me["ordinal"], around)).fetchall()
+        here = conn.execute("SELECT id, text, page_number, section FROM passages WHERE id = ?",
+                            (passage_id,)).fetchone()
+        after = conn.execute(
+            "SELECT id, text, page_number, section FROM passages WHERE source_id = ? AND "
+            "(page_number > ? OR (page_number = ? AND ordinal > ?)) "
+            "ORDER BY page_number, ordinal LIMIT ?",
+            (me["source_id"], me["page_number"], me["page_number"], me["ordinal"], around)).fetchall()
+    rows = [*reversed(before), here, *after]
+    return {"file_name": me["file_name"], "section": me["section"],
+            "passages": [{"id": r["id"], "text": r["text"], "page": r["page_number"],
+                          "section": r["section"], "current": r["id"] == passage_id} for r in rows]}
