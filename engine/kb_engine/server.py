@@ -2,10 +2,15 @@
 server.py — the private local web server the desktop window talks to.
 
 WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
-       Phase 0 endpoints:
-         GET /health  — "are you alive?" + engine version (used at startup)
-         GET /system  — full readiness report (GPU, RAM, disk, Ollama, models)
-         GET /stats   — what the knowledge bank holds (for the dashboard)
+       Endpoints:
+         GET  /health                  — "are you alive?" + engine version
+         GET  /system                  — readiness report (GPU, RAM, disk, Ollama, models)
+         GET  /stats                   — what the knowledge bank holds (dashboard)
+         GET  /setup/status            — live state of the setup wizard jobs
+         POST /setup/ollama/install    — download + open the Ollama installer
+         POST /setup/ollama/start      — start Ollama if installed but stopped
+         POST /setup/models/pull       — download AI models (with progress)
+         POST /setup/benchmark/start   — run the benchmark on a chosen folder
        Later phases add import, search, topics, learn mode, etc.
 
 WHY:   Separating the window (Electron) from the engine (Python) means
@@ -25,7 +30,7 @@ SECURITY:
          localhost. If no token is set (manual testing), the check is skipped
          and a warning is printed.
 
-CONNECTED TO: config.py, db.py, system_check.py; called by
+CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py; called by
        app/electron/main.js (which relays requests from the window).
 """
 
@@ -36,8 +41,9 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel
 
-from . import __version__, config, db, system_check
+from . import __version__, config, db, setup_manager, system_check
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -89,6 +95,46 @@ def system() -> dict:
 def stats() -> dict:
     """Knowledge bank totals and coverage % (see db.stats)."""
     return db.stats()
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard (see setup_manager.py for what each job does)
+# ---------------------------------------------------------------------------
+
+class ModelPullRequest(BaseModel):
+    """Body of POST /setup/models/pull. False = only the 3 required models."""
+    include_benchmark_extras: bool = True
+
+
+class BenchmarkRequest(BaseModel):
+    """Body of POST /setup/benchmark/start — the folder the owner picked."""
+    folder: str
+
+
+@app.get("/setup/status", dependencies=[Depends(require_token)])
+def setup_status() -> dict:
+    """Polled by the wizard every ~1.5 s to draw progress."""
+    return setup_manager.status()
+
+
+@app.post("/setup/ollama/install", dependencies=[Depends(require_token)])
+def setup_ollama_install() -> dict:
+    return setup_manager.start_ollama_install()
+
+
+@app.post("/setup/ollama/start", dependencies=[Depends(require_token)])
+def setup_ollama_start() -> dict:
+    return setup_manager.start_ollama()
+
+
+@app.post("/setup/models/pull", dependencies=[Depends(require_token)])
+def setup_models_pull(body: ModelPullRequest) -> dict:
+    return setup_manager.start_model_downloads(body.include_benchmark_extras)
+
+
+@app.post("/setup/benchmark/start", dependencies=[Depends(require_token)])
+def setup_benchmark_start(body: BenchmarkRequest) -> dict:
+    return setup_manager.start_benchmark(body.folder)
 
 
 def main() -> None:

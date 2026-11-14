@@ -102,8 +102,9 @@ def has_model(name: str, installed: list[str] | None = None) -> bool:
     'nomic-embed-text:latest' because Ollama adds ':latest' automatically.
     """
     installed = installed if installed is not None else installed_models()
-    wanted = name if ":" in name else f"{name}:latest"
-    return wanted in installed
+    if name in installed:
+        return True
+    return ":" not in name and f"{name}:latest" in installed
 
 
 def generate(

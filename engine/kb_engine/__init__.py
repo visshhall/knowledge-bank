@@ -16,16 +16,18 @@ HOW IT CONNECTS:
        - The window then talks to it over a private local web address
          (http://127.0.0.1:8765). Nothing is exposed to the network.
 
-MODULES (Phase 0):
+MODULES (Phase 0, v0.2):
        config.py        — every path, port and model name in one place
        db.py            — creates/opens the SQLite knowledge-bank database
        system_check.py  — reports GPU, RAM, disk and Ollama status
        ollama_client.py — small helper for calling the local AI models
        server.py        — the local web server the window talks to
+       setup_manager.py — in-app setup wizard jobs (AI engine, model
+                          downloads, benchmark) with live progress
        benchmark.py     — one-off tool that picks the best models for
                           the owner's laptop
 """
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.1.0"
+__version__ = "0.2.0"

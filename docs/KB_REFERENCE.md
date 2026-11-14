@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.1 — Phase 0 foundation code complete; awaiting owner's setup + benchmark run |
-| Document version | 1.2 |
+| Current version | KB v0.2 — Phase 0 delivered as a Windows installer (.exe); awaiting owner's in-app setup + benchmark |
+| Document version | 1.3 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -122,13 +122,13 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | Embedding model | Local embedding model (chosen in Phase 0) | Powers meaning-based search and clustering |
 | Vision model | Small local vision model (chosen in Phase 0) | Describes diagrams |
 | Storage | SQLite with full-text search + a vector index (sqlite-vec or LanceDB, decided in Phase 0) | Single-file, fast, offline |
-| Packaging | Windows .exe installer | Final deliverable |
+| Packaging | Windows .exe installer (NSIS via electron-builder) with a bundled private Python 3.12 | Owner installs by double-click; never installs Python or runs commands. In place since v0.2 |
 
 ## 9. Roadmap
 
 | Phase | Name | What gets done | Status |
 |---|---|---|---|
-| 0 | Foundation | Finalise models and storage for RTX 3060 / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo | **Code complete (v0.1)** — model choice pending owner benchmark |
+| 0 | Foundation | Finalise models and storage for RTX 3060 / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
 | 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | Not started |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | Not started |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | Not started |
@@ -151,11 +151,16 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | App shell | `app/electron/main.cjs`, `preload.cjs` | Starts/stops the engine, creates a locked-down window, relays only allow-listed requests | Security: the page can't reach Node, the engine token, or the network; one app instance only |
 | Interface | `app/src/App.jsx`, `Constellation.jsx`, `styles.css` | Status + readiness dashboard over an animated constellation | Proves every layer connects; the constellation is the visual seed of the Phase 4 Knowledge Map |
 | Build security | `app/vite.config.js` | Adds a Content-Security-Policy to built pages | Page may not load outside scripts or contact any address |
-| Setup | `setup/setup.ps1`, `run-benchmark.ps1`, `start-app.ps1` | Installs Python, Node, Ollama (winget), libraries, models; runs checks; runs benchmark; opens app | Owner never installs anything by hand; safe to re-run as a repair tool |
+| Setup wizard | `engine/kb_engine/setup_manager.py`, `app/src/SetupWizard.jsx` | In-app buttons with live progress: install/start Ollama, download models, run benchmark on a chosen folder, open the report folder | Owner requirement (v0.2): a normal Windows app — no PowerShell or commands, ever |
+| Installer | `tools/build-windows.sh`, `app/package.json` ("build"), `app/build/after-pack.cjs`, `app/build/icon.*` | Bundles the app, the engine and a private Windows Python 3.12 (with all libraries) into `KnowledgeBank-Setup-<ver>.exe`; per-user install (no admin), Desktop + Start-menu shortcuts, custom icon and version details | The owner double-clicks one file. Built on Linux: Python libraries are fetched as ready-made Windows builds, icon/version are set with the pure-JS "resedit" library, Wine is used only by electron-builder to generate the uninstaller |
 
 **Where data lives:** `%LOCALAPPDATA%\KnowledgeBank` (database + reports) — outside the code folder, so updates never touch data, and it is excluded from Git.
 
-**Tested before delivery (in Claude's Linux workspace):** database create/upgrade/cascade-delete and full-text sync; server rejects requests without the token (HTTP 401); benchmark end-to-end against a mock AI service with generated PDFs (including scanned-page detection); the Electron app launched, showed "Engine ready" with live readiness data, and stopped the engine cleanly on close; all PowerShell scripts parse-checked and the Python-detection logic run. **Not testable there:** the real RTX 3060, real Ollama models, and Windows installs — verified by the owner's run.
+**v0.2 change — why:** v0.1 asked the owner to run PowerShell scripts. The owner rejected that: the deliverable must be a normal Windows `.exe` with everything inside the app. v0.2 removed the scripts, added the in-app setup wizard and the installer.
+
+**Known installer behaviour:** the installer is not code-signed (a certificate is a paid annual service), so Windows SmartScreen shows "Windows protected your PC" on first run → *More info → Run anyway*. Ollama itself is installed by its own official installer, opened by the app, because it is a separate program that other apps can also use and that updates itself.
+
+**Tested before delivery (in Claude's Linux workspace):** database create/upgrade/cascade-delete and full-text sync; server rejects requests without the token (HTTP 401); benchmark end-to-end against a mock AI service with generated PDFs (including scanned-page detection); the Electron app launched, showed "Engine ready" with live readiness data, and stopped the engine cleanly on close; v0.2 additionally: the installer was built, then installed silently under Wine (Windows compatibility layer) — files, Desktop and Start-menu shortcuts created; the installed app started its bundled Windows Python engine (answered on its port and rejected untokened requests); the bundled engine, run on its own under Wine, passed health/stats/system checks, the model-download job (with progress) and a full benchmark run against a mock AI service; the setup wizard was rendered and screenshotted in the Linux build. **Not testable there:** the real RTX 3060, real Ollama and models, the app window on real Windows — verified by the owner's run.
 
 ## 10. Known limits (stated upfront)
 
@@ -169,6 +174,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 
 - **This chat is the KB chat.** Code name in messages: **KB**.
 - **Private GitHub repo** `visshhall/knowledge-bank`. Every version saved there.
+- **Delivery format (owner requirement):** every release is a Windows installer `.exe`. The owner never runs PowerShell, scripts or commands; any setup step must be a button inside the app.
 - Two living documents in the repo: **KB_REFERENCE.md** (this file) and **KB_PENDING.md** (task tracker). Both updated after every change.
 - If an idea for the Sanskrit app comes up here, prefix it **"SKT idea:"** — it is logged for SKT, and no SKT code is touched from the KB chat.
 - Untagged, ambiguous requests → Claude asks which project before changing anything.
@@ -204,3 +210,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.0 | Initial reference document created from the planning discussion. Hardware confirmed. No code yet. |
 | 14 Nov 2026 | Doc 1.1 | Corrected model sizing: 8B models are tight on 6 GB VRAM (not "comfortable"). Adopted two-model strategy (~4B interactive, ~8B overnight), final choice by Phase 0 benchmark. |
 | 14 Nov 2026 | Doc 1.2 / KB v0.1 | Phase 0 foundation built and tested: engine (config, database schema v1, system check, Ollama client, secure local server, benchmark), Electron + React shell with status screen, Windows setup scripts. Added section 9a. |
+| 14 Nov 2026 | Doc 1.3 / KB v0.2 | Owner rejected PowerShell setup. Replaced it with an in-app setup wizard (Ollama install/start, model downloads with progress, benchmark with folder picker) and a Windows installer bundling a private Python. Removed setup/*.ps1. Added tools/build-windows.sh. Fixed model-name matching (`name` vs `name:latest`). |

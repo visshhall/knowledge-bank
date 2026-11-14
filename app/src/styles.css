@@ -8,7 +8,7 @@
  *        whole theme can be changed in one place.
  *        System fonts only (Segoe UI on Windows) — no downloads, works offline.
  * WHEN:  Loaded once by main.jsx.
- * CONNECTED TO: class names used in App.jsx and Constellation.jsx.
+ * CONNECTED TO: class names used in App.jsx, SetupWizard.jsx and Constellation.jsx.
  */
 
 :root {
@@ -133,6 +133,54 @@ button:disabled { opacity: 0.6; cursor: default; }
 .check-fix { font-size: 13px; color: var(--warn); margin-top: 2px; }
 .error-text { color: var(--bad); }
 
+
+/* ---------- Setup wizard (SetupWizard.jsx) ---------- */
+.wizard {
+  margin-top: 28px; padding: 22px 24px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.step {
+  position: relative; padding: 20px; border-radius: 12px;
+  border: 1px solid var(--border); background: rgba(11, 16, 32, 0.55);
+  transition: border-color 0.3s ease, opacity 0.3s ease;
+}
+.step h3 { margin: 6px 0 6px; font-size: 16px; font-weight: 600; }
+.step p { font-size: 13px; margin: 6px 0 12px; }
+.step.active { border-color: rgba(94, 234, 212, 0.55); box-shadow: 0 0 22px rgba(94, 234, 212, 0.08); }
+.step.done { border-color: rgba(52, 211, 153, 0.45); }
+.step.locked { opacity: 0.5; }
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; font-weight: 600; color: var(--bg); background: var(--accent-2);
+}
+.step.done .step-num { background: var(--ok); }
+.pill-ok {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  color: var(--ok); border: 1px solid rgba(52, 211, 153, 0.45);
+}
+.ok-text { color: var(--ok); }
+button.secondary {
+  background: transparent; color: var(--accent); border: 1px solid var(--accent); margin-top: 8px;
+}
+
+.model-list { list-style: none; padding: 0; margin: 8px 0 12px; display: grid; gap: 8px; font-size: 13px; }
+.model-row { display: flex; justify-content: space-between; gap: 8px; }
+.check-row { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+
+/* Progress bars: animated fill; "indeterminate" slides when the end is unknown. */
+.progress { margin: 8px 0; }
+.progress-track { height: 8px; border-radius: 999px; background: rgba(125, 211, 252, 0.12); overflow: hidden; }
+.progress.compact .progress-track { height: 4px; margin-top: 4px; }
+.progress-fill {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.6s ease;
+}
+.progress-fill.indeterminate { width: 35%; animation: slide 1.4s ease-in-out infinite; }
+.progress-label { margin-top: 4px; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
 /* ---------- Animations ---------- */
 @keyframes breathe { 0%, 100% { transform: scale(0.9); opacity: 0.7; } 50% { transform: scale(1.08); opacity: 1; } }
 @keyframes blink { 50% { opacity: 0.3; } }
@@ -145,4 +193,5 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 @media (max-width: 1000px) {
   .tiles { grid-template-columns: repeat(3, 1fr); }
+  .steps { grid-template-columns: 1fr; }
 }

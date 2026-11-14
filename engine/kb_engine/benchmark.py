@@ -18,13 +18,13 @@ WHY:   Model choice is the biggest single factor in both speed and quality.
        Published benchmarks use other hardware and other text; this uses the
        owner's RTX 3060 (6 GB) and his real cybersecurity documents.
 
-WHEN:  Run once by the owner after setup:
-           setup\\run-benchmark.ps1 "C:\\path\\to\\folder-with-5-10-pdfs"
-       (or directly: python -m kb_engine.benchmark --pdfs <folder>)
+WHEN:  Run once by the owner from the app's setup wizard ("Run benchmark"
+       button → setup_manager.py → run_benchmark()). Developers can also run
+       it directly: python -m kb_engine.benchmark --pdfs <folder>
        The owner then sends the generated report to Claude.
 
 CONNECTED TO: config.py (models, report folder), ollama_client.py (AI calls),
-       system_check.py (GPU memory readings). Does NOT write to the knowledge
+       system_check.py (GPU memory readings), setup_manager.py (in-app runs). Does NOT write to the knowledge
        bank database — it's a standalone measurement tool.
 
 PRIVACY: Everything runs locally. The report contains short excerpts of the
@@ -297,9 +297,72 @@ def write_report(result: dict) -> tuple[Path, Path]:
 # Entry point
 # --------------------------------------------------------------------------- #
 
+def run_benchmark(
+    folder: Path,
+    max_files: int = 10,
+    models: list[str] | None = None,
+    think: bool = False,
+    progress=print,
+) -> tuple[Path, Path]:
+    """
+    Run every benchmark step and save the report.
+
+    PARAMETERS:
+      folder     folder with 5–10 representative PDFs
+      max_files  cap on PDFs read
+      models     candidate list (default: config.BENCHMARK_MODELS)
+      think      also enable the models' reasoning mode (slower)
+      progress   function called with a short status message at each step —
+                 print() on the command line; the in-app wizard passes a
+                 function that updates its progress text instead
+    RETURNS: (markdown_path, json_path)
+    CALLED BY: main() below (command line) and setup_manager.py (in-app button).
+    """
+    if not folder.is_dir():
+        raise ValueError(f"Not a folder: {folder}")
+    if not ollama_client.is_running():
+        raise RuntimeError("Ollama is not running.")
+
+    candidates = models or config.BENCHMARK_MODELS
+    installed = ollama_client.installed_models()
+
+    progress(f"Reading PDFs from {folder} …")
+    samples, extraction = read_pdfs(folder, max_files)
+    progress(f"Read {extraction['pages']} pages at {extraction['pages_per_second']} pages/s")
+
+    results: list[dict] = []
+    for index, model in enumerate(candidates, start=1):
+        if not ollama_client.has_model(model, installed):
+            progress(f"Skipping {model} (not downloaded)")
+            results.append({"model": model, "error": "not downloaded"})
+            continue
+        progress(f"Testing model {index} of {len(candidates)}: {model} (a few minutes)…")
+        try:
+            results.append(bench_model(model, samples, think))
+        except ollama_client.OllamaError as exc:
+            results.append({"model": model, "error": str(exc)})
+
+    progress("Testing the embedding model…")
+    embedding = bench_embeddings(samples)
+
+    result = {
+        "engine_version": __version__,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "gpu": system_check.gpu_info(),
+        "think_mode": think,
+        "extraction": extraction,
+        "samples": [{k: v for k, v in s.items() if k != "excerpt"} for s in samples],
+        "models": results,
+        "embedding": embedding,
+    }
+    md_path, json_path = write_report(result)
+    progress(f"Report saved: {md_path}")
+    return md_path, json_path
+
+
 def main() -> None:
     """
-    Parse arguments, run all steps, print where the report was saved.
+    Command-line entry point (developer use; the owner uses the app's button).
 
     ARGUMENTS:
       --pdfs FOLDER     folder with 5–10 representative PDFs (required)
@@ -313,47 +376,11 @@ def main() -> None:
     parser.add_argument("--models", type=str, default="")
     parser.add_argument("--think", action="store_true")
     args = parser.parse_args()
-
-    if not args.pdfs.is_dir():
-        raise SystemExit(f"Not a folder: {args.pdfs}")
-    if not ollama_client.is_running():
-        raise SystemExit("Ollama is not running. Start it from the Start menu and retry.")
-
-    candidates = [m.strip() for m in args.models.split(",") if m.strip()] or config.BENCHMARK_MODELS
-    installed = ollama_client.installed_models()
-
-    print(f"Reading PDFs from {args.pdfs} ...")
-    samples, extraction = read_pdfs(args.pdfs, args.max_files)
-    print(f"  {extraction['pages']} pages at {extraction['pages_per_second']} pages/s")
-
-    models: list[dict] = []
-    for model in candidates:
-        if not ollama_client.has_model(model, installed):
-            print(f"Skipping {model} (not downloaded — run: ollama pull {model})")
-            models.append({"model": model, "error": "not downloaded"})
-            continue
-        print(f"Benchmarking {model} ... (this can take several minutes)")
-        try:
-            models.append(bench_model(model, samples, args.think))
-        except ollama_client.OllamaError as exc:
-            models.append({"model": model, "error": str(exc)})
-
-    print("Benchmarking embeddings ...")
-    embedding = bench_embeddings(samples)
-
-    result = {
-        "engine_version": __version__,
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "gpu": system_check.gpu_info(),
-        "think_mode": args.think,
-        "extraction": extraction,
-        "samples": [{k: v for k, v in s.items() if k != "excerpt"} for s in samples],
-        "models": models,
-        "embedding": embedding,
-    }
-    md_path, json_path = write_report(result)
-    print(f"\nDone. Report saved to:\n  {md_path}\n  {json_path}")
-    print("Send the .md file to Claude in the KB chat.")
+    models = [m.strip() for m in args.models.split(",") if m.strip()] or None
+    try:
+        run_benchmark(args.pdfs, args.max_files, models, args.think)
+    except (ValueError, RuntimeError) as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

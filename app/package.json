@@ -1,6 +1,6 @@
 {
   "name": "knowledge-bank",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline, interactive knowledge bank built from the owner's cybersecurity PDFs.",
   "private": true,
   "type": "module",
@@ -8,18 +8,73 @@
   "scripts": {
     "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "vite build",
-    "start": "vite build && electron ."
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "start": "vite build && electron .",
+    "dist:win": "vite build && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
     "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "resedit": "^3.1.0",
     "vite": "^5.4.11",
     "wait-on": "^8.0.1"
+  },
+  "author": "Vishal Singh",
+  "build": {
+    "appId": "com.visshhall.knowledgebank",
+    "productName": "Knowledge Bank",
+    "copyright": "Copyright © 2026 Vishal Singh",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../engine/kb_engine",
+        "to": "engine/kb_engine",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "build-resources/python",
+        "to": "python"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Knowledge Bank",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "KnowledgeBank-Setup-${version}.exe",
+      "deleteAppDataOnUninstall": false
+    },
+    "afterPack": "build/after-pack.cjs",
+    "publish": null
   }
 }

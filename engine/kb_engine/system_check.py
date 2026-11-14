@@ -11,7 +11,7 @@ WHY:   Most "it doesn't work" problems in local-AI apps are setup problems
 
 WHEN:  - On demand from the app's status screen (server.py → GET /system).
        - From the command line: `python -m kb_engine.system_check`
-         (prints a readable report; used by setup.ps1 at the end of setup).
+         (prints a readable report; developer/troubleshooting use).
 
 CONNECTED TO: config.py, db.py (FTS5 check), ollama_client.py.
 """
@@ -84,12 +84,12 @@ def run_checks() -> dict:
     # Python version — 3.11+ needed for modern typing used in this code.
     py_ok = sys.version_info >= (3, 11)
     add("Python", py_ok, platform.python_version(),
-        "" if py_ok else "Install Python 3.11 or newer (setup.ps1 does this).")
+        "" if py_ok else "Reinstall the Knowledge Bank app (it bundles its own Python).")
 
     # SQLite full-text search (instant word search depends on it).
     fts = db.fts5_available()
     add("SQLite full-text search", fts, f"SQLite {sqlite3.sqlite_version}",
-        "" if fts else "Reinstall Python from python.org (includes FTS5).")
+        "" if fts else "Reinstall the Knowledge Bank app.")
 
     # GPU.
     gpu = gpu_info()
@@ -125,10 +125,10 @@ def run_checks() -> dict:
             present = ollama_client.has_model(name, models)
             add(f"{role} ({name})", present,
                 "downloaded" if present else "not downloaded",
-                "" if present else f"Run:  ollama pull {name}")
+                "" if present else "Use the Setup panel: Download AI models.")
     else:
         add("Ollama (local AI)", False, f"not answering at {config.OLLAMA_URL}",
-            "Start Ollama from the Start menu, or run setup.ps1 to install it.")
+            "Use the Setup panel: Install / Start AI engine.")
 
     return {
         "engine_version": __version__,

@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.1 (Phase 0 code complete — waiting on owner's laptop run)
+**Current version:** v0.2 (Phase 0 delivered as Windows installer — waiting on owner's run)
 **Last updated:** 14 November 2026
 
 ---
@@ -10,10 +10,10 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 ## Waiting on the owner (blocks Phase 1 model decisions)
 
 - [ ] Grant Claude's GitHub app access to `visshhall/knowledge-bank` so code can be pushed (currently read-only from Claude's side)
-- [ ] Download the project and run `setup\setup.ps1`
-- [ ] Open the app with `setup\start-app.ps1` — confirm the status screen shows "Engine ready" and the readiness checks
-- [ ] Copy 5–10 representative PDFs into a new folder and run `setup\run-benchmark.ps1 "<folder>"`
-- [ ] Send the benchmark `.md` report to Claude
+- [ ] Run `KnowledgeBank-Setup-0.2.0.exe` (SmartScreen: More info → Run anyway)
+- [ ] Open the app → confirm "Engine ready" and the Setup panel
+- [ ] Setup step 1: Install AI engine · step 2: Download AI models · step 3: run the benchmark on a folder of 5–10 PDFs
+- [ ] Send the benchmark `.md` report (Open report folder) to Claude
 
 ## Phase 0 — Foundation ✅ code complete
 
@@ -26,7 +26,10 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Benchmark tool (PDF read speed, scanned-page detection, model speed/VRAM/quality, embedding speed, Markdown + JSON report)
 - [x] Electron + React shell: starts/stops engine, locked-down window, allow-listed bridge, CSP in builds
 - [x] Phase 0 status screen with animated constellation background
-- [x] Windows scripts: setup.ps1, run-benchmark.ps1, start-app.ps1
+- [x] ~~Windows PowerShell scripts~~ — replaced in v0.2 (owner wants a normal .exe)
+- [x] v0.2: in-app setup wizard (AI engine install/start, model downloads with progress, benchmark with folder picker, open reports)
+- [x] v0.2: Windows installer with bundled private Python 3.12, per-user install, shortcuts, custom icon + version details
+- [x] v0.2: installer verified under Wine (installs, shortcuts, bundled engine runs and passes setup/benchmark flow against a mock AI service)
 - [x] Tested in Claude's workspace: DB create/upgrade/cascade/full-text sync, server token enforcement, benchmark end-to-end (against a mock AI service), Electron app launched and screenshotted, engine stops on close, PowerShell scripts parse-checked
 - [ ] Final model choice — from owner's benchmark
 

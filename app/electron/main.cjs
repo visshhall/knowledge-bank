@@ -19,11 +19,13 @@
  *
  * CONNECTED TO:
  *        - electron/preload.cjs  → exposes the safe `window.kb` bridge
- *        - src/App.jsx           → the interface that calls window.kb
+ *        - src/App.jsx, src/SetupWizard.jsx → the interface that calls window.kb
  *        - engine/kb_engine/server.py → the Python engine it starts
  *        - vite.config.js        → dev server address / build output
+ *        - package.json "build"  → how the Windows installer bundles the
+ *          engine and its private Python (see "Where the engine lives")
  */
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -45,13 +47,45 @@ const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 const ENGINE_TOKEN = crypto.randomBytes(32).toString("hex");
 
 /**
- * Engine endpoints the interface may call. Anything else is refused here,
- * before it reaches the engine. New phases add their endpoints to this list.
+ * Engine endpoints the interface may call, as "METHOD /path". Anything else
+ * is refused here, before it reaches the engine. New phases add theirs.
  */
-const ALLOWED_ENGINE_PATHS = new Set(["/health", "/system", "/stats"]);
+const ALLOWED_ENGINE_CALLS = new Set([
+  "GET /health",
+  "GET /system",
+  "GET /stats",
+  "GET /setup/status",
+  "POST /setup/ollama/install",
+  "POST /setup/ollama/start",
+  "POST /setup/models/pull",
+  "POST /setup/benchmark/start",
+]);
 
-/** Folder containing the Python engine (sibling of /app in the repo). */
-const ENGINE_DIR = path.resolve(__dirname, "..", "..", "engine");
+/*
+ * Where the engine lives:
+ *  - Installed app (app.isPackaged): the installer copies the engine code to
+ *    <install folder>/resources/engine and a private Windows Python (with all
+ *    libraries pre-installed) to <install folder>/resources/python. The owner
+ *    never installs Python.
+ *  - Development (running from the repo): engine/ next to app/, using the
+ *    engine/.venv created by `python -m venv .venv`.
+ */
+const ENGINE_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, "engine")
+  : path.resolve(__dirname, "..", "..", "engine");
+
+/**
+ * The reports folder (benchmark results). Computed here, the same way the
+ * engine's config.py does, so the window can only ever open THIS folder —
+ * it can't ask main.cjs to open arbitrary paths.
+ */
+const REPORTS_DIR = path.join(
+  process.env.KB_DATA_DIR ||
+    (process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, "KnowledgeBank")
+      : path.join(require("node:os").homedir(), ".knowledge-bank")),
+  "reports"
+);
 
 let engineProcess = null; // the running Python process, or null
 let engineState = { status: "starting", detail: "" }; // shown in the window
@@ -62,14 +96,16 @@ let mainWindow = null;
 // ---------------------------------------------------------------------------
 
 /**
- * Find the Python interpreter inside the engine's virtual environment
- * (created by setup/setup.ps1). Using the venv guarantees the exact library
- * versions from requirements.txt, not whatever Python the system has.
- * Returns null if setup hasn't been run.
+ * Find the Python that runs the engine.
+ *  - Installed app: the bundled private Python (resources/python/python.exe).
+ *  - Development: the engine's virtual environment.
+ * Never uses a system-wide Python, so library versions always match
+ * requirements.txt exactly. Returns null if none is found.
  */
 function findEnginePython() {
-  const candidates =
-    process.platform === "win32"
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, "python", "python.exe")]
+    : process.platform === "win32"
       ? [path.join(ENGINE_DIR, ".venv", "Scripts", "python.exe")]
       : [path.join(ENGINE_DIR, ".venv", "bin", "python")];
   return candidates.find((p) => fs.existsSync(p)) || null;
@@ -95,7 +131,7 @@ function setEngineState(status, detail = "") {
 function startEngine() {
   const python = findEnginePython();
   if (!python) {
-    setEngineState("error", "Engine not installed. Run setup\\setup.ps1 first.");
+    setEngineState("error", "The app's engine files are missing. Please reinstall Knowledge Bank.");
     return;
   }
   engineProcess = spawn(python, ["-m", "kb_engine.server"], {
@@ -158,27 +194,56 @@ function stopEngine() {
 // ---------------------------------------------------------------------------
 
 /**
- * Handle `window.kb.get(path)` calls from the interface (via preload.cjs).
- * Refuses paths not on the allow-list, adds the secret token, returns JSON.
- * Errors are returned as { error } objects rather than thrown, so the
+ * Send one request to the engine, adding the secret token.
+ * Errors come back as { error } objects rather than thrown, so the
  * interface can show a friendly message.
  */
-ipcMain.handle("engine:get", async (_event, enginePath) => {
-  if (!ALLOWED_ENGINE_PATHS.has(enginePath)) {
-    return { error: `Path not allowed: ${enginePath}` };
+async function callEngine(method, enginePath, body) {
+  if (!ALLOWED_ENGINE_CALLS.has(`${method} ${enginePath}`)) {
+    return { error: `Not allowed: ${method} ${enginePath}` };
   }
   if (engineState.status !== "ready") {
     return { error: `Engine is ${engineState.status}` };
   }
   try {
     const res = await fetch(`${ENGINE_URL}${enginePath}`, {
-      headers: { "X-KB-Token": ENGINE_TOKEN },
+      method,
+      headers: { "X-KB-Token": ENGINE_TOKEN, "Content-Type": "application/json" },
+      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
     });
     if (!res.ok) return { error: `Engine returned HTTP ${res.status}` };
     return await res.json();
   } catch (err) {
     return { error: `Engine unreachable: ${err.message}` };
   }
+}
+
+/** window.kb.get(path) → GET request to the engine. */
+ipcMain.handle("engine:get", (_event, enginePath) => callEngine("GET", enginePath));
+
+/** window.kb.post(path, body) → POST request to the engine. */
+ipcMain.handle("engine:post", (_event, enginePath, body) =>
+  callEngine("POST", enginePath, body)
+);
+
+/**
+ * window.kb.pickFolder() → Windows "choose a folder" dialog.
+ * Returns the chosen path, or null if cancelled. The dialog itself is the
+ * owner's explicit choice, so the page never supplies a path on its own.
+ */
+ipcMain.handle("dialog:pickFolder", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose a folder with 5–10 of your PDFs",
+    properties: ["openDirectory"],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+/** window.kb.openReports() → open the reports folder in File Explorer. */
+ipcMain.handle("shell:openReports", async () => {
+  fs.mkdirSync(REPORTS_DIR, { recursive: true });
+  const err = await shell.openPath(REPORTS_DIR);
+  return err ? { error: err } : { ok: true };
 });
 
 /** Lets the window ask for the current engine status (e.g. right after loading). */

@@ -22,3 +22,8 @@ reports/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Windows build outputs (re-created by tools/build-windows.sh)
+.build-cache/
+app/build-resources/
+app/release/
