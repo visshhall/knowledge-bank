@@ -56,11 +56,16 @@ function since(ts) {
   return s >= 60 ? `${Math.floor(s / 60)} min` : `${s} s`;
 }
 
-export default function Topics() {
+export default function Topics({ focus }) {
   const [status] = usePoll("/distill/status", 1500);
   const [write] = usePoll("/write/status", 1500);
   const [list, reloadList] = usePoll("/topics", 0);
   const [openId, setOpenId] = useState(null);
+
+  // Opened from elsewhere (Overview map, quick search): show that topic.
+  useEffect(() => {
+    if (focus?.topicId) setOpenId(focus.topicId);
+  }, [focus]);
   const [notice, setNotice] = useState("");
   const lastDistill = useRef(null);
   const lastWrite = useRef(null);
@@ -86,7 +91,14 @@ export default function Topics() {
   }
 
   if (openId !== null) {
-    return <TopicDetail id={openId} onBack={() => setOpenId(null)} onOpen={setOpenId} />;
+    return (
+      <TopicDetail
+        id={openId}
+        focusPoint={focus?.topicId === openId ? focus.pointId : null}
+        onBack={() => setOpenId(null)}
+        onOpen={setOpenId}
+      />
+    );
   }
 
   const building = status?.state === "running";
@@ -251,7 +263,7 @@ export default function Topics() {
  * One topic: Lesson tab, Article tab (with clickable citations) and Source points tab.
  * onOpen(id) jumps to a related topic; onBack returns to the grid.
  */
-function TopicDetail({ id, onBack, onOpen }) {
+function TopicDetail({ id, focusPoint, onBack, onOpen }) {
   const [data] = usePoll("/topic", 0, { id });
   const [lessonData] = usePoll("/lesson", 0, { id });
   const [tab, setTab] = useState(null);
@@ -261,7 +273,8 @@ function TopicDetail({ id, onBack, onOpen }) {
   const { topic, points, related, citations, loose_threshold } = data;
   const hasArticle = Boolean(topic.article);
   const hasLesson = Boolean(lessonData?.lesson);
-  const view = tab ?? (hasLesson ? "lesson" : hasArticle ? "article" : "points");
+  // From quick search: show the exact passage in Source points.
+  const view = tab ?? (focusPoint ? "points" : hasLesson ? "lesson" : hasArticle ? "article" : "points");
   const byId = Object.fromEntries(points.map((p) => [p.id, p]));
 
   function openCitation(n) {
@@ -341,31 +354,44 @@ function TopicDetail({ id, onBack, onOpen }) {
         </div>
       )}
 
-      {view === "points" && <SourcePoints points={points} looseThreshold={loose_threshold} />}
+      {view === "points" && <SourcePoints points={points} looseThreshold={loose_threshold} focusPoint={focusPoint} />}
     </div>
   );
 }
 
 /**
- * Source points tab (v0.6.1 — owner: "no context, random Step 3 / Step 5").
- * WHAT: - "In reading order" (default): points sorted by file, page and
- *         position, grouped under the document part they come from
- *         ("Use Case 7: Insider Data Theft"), so steps read 1 → 2 → 3.
- *       - "Best match first": the old order, most central to the topic first.
- *       - Every point has "Read in context": the text just before and after
- *         it in its file (GET /passage/context).
+ * Source points tab.
+ * WHAT: - "In reading order" (default): ONE card per document part — every
+ *         point from the same file and section ("Use Case 7: …") joined in
+ *         reading order, so a write-up is never split across cards (v0.6.3,
+ *         owner: "why half half things are in different cards"). A dotted
+ *         marker shows where text that belongs to another topic was skipped;
+ *         "Read the whole section" opens the full part from the file.
+ *       - "Best match first": one card per point, most central first.
+ *       - Points that repeat across files are already shown once (repeat
+ *         groups) with "Said in N places".
  */
-function SourcePoints({ points, looseThreshold }) {
+function SourcePoints({ points, looseThreshold, focusPoint }) {
   const [order, setOrder] = useState("reading");
-  const sorted =
-    order === "central"
-      ? points
-      : [...points].sort((a, b) => {
-          const x = a.order ?? [0, 0, a.id];
-          const y = b.order ?? [0, 0, b.id];
-          return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
-        });
-  let lastGroup = null;
+  const focused = useRef(null);
+  // Scroll to (and briefly highlight) the passage chosen in quick search.
+  useEffect(() => {
+    if (focusPoint && focused.current) focused.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusPoint]);
+  const key = (p) => (p.order ? p.order : [0, 0, p.id]);
+  const sorted = [...points].sort((a, b) => {
+    const x = key(a);
+    const y = key(b);
+    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+  });
+  // Group consecutive points of the same file + section into one card.
+  const groups = [];
+  for (const p of sorted) {
+    const g = groups[groups.length - 1];
+    const sameFile = g && key(g.points[0])[0] === key(p)[0];
+    if (g && sameFile && (g.section ?? "") === (p.section ?? "")) g.points.push(p);
+    else groups.push({ section: p.section, file: p.sources[0]?.file_name, points: [p] });
+  }
   return (
     <div>
       <div className="points-bar" role="group" aria-label="Order of points">
@@ -376,27 +402,63 @@ function SourcePoints({ points, looseThreshold }) {
           Best match first
         </button>
       </div>
-      <ol className="points">
-        {sorted.map((p) => {
-          const group = `${p.sources[0]?.file_name ?? ""} › ${p.section ?? ""}`;
-          const showGroup = order === "reading" && group !== lastGroup;
-          lastGroup = group;
-          return (
-            <li key={p.id} className={p.fit < looseThreshold ? "is-loose" : ""}>
-              {showGroup && (
+      {order === "reading" ? (
+        <ol className="points">
+          {groups.map((g, gi) => {
+            const pages = [...new Set(g.points.map((p) => key(p)[1]))].sort((a, b) => a - b);
+            return (
+              <li key={gi} className="section-card">
                 <p className="point-group">
                   <Icon name="file" size={14} />
-                  <span>{p.sources[0]?.file_name}</span>
-                  {p.section && <strong>{p.section}</strong>}
+                  <span>{g.file}</span>
+                  {g.section && <strong>{g.section}</strong>}
                 </p>
-              )}
-              {order === "central" && p.section && <p className="point-section">From: {p.section}</p>}
+                {g.points.map((p, i) => {
+                  const prev = g.points[i - 1];
+                  const gap = prev && (key(p)[1] !== key(prev)[1] ? key(p)[2] !== 0 : key(p)[2] - key(prev)[2] > 1);
+                  return (
+                    <div
+                      key={p.id}
+                      className={`section-part ${p.id === focusPoint ? "found" : ""}`}
+                      ref={p.id === focusPoint ? focused : undefined}
+                    >
+                      {gap && <p className="skip-mark" title="Text between these parts belongs to another topic">· · ·</p>}
+                      {p.fit < looseThreshold && (
+                        <p className="loose-flag">
+                          <Icon name="alert" size={15} /> Loose fit: may belong to another topic
+                        </p>
+                      )}
+                      <Formatted text={withoutHeading(p.text, g.section)} collapseAt={40} />
+                      {p.sources.length > 1 && (
+                        <p className="small muted">
+                          Also said in {p.sources.slice(1).map((s) => `${s.file_name} p.${s.page}`).join(", ")} — shown once.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                <ul className="point-sources" aria-label="Pages">
+                  <li>
+                    <Icon name="file" size={14} />
+                    {g.file} <span>{pages.length > 1 ? `pp.${pages.join(", ")}` : `p.${pages[0]}`}</span>
+                  </li>
+                </ul>
+                {g.points[0].passage_id && <InContext passageId={g.points[0].passage_id} whole={Boolean(g.section)} />}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <ol className="points">
+          {points.map((p) => (
+            <li key={p.id} className={p.fit < looseThreshold ? "is-loose" : ""}>
+              {p.section && <p className="point-section">From: {p.section}</p>}
               {p.fit < looseThreshold && (
                 <p className="loose-flag">
                   <Icon name="alert" size={15} /> Loose fit: may belong to another topic
                 </p>
               )}
-              <Formatted text={showGroup || order === "central" ? withoutHeading(p.text, p.section) : p.text} />
+              <Formatted text={withoutHeading(p.text, p.section)} />
               <ul className="point-sources" aria-label="Sources">
                 {p.sources.map((s, i) => (
                   <li key={i}>
@@ -408,9 +470,9 @@ function SourcePoints({ points, looseThreshold }) {
               {p.sources.length > 1 && <p className="small muted">Said in {p.sources.length} places, shown once.</p>}
               {p.passage_id && <InContext passageId={p.passage_id} />}
             </li>
-          );
-        })}
-      </ol>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -423,12 +485,12 @@ function withoutHeading(text, section) {
 }
 
 /** "Read in context": loads the passages just before and after this one. */
-function InContext({ passageId }) {
+function InContext({ passageId, whole = false }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   async function toggle() {
     if (!open && !data) {
-      const r = await kb.get("/passage/context", { id: passageId });
+      const r = await kb.get(whole ? "/passage/section" : "/passage/context", { id: passageId });
       if (!r.error) setData(r);
     }
     setOpen(!open);
@@ -436,12 +498,16 @@ function InContext({ passageId }) {
   return (
     <div className="in-context">
       <button className="link small" onClick={toggle} aria-expanded={open}>
-        {open ? "Hide context" : "Read in context"}
+        {open ? (whole ? "Hide section" : "Hide context") : whole ? "Read the whole section" : "Read in context"}
       </button>
       {open && data && (
         <div className="context-box">
           {data.passages.map((c) =>
-            c.current ? (
+            whole ? (
+              <div key={c.id} className="context-part whole">
+                <Formatted text={withoutHeading(c.text, data.section)} collapseAt={40} />
+              </div>
+            ) : c.current ? (
               <p key={c.id} className="context-here small">This point · page {c.page}</p>
             ) : (
               <div key={c.id} className="context-part">

@@ -40,6 +40,13 @@ WHY:   - Search results, merging and citations all work on passages: big
          records the document part it belongs to (split_with_sections), so
          "Step 3: Root Cause" is shown under "Use Case 7: …" instead of on
          its own.
+       - v5 (KB v0.6.3): tables WITHOUT ruled borders (common in Word SOC
+         playbooks: "Step | Action") arrive as "Step", "Action", "1",
+         "Terminate…", "2", "Delete…" on separate lines and were joined into
+         one run-on sentence. _rebuild_numbered_rows turns them back into
+         table rows ("Step · Action", "1 · Terminate…"). Passages now also
+         start at a heading when possible, so a section such as "Analyst
+         Steps" isn't cut in half across two cards.
        - The fingerprint catches the same paragraph copied into several PDFs
          (same meaning in different words is caught in Phase 2).
 
@@ -55,7 +62,7 @@ import hashlib
 import re
 import unicodedata
 
-CHUNKER_VERSION = 4  # bump when clean()/split_passages() rules change
+CHUNKER_VERSION = 5  # bump when clean()/split_passages() rules change
 
 TARGET_WORDS = 180   # aim for passages about this long
 MAX_WORDS = 260      # never longer than this (long blocks get split)
@@ -163,6 +170,85 @@ def _normalise_bullets(text: str) -> str:
     return "\n".join(out)
 
 
+_LONE_NUM = re.compile(r"^\s*(\d{1,2})[.)]?\s*$")            # "3" alone on a line
+_NUM_LEAD = re.compile(r"^\s*(\d{1,2})\s+(?=[A-Z])(.+)$")       # "3 Quarantine both…"
+
+
+def _is_header_cell(line: str) -> bool:
+    """A table header cell: 1–3 short capitalised words, no digits/punctuation ("Step", "Action")."""
+    s = line.strip()
+    return (0 < len(s) <= 25 and len(s.split()) <= 3 and s[0].isupper()
+            and not re.search(r"[\d.:;,?!·]", s) and not _BULLET.match(s))
+
+
+def _rebuild_numbered_rows(text: str) -> str:
+    """
+    Rebuild a numbered table that PDF extraction flattened.
+
+    Pattern: a run of rows numbered 1, 2, 3 … where each number is alone on
+    its line (cell text on the following line(s)) or starts the line
+    ("2 Delete the sideloaded DLL"). At least 2 rows are required, numbers
+    must be consecutive from 1, and a row's text ends at the next number, a
+    heading, a bullet or a blank line. The two short lines right before
+    row 1 ("Step", "Action") become the header row.
+    RETURNS text with the rows as "1 · Terminate …" (with a header) or
+    "1. Terminate …" (without one).
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        rows: list[tuple[int, str]] = []
+        j = i
+        while j < len(lines):
+            expect = len(rows) + 1
+            lone, lead = _LONE_NUM.match(lines[j]), _NUM_LEAD.match(lines[j])
+            if lone and int(lone.group(1)) == expect:
+                cell, k = [], j + 1
+            elif lead and int(lead.group(1)) == expect and (rows or j == i):
+                cell, k = [lead.group(2).strip()], j + 1
+            else:
+                break
+            while k < len(lines):
+                nxt = lines[k].strip()
+                if (not nxt or _LONE_NUM.match(nxt) or _BULLET.match(nxt)
+                        or (_NUM_LEAD.match(nxt) and int(_NUM_LEAD.match(nxt).group(1)) == expect + 1)
+                        or (cell and _is_heading(nxt))
+                        or (lead and not nxt[0].islower())):  # "2 Text" rows only wrap in lower case
+                    break
+                cell.append(nxt)
+                k += 1
+            if not cell:
+                break
+            rows.append((expect, " ".join(cell)))
+            j = k
+            while j < len(lines) and not lines[j].strip() and j + 1 < len(lines) \
+                    and _LONE_NUM.match(lines[j + 1]):
+                j += 1  # a blank line between rows
+        # Lone-number rows are always a table; "1 Text" lines only count when
+        # a header sits right above them (otherwise they may be prose).
+        # The rows have two columns (number, text), so a header is exactly
+        # the two short lines right above row 1 ("Step", "Action").
+        header: list[str] = []
+        if len(out) >= 2 and _is_header_cell(out[-1]) and _is_header_cell(out[-2]) \
+                and len(out[-1].split()) <= 2 and len(out[-2].split()) <= 2:
+            header = [out.pop(-2), out.pop()]
+        lone_rows = _LONE_NUM.match(lines[i]) is not None
+        if len(rows) >= 2 and (lone_rows or len(header) >= 2):
+            if len(header) >= 2:
+                out.append(" · ".join(h.strip() for h in header))
+                out.extend(f"{n} · {t}" for n, t in rows)
+            else:
+                out.extend(header)
+                out.extend(f"{n}. {t}" for n, t in rows)
+            i = j
+            continue
+        out.extend(header)
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
 def clean(text: str) -> str:
     """
     Tidy raw PDF text while keeping its structure.
@@ -180,6 +266,7 @@ def clean(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = unicodedata.normalize("NFKC", text.replace("\u00ad", ""))  # ﬁ→fi, soft hyphens out
     text = _normalise_bullets(text)
+    text = _rebuild_numbered_rows(text)
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
     text = _INLINE_BULLET.sub(r"\n\1 ", text)
     text = "\n".join(_PIPE_STEP.sub("\n| ", line) if "|" in line else line for line in text.split("\n"))
@@ -225,8 +312,20 @@ def split_passages(text: str) -> list[str]:
     if not text:
         return []
 
-    units: list[str] = []
+    # A heading starts a new unit, so a passage can begin at it.
+    blocks: list[str] = []
     for block in text.split("\n\n"):
+        part: list[str] = []
+        for line in block.split("\n"):
+            if part and _is_heading(line) and not _is_heading(part[-1]):
+                blocks.append("\n".join(part))
+                part = []
+            part.append(line)
+        if part:
+            blocks.append("\n".join(part))
+
+    units: list[str] = []
+    for block in blocks:
         if _words(block) <= MAX_WORDS:
             units.append(block)
             continue
@@ -247,7 +346,11 @@ def split_passages(text: str) -> list[str]:
     passages: list[str] = []
     current = ""
     for unit in units:
-        if current and _words(current) + _words(unit) > MAX_WORDS:
+        # Start a fresh passage at a heading once the current one has some
+        # substance, so sections stay whole instead of being split mid-way.
+        starts_heading = _is_heading(unit.split("\n", 1)[0])
+        if current and (_words(current) + _words(unit) > MAX_WORDS
+                        or (starts_heading and _words(current) >= 60)):
             passages.append(current)
             current = ""
         current = f"{current}\n\n{unit}" if current else unit

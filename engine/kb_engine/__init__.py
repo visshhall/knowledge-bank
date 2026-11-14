@@ -41,4 +41,4 @@ MODULES:
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.6.2"
+__version__ = "0.6.3"

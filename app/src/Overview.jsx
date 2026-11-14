@@ -5,7 +5,9 @@
  *          (finish setup → add files → wait for import → build topics →
  *          explore topics) as its button
  *        - Four bold tiles: files, passages, topics, repeated passages merged
- *        - The Schematic drawing (files → passages → topics) with live totals,
+ *        - The interactive flow map (FlowMap.jsx: files → topics, hover to
+ *          trace, click a topic to open it) — replaced the v0.4 schematic,
+ *          and totals that count up on first show,
  *          plus pages read, scanned pages read by OCR, pictures read and
  *          duplicate files skipped
  *        - Live import progress while an import is running
@@ -14,13 +16,44 @@
  * WHEN:  Default screen when the app opens. Refreshes totals every 3 s and
  *        import progress every 1.5 s while visible.
  * CONNECTED TO: bridge.js (GET /stats, /import/status, /setup/status),
- *        Schematic.jsx, ImportProgress (from Library.jsx), icons.jsx,
+ *        FlowMap.jsx, ImportProgress (from Library.jsx), icons.jsx,
  *        App.jsx (onNavigate switches screens).
  */
-import Schematic from "./Schematic.jsx";
+import FlowMap from "./FlowMap.jsx";
+import { useEffect, useRef, useState } from "react";
 import { ImportProgress } from "./Library.jsx";
 import Icon from "./icons.jsx";
 import { formatCount, usePoll } from "./bridge.js";
+
+/**
+ * A number that counts up from 0 the first time it appears (one short,
+ * orchestrated moment on opening the app). Later changes update instantly.
+ * Respects "reduce animations".
+ */
+function CountUp({ value }) {
+  const [shown, setShown] = useState(0);
+  const done = useRef(false);
+  useEffect(() => {
+    if (typeof value !== "number") return undefined;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (done.current || reduce || value === 0) {
+      setShown(value);
+      done.current = true;
+      return undefined;
+    }
+    let raf;
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 900);
+      setShown(Math.round(value * (1 - (1 - t) ** 3)));
+      if (t < 1) raf = requestAnimationFrame(step);
+      else done.current = true;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{formatCount(typeof value === "number" ? shown : value)}</>;
+}
 
 export default function Overview({ onNavigate }) {
   const [stats] = usePoll("/stats", 3000);
@@ -59,28 +92,31 @@ export default function Overview({ onNavigate }) {
 
       <section className="tiles" aria-label="Totals">
         <div className="tile tone-teal">
-          <p className="tile-value">{formatCount(s.sources)}</p>
+          <p className="tile-value"><CountUp value={s.sources} /></p>
           <p className="tile-label">Files</p>
         </div>
         <div className="tile tone-coral">
-          <p className="tile-value">{formatCount(s.passages)}</p>
+          <p className="tile-value"><CountUp value={s.passages} /></p>
           <p className="tile-label">Passages</p>
         </div>
         <div className="tile tone-violet">
-          <p className="tile-value">{formatCount(s.topics)}</p>
+          <p className="tile-value"><CountUp value={s.topics} /></p>
           <p className="tile-label">Topics</p>
         </div>
         <div className="tile tone-mustard">
-          <p className="tile-value">{formatCount(s.repeats_merged)}</p>
+          <p className="tile-value"><CountUp value={s.repeats_merged} /></p>
           <p className="tile-label">Repeats merged</p>
         </div>
       </section>
 
       {importing && <ImportProgress status={imp} />}
 
-      <section className="card schematic-card" aria-label="How the bank is built">
-        <h2>How your bank is built</h2>
-        <Schematic sources={s.sources ?? 0} passages={s.passages ?? 0} topics={s.topics ?? 0} />
+      <section className="card flow-card" aria-label="Where your knowledge goes">
+        <h2>Where your knowledge goes</h2>
+        <FlowMap
+          version={`${s.sources}-${s.passages}-${s.topics}`}
+          onOpenTopic={(id) => onNavigate("topics", { topicId: id })}
+        />
         <dl className="facts">
           <div>
             <dt>Pages read</dt>

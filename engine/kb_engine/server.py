@@ -29,6 +29,9 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /write/status            — live progress of article writing
          POST /write/cancel            — stop after the current article
          GET  /passage/context?id=...  — a passage with its neighbours (v0.6.1)
+         GET  /search/quick?q=...      — meaning + word search for Ctrl+K (v0.6.3)
+         GET  /overview/flow           — files → topics counts for the Overview map (v0.6.3)
+         GET  /passage/section?id=...  — the whole document part it belongs to (v0.6.3)
          GET  /lesson?id=...           — a topic's visual lesson + check results
          POST /lesson/regenerate       — redesign one topic's lesson
          POST /updates/check           — online check for Ollama/model updates
@@ -69,8 +72,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, config, db, distill, importer, search, setup_manager,
-               lessons, system_check, updates, writer)
+from . import (__version__, config, db, distill, importer, lessons, meaning, search, setup_manager, system_check, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -298,6 +300,27 @@ def passage_context(id: int) -> dict:
     if data is None:
         raise HTTPException(status_code=404, detail="Passage not found")
     return data
+
+
+@app.get("/passage/section", dependencies=[Depends(require_token)])
+def passage_section(id: int) -> dict:
+    """Every passage of the same file and document part ("Read the whole section")."""
+    data = distill.section_passages(id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Passage not found")
+    return data
+
+
+@app.get("/overview/flow", dependencies=[Depends(require_token)])
+def overview_flow() -> dict:
+    """Files → topics flow counts for the Overview map."""
+    return distill.flow()
+
+
+@app.get("/search/quick", dependencies=[Depends(require_token)])
+def search_quick(q: str = "") -> dict:
+    """Quick search (Ctrl+K): meaning + exact words, with each hit's topic."""
+    return meaning.quick_search(q)
 
 
 @app.get("/lesson", dependencies=[Depends(require_token)])

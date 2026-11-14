@@ -84,6 +84,9 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /lesson/regenerate",
   // v0.6.1 — "Read in context"
   "GET /passage/context",
+  "GET /passage/section",
+  "GET /overview/flow",
+  "GET /search/quick",
   // AI updates
   "POST /updates/check",
   "GET /updates/status",

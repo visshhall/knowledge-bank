@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.6.2 — tables kept as tables (PDF + scanned), clearer list markers, heading fixes |
-| Document version | 2.2 |
+| Current version | KB v0.6.3 — whole sections per card, borderless tables, interactive flow map, Ctrl+K meaning search (Phase 4 started) |
+| Document version | 2.3 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -132,7 +132,7 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 1 | Import | PDFs + images (+ Excel/CSV since v0.6), OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | **Delivered (v0.4)** — plus Topics screen |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | **Delivered (v0.5)** |
-| 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | Not started |
+| 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | **Started (v0.6.3)** — interactive flow map, Ctrl+K meaning + word search with jump-to-passage, count-up totals; topic graph and answer pages next |
 | 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | **Started (v0.6)** — automatic visual lesson + quiz per topic |
 | 6 | Web assist + cyber tools | Web fallback, MITRE ATT&CK tagging, IOC extraction, KQL library | Not started |
 | 7 | Updates + release | Incremental updates, encrypted backup, Windows .exe installer | Not started |
@@ -296,6 +296,42 @@ Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
 
 **Upgrade:** `EXTRACT_VERSION` = 2. On first start, every PDF or image whose original file is still in place is re-read once, with progress shown in the Library. Files that have moved keep their stored text and are only re-organised. Topics must then be rebuilt.
 
+## 9i. v0.6.3 — whole sections, borderless tables, Phase 4 start (14 Nov 2026)
+
+**Owner feedback on v0.6.1/0.6.2:**
+1. A "Step / Action" table still ran together.
+2. Parts of one solution appeared in different cards, and similar items repeated.
+3. The Overview diagram looked unprofessional.
+4. Start the pending work, with more animation and interaction.
+
+**1. Borderless tables (chunker v5).** Word tables without ruled lines arrive as "Step", "Action", "1", "Terminate…", "2", "Delete…" on separate lines, and the table finder can't see them.
+- `chunking._rebuild_numbered_rows` turns a run of consecutive row numbers (from 1, at least 2 rows) back into rows: "1 · Terminate…".
+- The two short lines just above become the header.
+- "1 Text" lines only count as a table when such a header is present, so ordinary numbered sentences aren't touched.
+
+**2. Whole sections.**
+- Passages now break at headings once they have at least 60 words, so sub-sections such as "Analyst Steps" stay together.
+- In reading order, Source points shows one card per file + document part, with all of that part's points joined.
+- "· · ·" marks text that belongs to another topic.
+- "Read the whole section" (GET `/passage/section`) shows the complete part.
+- Similar items that appear in several use cases are kept, because they belong to different use cases, but each now sits under its own use-case header. True repeats are still shown once ("Also said in …").
+
+**3. Overview flow map (`FlowMap.jsx`).** It replaces `Schematic.jsx` (deleted).
+- A flow diagram from files to topics: bar height = passages, ribbon width = passages from that file in that topic.
+- Hover traces a file, topic or ribbon and fades the rest, with a plain-language note.
+- Clicking a topic opens it. It is keyboard accessible.
+- Ribbons sweep in once and a quiet stream of dots flows along them. The "reduce animations" setting is respected.
+- Beyond 24 files or topics, the rest are folded into one bar.
+- Totals count up once on first show.
+- Data comes from GET `/overview/flow`.
+
+**4. Ctrl+K quick search (`QuickSearch.jsx`, `meaning.py`).** This is the Phase 4 "hotkey search" and "vector index".
+- The question is embedded with nomic-embed-text ("search_query:" prefix) and compared with every passage vector (cached in memory). The result is blended with FTS5 word search, so a hit found both ways ranks first.
+- If the AI engine is off, word search alone is used and the box says so.
+- Each result shows its topic, section, file and page, and how it matched.
+- Enter opens the topic at that exact passage, highlighted (Source points tab).
+- Tested with the real embedding model: "how to stop a hacked RDP account" finds the RDP use case although no word matches; "4625" finds the exact log row.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -357,3 +393,4 @@ Also fixed: a stray "0" on topic cards without a lesson (v0.6.0 rendering bug).
 | 14 Nov 2026 | Doc 2.0 / KB v0.6.0 | Automatic visual lessons for every topic (profile → calculated steps → AI plan from a fixed visual menu → fact check), ELK-laid-out diagrams, quiz, regenerate; Excel/CSV import with exact grids; schema v5; stricter number checks. Added section 9f. |
 | 14 Nov 2026 | Doc 2.1 / KB v0.6.1 | Owner test: 3 topics / 298 points in one → grouping on centred embeddings with re-measured thresholds, split/fold safety net. Unreadable source points → chunker v3 (Word bullet levels, ligatures, wrapped bullets), schema v6 passages.section, reading order + document-part headers + Read in context. Version shown top-right. Added section 9g. |
 | 14 Nov 2026 | Doc 2.2 / KB v0.6.2 | Owner screenshot polish: PDF and scanned tables kept as tables, OCR row rebuilding + IP/date repair, distinct bullet markers, heading rule fixes, one-time re-read of original files (EXTRACT_VERSION 2). Added section 9h. |
+| 14 Nov 2026 | Doc 2.3 / KB v0.6.3 | Borderless numbered tables rebuilt (chunker v5), heading-aligned passages, one card per document section + Read the whole section; Overview flow map (files → topics, hover/click, animated) replaces the schematic; Ctrl+K meaning + word search with jump-to-passage. Phase 4 started. Added section 9i. |

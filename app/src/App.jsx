@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
+import QuickSearch from "./QuickSearch.jsx";
 import Library from "./Library.jsx";
 import Topics from "./Topics.jsx";
 import SetupWizard from "./SetupWizard.jsx";
@@ -38,6 +39,27 @@ const SCREENS = [
 export default function App() {
   const [engine, setEngine] = useState({ status: "starting", detail: "" });
   const [screen, setScreen] = useState("overview");
+  // A topic to open when switching to Topics (from the Overview map or quick
+  // search). A fresh object each time, so the same topic can be reopened.
+  const [focus, setFocus] = useState(null);
+  const [searching, setSearching] = useState(false);
+
+  // Ctrl+K (or Cmd+K) opens quick search on any screen once the engine is up.
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearching(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const navigate = (to, opts) => {
+    setFocus(opts?.topicId ? { topicId: opts.topicId, pointId: opts.pointId, at: Date.now() } : null);
+    setScreen(to);
+  };
   const [version, setVersion] = useState("");
 
   // The running version, shown in the top-right corner (owner's request).
@@ -80,8 +102,19 @@ export default function App() {
             </li>
           ))}
         </ul>
+        <button className="rail-search" onClick={() => setSearching(true)} disabled={engine.status !== "ready"}>
+          <Icon name="search" size={16} />
+          <span>Search</span>
+          <kbd>Ctrl K</kbd>
+        </button>
         <EngineBadge engine={engine} />
       </nav>
+
+      <QuickSearch
+        open={searching && engine.status === "ready"}
+        onClose={() => setSearching(false)}
+        onOpenTopic={(id, pointId) => navigate("topics", { topicId: id, pointId })}
+      />
 
       <main className="stage">
         {version && (
@@ -107,9 +140,9 @@ export default function App() {
 
         {engine.status === "ready" && (
           <>
-            {screen === "overview" && <Overview onNavigate={setScreen} />}
+            {screen === "overview" && <Overview onNavigate={navigate} />}
             {screen === "library" && <Library />}
-            {screen === "topics" && <Topics />}
+            {screen === "topics" && <Topics focus={focus} />}
             {screen === "setup" && <SetupScreen />}
           </>
         )}

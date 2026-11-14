@@ -770,3 +770,47 @@ def passage_context(passage_id: int, around: int = 1) -> dict | None:
     return {"file_name": me["file_name"], "section": me["section"],
             "passages": [{"id": r["id"], "text": r["text"], "page": r["page_number"],
                           "section": r["section"], "current": r["id"] == passage_id} for r in rows]}
+
+
+def section_passages(passage_id: int, limit: int = 60) -> dict | None:
+    """
+    "Read the whole section": every passage of the same file and document
+    part (section) as this one, in reading order — e.g. the full "Use Case
+    7: DLL Sideloading" write-up, including parts that belong to other
+    topics. Falls back to passage_context when the passage has no section.
+    """
+    with db.connect() as conn:
+        me = conn.execute("SELECT p.source_id, p.section, s.file_name FROM passages p JOIN sources s "
+                          "ON s.id = p.source_id WHERE p.id = ?", (passage_id,)).fetchone()
+        if not me:
+            return None
+        if not me["section"]:
+            return passage_context(passage_id, around=2)
+        rows = conn.execute(
+            "SELECT id, text, page_number, section FROM passages WHERE source_id = ? AND section = ? "
+            "ORDER BY page_number, ordinal LIMIT ?", (me["source_id"], me["section"], limit)).fetchall()
+    return {"file_name": me["file_name"], "section": me["section"],
+            "passages": [{"id": r["id"], "text": r["text"], "page": r["page_number"],
+                          "section": r["section"], "current": r["id"] == passage_id} for r in rows]}
+
+
+def flow() -> dict:
+    """
+    Data for the Overview flow map (FlowMap.jsx): which files feed which
+    topics and how much. RETURNS {"files": [{id, name, type, passages}],
+    "topics": [{id, title, passages}], "links": [{file, topic, passages}]}.
+    Cheap: three grouped counts, no AI.
+    """
+    with db.connect() as conn:
+        files = conn.execute(
+            "SELECT s.id, s.file_name, s.file_type, COUNT(p.id) AS n FROM sources s "
+            "JOIN passages p ON p.source_id = s.id GROUP BY s.id ORDER BY s.id").fetchall()
+        topics = conn.execute(
+            "SELECT t.id, t.title, COUNT(tp.passage_id) AS n FROM topics t "
+            "JOIN topic_passages tp ON tp.topic_id = t.id GROUP BY t.id ORDER BY n DESC").fetchall()
+        links = conn.execute(
+            "SELECT p.source_id AS f, tp.topic_id AS t, COUNT(*) AS n FROM topic_passages tp "
+            "JOIN passages p ON p.id = tp.passage_id GROUP BY p.source_id, tp.topic_id").fetchall()
+    return {"files": [{"id": r["id"], "name": r["file_name"], "type": r["file_type"], "passages": r["n"]} for r in files],
+            "topics": [{"id": r["id"], "title": r["title"], "passages": r["n"]} for r in topics],
+            "links": [{"file": r["f"], "topic": r["t"], "passages": r["n"]} for r in links]}
