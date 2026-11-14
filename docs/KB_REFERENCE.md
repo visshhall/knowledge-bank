@@ -586,6 +586,24 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 - A banner appears under the version badge. Setup → App updates has "Check for updates" and an automatic daily check (on by default; it sends nothing but the request).
 - *Publishing:* Claude's sessions are not allowed to create GitHub releases, so a release is published by the owner: GitHub → Releases → "Draft a new release", tag `v<version>`, attach the installer, and paste the `sha256: …` line Claude gives into the notes. Until a release exists, the Downloads route works: download the installer Claude sends, and the app offers Install.
 
+## 9p. v0.9.1 — repeated statements folded in topics (15 Nov 2026)
+
+*Why:* the owner still saw the same data twice in a topic, even from one file, and asked for "logical reasoning" to catch it. Inspection of a built topic set showed the cause: repeat detection worked on whole passages (identical text, or ≥ 95 % similar meaning). The same sentences sit inside differently-cut passages and across files, so they were never grouped and the article repeated them.
+
+*What (`engine/kb_engine/facts.py`):*
+- Every point of a topic is split into statements (sentences, bullets, table lines; a fenced query block is one statement; headings and labels such as "USE CASE 13: …" are never compared).
+- Automatic merges only for clear cases: identical text, the same words in another order, or one statement whose words are all inside the other with nothing negating. Statements naming different numbers/IDs (T1059.001 vs T1059.003, event 4624 vs 4625), queries that are not identical, and a single swapped word ("symmetrically"/"asymmetrically", "link"/"attachment") are never merged by rules.
+- Any other overlap of 50 % or more is borderline: the local AI answers SAME / SUBSET / DIFFERENT / CONFLICT once; the answer is stored (table `fact_verdicts`, schema v12) and never asked again. A SAME/SUBSET answer is only trusted when the dropped statement adds at most a few words of its own (a 4B model can be too generous). With no answer yet, the pair stays unmerged — the safe side.
+- The longer statement stays; the shorter one's file and page are added to the keeper's sources. A point left with no statements of its own is folded into the point that kept them, and article/lesson citations follow it.
+- Nothing is deleted: passages are untouched; the merge is a view computed whenever a topic is opened or written (Topics screen, article writer, lessons all use the same function `facts.topic_points`).
+- When the AI is asked: after "Build topics" / "Update topics", and at the start of "Write remaining" (up to 80 pairs per topic, 600 per run; the rest next time). Skipped silently if the AI isn't running.
+- Existing articles: "Write remaining" rewrites once every written article whose topic really has repeats (marker `facts_v` in the article's checks); articles with nothing to fold are left alone.
+- The topic header says how many repeated statements were folded in.
+
+*Measured (7 test topics, 96 passages):* about 60 repeated statements folded, 11 % less text; every sample merge was checked by eye after two fixes (a one-word swap and a "local vs remote" case the model had accepted).
+
+*Limits:* the check is wording-based plus a 4B model, so a repeat phrased very differently may remain; a rare wrong "same" is limited by the guard above. `python engine/tests/test_facts.py` covers the rules.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -654,3 +672,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 15 Nov 2026 | Doc 2.7 / KB v0.8.2 | Owner: unrelated PDFs, slow CPU-bound AI, removed files returning. Relevance check before slow work + set aside + Keep anyway + one-time check of existing bank (relevance.py, schema v10); removed_files so watched folders never re-add; gpu.py memory savers, speed tuning with safe fallback, Graphics card card in Setup. Added section 9m. |
 | 15 Nov 2026 | Doc 2.8 / KB v0.8.3 | Owner: skip PDFs whose content is already present; add only content not present. Paragraph-level skip by fingerprint, file-level "Already in the bank" set-aside with Keep anyway, early detection for scans, picture text, one-time check of existing bank, Library switch. Added section 9n. |
 | 15 Nov 2026 | Doc 2.9 / KB v0.9.0 | Eleven owner-chosen improvements: junk cleaning + garbled-text OCR (cleaning.py), real file titles + categories (titles.py), Word/PowerPoint/web/text/Markdown (officefiles.py), automatic replacement of older versions, better search (filters, ranking, close matches, facets, RRF), hand-edited topics (topicedit.py), automatic rewrite of weak articles, big-library tuning + Storage card (storage.py), self-updating app (updater.cjs). Schema v11. Added section 9o. |
+| 15 Nov 2026 | Doc 3.0 / KB v0.9.1 | Repeated statements folded inside topics (facts.py, schema v12, AI judge for borderline pairs, articles rewritten once). Added section 9p. |

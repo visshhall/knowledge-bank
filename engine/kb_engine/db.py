@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -632,6 +632,23 @@ def _migrate_v11() -> None:
         )
 
 
+def _migrate_v12() -> None:
+    """
+    Schema v12 (KB v0.9.1). New table fact_verdicts (idempotent, every start):
+    the local AI's answer for a borderline pair of statements — "are these the
+    same fact?" — so each pair is judged once and never asked again.
+      key     SHA-1 of the two normalised statements (order-independent)
+      verdict SAME | SUBSET | DIFFERENT | CONFLICT
+    Used only by facts.py.
+    """
+    with connect() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS fact_verdicts (key TEXT PRIMARY KEY, verdict TEXT NOT NULL)")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '12') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -706,7 +723,8 @@ def init_db() -> int:
     _migrate_v9()  # idempotent (v0.8.1: pictures read in a second pass)
     _migrate_v10()  # idempotent (v0.8.2: set-aside files, removed-files list)
     _migrate_v11()  # idempotent (v0.9: titles, categories, replaced versions)
-    return 11
+    _migrate_v12()  # idempotent (v0.9.1: AI answers for repeated-statement pairs)
+    return 12
 
 
 def stats() -> dict:

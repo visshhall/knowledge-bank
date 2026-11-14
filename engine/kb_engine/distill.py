@@ -257,6 +257,7 @@ def _run_update() -> None:
                 conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
                              "WHERE id = ? AND status = 'written'", (t,))
                 conn.execute("DELETE FROM lessons WHERE topic_id = ?", (t,))
+        _judge_repeats()
         share = len(new_rows) / max(1, len(ids))
         hint = " Much new material arrived — consider Rebuild topics for the best grouping." if share > 0.3 else ""
         _set(state="done", stage=None, done=1, total=1,
@@ -665,6 +666,7 @@ def _run() -> None:
         _set(stage="saving", message="Saving topics…")
         _save(ids, labels, fit, groups, names, links, k)
         datapages.rebuild_data_topics()  # spreadsheets: one calculated topic each
+        _judge_repeats()
 
         loose = int((fit < LOOSE_FIT).sum())
         db.set_setting("distill_last_run", {
@@ -685,6 +687,21 @@ def _run() -> None:
     finally:
         with _lock:
             _running = False
+
+
+def _judge_repeats() -> None:
+    """
+    v0.9.1: after topics exist, let the AI settle the borderline "same
+    statement?" pairs (facts.py). Never blocks a build: skipped when the AI
+    isn't running, and any failure is ignored (rules alone still apply).
+    """
+    try:
+        from . import facts
+        if facts.ai_ready():
+            _set(stage="repeats", done=0, total=1, message="Checking which statements repeat each other…")
+            facts.judge_all(lambda n, total: _set(done=n, total=total))
+    except Exception:
+        pass
 
 
 def _save(ids, labels, fit, groups, names, links, k) -> None:
@@ -814,18 +831,6 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
             "FROM topics WHERE id = ?", (topic_id,)).fetchone()
         if not t:
             return None
-        rows = conn.execute(
-            """
-            SELECT p.id, p.cluster_id, p.text, p.page_number, p.ordinal, p.section,
-                   COALESCE(s.title, s.file_name) AS file_name, s.id AS source_id, tp.fit
-            FROM topic_passages tp
-            JOIN passages p ON p.id = tp.passage_id
-            JOIN sources s ON s.id = p.source_id
-            WHERE tp.topic_id = ?
-            ORDER BY tp.fit DESC
-            """,
-            (topic_id,),
-        ).fetchall()
         related = conn.execute(
             """
             SELECT t.id, t.title, l.weight FROM topic_links l
@@ -835,22 +840,12 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
             """,
             (topic_id, topic_id, topic_id),
         ).fetchall()
-    points: dict[int, dict] = {}
-    for r in rows:
-        key = r["cluster_id"] or r["id"]
-        point = points.get(key)
-        if point is None:
-            if len(points) >= limit:
-                continue
-            # section + passage_id + order let the screen show where the
-            # point sits in its document, list points in reading order and
-            # open "Read in context" (v0.6.1).
-            point = points[key] = {"id": key, "text": r["text"], "fit": round(r["fit"], 3),
-                                   "section": r["section"], "passage_id": r["id"],
-                                   "order": [r["source_id"], r["page_number"], r["ordinal"]],
-                                   "sources": []}
-        point["sources"].append({"source_id": r["source_id"], "file_name": r["file_name"],
-                                 "page": r["page_number"]})
+    # v0.9.1: repeated statements are folded (facts.py) — a point shows each
+    # statement once and lists every file + page that said it.
+    from . import facts
+    with db.connect() as conn:
+        folded, absorbed, fstats = facts.topic_points(conn, topic_id)
+    points = {p["id"]: p for p in folded[:limit]}
 
     # Article markers [n] → the point (repeat group) they cite. Stored
     # citations hold passage ids; map each to its current group so the link
@@ -862,11 +857,13 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
             for marker, pid in raw.items():
                 row = conn.execute("SELECT cluster_id FROM passages WHERE id = ?", (pid,)).fetchone()
                 if row:
-                    citations[marker] = row["cluster_id"] or pid
+                    key = row["cluster_id"] or pid
+                    citations[marker] = absorbed.get(key, key)
     topic = {k: t[k] for k in ("id", "slug", "title", "summary", "status", "model_used", "written_at", "kind")}
     topic["article"] = t["body_markdown"] if t["status"] == "written" else None
     topic["checks"] = json.loads(t["checks_json"]) if t["checks_json"] else None
     return {"topic": topic, "points": list(points.values()), "citations": citations,
+            "folded": fstats["merged"],
             "related": [dict(x) for x in related], "loose_threshold": LOOSE_FIT}
 
 

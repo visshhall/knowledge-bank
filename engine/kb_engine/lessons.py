@@ -134,12 +134,10 @@ def _material(topic_id: int) -> dict:
             ):
                 tables.append({"id": tb["id"], "name": tb["name"], "file": tb["file_name"],
                                "rows": json.loads(tb["rows_json"])})
-    seen, points = set(), []
-    for r in rows:
-        key = r["cluster_id"] or r["id"]
-        if key not in seen:
-            seen.add(key)
-            points.append({"passage_id": key, "text": chunking.with_section(r["text"], r["section"])})
+    from . import facts  # v0.9.1: repeated statements folded, like the article
+    with db.connect() as conn:
+        folded, _absorbed, _stats = facts.topic_points(conn, topic_id)
+    points = [{"passage_id": p["id"], "text": chunking.with_section(p["text"], p["section"])} for p in folded]
     citations = json.loads(t["citations"]) if t["citations"] else {}
     if not citations:  # no article yet: number the most central points ourselves
         citations = {str(i + 1): p["passage_id"] for i, p in enumerate(points[:8])}
@@ -611,11 +609,14 @@ def get_lesson(topic_id: int) -> dict | None:
         # Map each citation to its current repeat group (the "point" id the
         # Topics screen shows), exactly like distill.topic_detail does for
         # articles, so a source chip opens the right point in the side panel.
+        from . import facts  # v0.9.1: a folded repeat points at the point that kept it
+        absorbed = facts.topic_points(conn, topic_id)[1]
         mapped = {}
         for marker, pid in (lesson.get("citations") or {}).items():
             row = conn.execute("SELECT cluster_id FROM passages WHERE id = ?", (pid,)).fetchone()
             if row:
-                mapped[marker] = row["cluster_id"] or pid
+                key = row["cluster_id"] or pid
+                mapped[marker] = absorbed.get(key, key)
         lesson["citations"] = mapped
     return {"lesson": lesson, "checks": json.loads(r["checks_json"] or "{}"),
             "model_used": r["model_used"], "created_at": r["created_at"]}

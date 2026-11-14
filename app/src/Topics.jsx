@@ -380,7 +380,7 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
   }
 
   if (!data) return <p className="muted">Loading topic…</p>;
-  const { topic, points, related, citations, loose_threshold } = topicData ?? data;
+  const { topic, points, related, citations, loose_threshold, folded } = topicData ?? data;
   const hasArticle = Boolean(topic.article);
   const hasLesson = Boolean(lessonData?.lesson);
   // From quick search: show the exact passage in Source points.
@@ -413,6 +413,8 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
         />
         <p className="hero-meta">
           {formatCount(points.length)} distinct points
+          {/* v0.9.1: statements said again in other files/pages are shown once (facts.py) */}
+          {folded > 0 && ` · ${formatCount(folded)} repeated statement${folded === 1 ? "" : "s"} folded in (every file and page still listed)`}
           {topic.kind === "data"
             ? " · calculated from your spreadsheet's cells (no AI)"
             : hasArticle

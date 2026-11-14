@@ -110,6 +110,12 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.9.1 — Repeated statements folded ✅ delivered
+- [x] Sentence-level merge across a topic's points (rules for clear cases, AI judge for borderline pairs, answers saved)
+- [x] Topic screen, article writer and lessons use the merged points; citations follow absorbed points
+- [x] Articles with repeats rewritten once by "Write remaining"
+- [ ] Owner check: open a topic that used to repeat, press "Write remaining", compare the new article, and report any statement wrongly merged or still repeated
+
 ## v0.9.0 — Eleven chosen improvements ✅ delivered
 - [x] Weak articles rewritten automatically (one stricter retry, better version kept)
 - [x] App updates itself (Downloads/Desktop installer or GitHub release; verified; silent install + reopen)

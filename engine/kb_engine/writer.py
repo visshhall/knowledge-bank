@@ -49,7 +49,7 @@ import re
 import threading
 import time
 
-from . import chunking, config, db, lessons, ollama_client
+from . import chunking, config, db, facts, lessons, ollama_client
 
 # Sized from the owner's benchmark (RTX 3050, 4 GB): a 4,096-token window
 # keeps qwen3.5:4b fully on the GPU (11.6 tokens/s). 8 points × ≤800 chars ≈
@@ -211,27 +211,12 @@ def cancel() -> dict:
 
 def _topic_points(conn, topic_id: int) -> list[dict]:
     """
-    The topic's distinct points (one per repeat group), most central first.
+    The topic's distinct points, most central first, with repeated
+    statements already folded (facts.py, v0.9.1): each statement appears once.
     Each: {"passage_id", "text"} — text carries its document part (with_section).
     """
-    rows = conn.execute(
-        """
-        SELECT p.id, p.cluster_id, p.text, p.section FROM topic_passages tp
-        JOIN passages p ON p.id = tp.passage_id
-        WHERE tp.topic_id = ? ORDER BY tp.fit DESC
-        """,
-        (topic_id,),
-    ).fetchall()
-    seen: set[int] = set()
-    points: list[dict] = []
-    for r in rows:
-        key = r["cluster_id"] or r["id"]
-        if key in seen:
-            continue
-        seen.add(key)
-        points.append({"passage_id": key, "text": chunking.with_section(r["text"], r["section"])})
-    return points
-
+    points, _absorbed, _stats = facts.topic_points(conn, topic_id)
+    return [{"passage_id": p["id"], "text": chunking.with_section(p["text"], p["section"])} for p in points]
 
 
 def _numbered(points: list[dict], start: int) -> str:
@@ -385,6 +370,7 @@ def write_topic(topic_id: int) -> bool:
     _set(live=None, live_topic=None)
     if len(article) < 40:
         return False
+    checks["facts_v"] = facts.VERSION   # written from merged statements (see _needs_merge_rewrite)
     with db.connect() as conn:
         conn.execute(
             "UPDATE topics SET body_markdown = ?, citations = ?, status = 'written', checks_json = ?, "
@@ -394,6 +380,17 @@ def write_topic(topic_id: int) -> bool:
     return True
 
 
+def _needs_merge_rewrite(topic_id: int, checks: dict) -> bool:
+    """
+    v0.9.1: an article written before repeated statements were folded (no
+    facts_v, or an older rule set) is rewritten once — but only when its topic
+    really has repeats, so nothing is rewritten for nothing.
+    """
+    if (checks or {}).get("facts_v", 0) >= facts.VERSION:
+        return False
+    return facts.count_repeats(topic_id) > 0
+
+
 def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = None) -> None:
     global _running
     try:
@@ -401,6 +398,11 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
             raise RuntimeError("The AI engine (Ollama) isn't running. Start it from Setup.")
         if not ollama_client.has_model(write_model()):
             raise RuntimeError(f"The writing model {write_model()} isn't downloaded. Download it from Setup.")
+        # v0.9.1: before writing, let the AI settle borderline "is this the same
+        # statement?" pairs (answers are saved, so this is quick after the first run).
+        if facts.ai_ready():
+            _set(message="Checking which statements repeat each other…")
+            facts.judge_all()
         ollama_client.clear_gpu_except(write_model())   # whole 4 GB for the writer
         # v0.8.2: the first time a model writes, measure whether forcing every
         # layer onto the graphics card is faster, and keep the faster way.
@@ -424,6 +426,12 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
                     f"""SELECT t.id FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id
                         {where} GROUP BY t.id ORDER BY COUNT(tp.passage_id) DESC"""
                 )]
+                if not rewrite_all:
+                    # v0.9.1: written articles that still carry repeated statements
+                    for r in conn.execute("SELECT id, checks_json FROM topics WHERE kind != 'data' "
+                                          "AND status = 'written'").fetchall():
+                        if r["id"] not in todo and _needs_merge_rewrite(r["id"], json.loads(r["checks_json"] or "{}")):
+                            todo.append(r["id"])
         _set(total=len(todo))
         n = 0
         while todo:
@@ -450,8 +458,10 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
                 old_checks = json.loads(written["checks_json"] or "{}") if written else {}
                 weak_before = (old_checks.get("removed_count", 0) >= WEAK_REMOVED
                                and not old_checks.get("rewritten"))
+                merge_before = bool(written and written["status"] == "written"
+                                    and _needs_merge_rewrite(tid, old_checks))
                 if only_topic is None and (rewrite_all or wanted is not None or not written
-                                           or written["status"] != "written" or weak_before):
+                                           or written["status"] != "written" or weak_before or merge_before):
                     write_topic(tid)
                 if not _cancel.is_set():
                     _set(message="Designing the lesson")
