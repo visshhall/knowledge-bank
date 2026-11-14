@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.5.1 (model decided: qwen3.5:4b)
+**Current version:** v0.6.0 (automatic visual lessons + spreadsheet import)
 **Last updated:** 14 November 2026
 
 ---
@@ -13,7 +13,9 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.5.1.exe` over the previous version
+- [ ] Install `KnowledgeBank-Setup-0.6.0.exe` over the previous version (data and models are kept)
+- [ ] Import Subnet-Guide.xlsx in Library, Rebuild topics, then "Write remaining" (writes lessons too) — check the lesson for that topic
+- [ ] Report lesson quality: wrong diagrams, missing facts, or too many items removed
 - [ ] Setup → Remove comparison models (frees ~13 GB)
 - [ ] While topics build, note the "passages/s" speed shown and tell Claude (checks the embedding fix) (data and models are kept) — after model downloads finish
 - [ ] Topics → Rebuild topics (needed once after v0.5's text re-organise), then Write articles
@@ -82,12 +84,20 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [ ] "Rewrite all articles" button (engine supports it; UI later)
 - [ ] Deeper conflict detection between sources (beyond the article's "Where sources disagree")
 
+## v0.6 — Automatic visual lessons ✅ delivered
+- [x] Excel/CSV import with exact grids (schema v5)
+- [x] Lesson engine: profile, calculated steps (tables, patterns, CIDR calculator), AI plan from fixed visual menu, fact check
+- [x] Lesson view: steps, ELK-laid-out diagrams, source chips, quiz, check note, regenerate
+- [ ] Owner check on real topics (see top)
+- [ ] More calculated visuals when new data types appear (e.g. port tables, timelines from dated logs)
+
 ## Phase 4 — Interface
 - [ ] Knowledge Map home (animated), topic pages, animated diagrams
 - [ ] Global hotkey search → generated answer pages
 
 ## Phase 5 — Learn mode
-- [ ] Flashcards, quizzes, scenarios, spaced repetition, progress
+- [x] Per-topic quiz (v0.6, inside the lesson)
+- [ ] Flashcards, scenarios, spaced repetition, progress
 
 ## Phase 6 — Web assist + cyber tools
 - [ ] Optional web search fallback (labelled; only search words sent)

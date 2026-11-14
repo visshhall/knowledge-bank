@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -56,6 +56,11 @@ SCHEMA_VERSION = 4
 #             fits its topic (cosine similarity to the topic centre).
 # Version 4 = Phase 3 (articles): topics.citations (JSON map from the
 #             article's [n] markers to passage ids) and topics.written_at.
+# Version 5 = Lessons (v0.6): spreadsheets as a source type ('table'),
+#             doc_tables (the real rows/columns of each sheet) and lessons
+#             (one automatically designed lesson per topic). Rebuilding the
+#             sources table needs foreign keys switched off, which SQLite
+#             only allows outside a transaction — see _migrate_v5().
 _MIGRATIONS: list[tuple[int, list[str]]] = [
     (
         1,
@@ -284,6 +289,79 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
 ]
 
 
+def _migrate_v5() -> None:
+    """
+    Schema v5. Two parts:
+
+    1. `sources.file_type` had CHECK (file_type IN ('pdf','image')). SQLite
+       can't change a CHECK in place, so the table is rebuilt with 'table'
+       allowed (for Excel/CSV). Child tables (pages, passages, images,
+       duplicate_files) point at `sources` by name, so the rebuild runs with
+       foreign keys OFF — otherwise dropping the old table would cascade-
+       delete every page. foreign_key_check confirms nothing is orphaned
+       before committing; any problem rolls the whole step back.
+    2. New tables doc_tables and lessons.
+    """
+    conn = sqlite3.connect(config.DB_PATH, isolation_level=None)
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("BEGIN")
+        conn.execute("""
+            CREATE TABLE sources_v5 (
+                id            INTEGER PRIMARY KEY,
+                sha256        TEXT NOT NULL UNIQUE,
+                file_name     TEXT NOT NULL,
+                original_path TEXT NOT NULL,
+                file_type     TEXT NOT NULL CHECK (file_type IN ('pdf','image','table')),
+                size_bytes    INTEGER NOT NULL,
+                page_count    INTEGER,
+                status        TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','extracting','extracted','failed')),
+                error         TEXT,
+                added_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                processed_at  TEXT
+            )""")
+        conn.execute("INSERT INTO sources_v5 SELECT id, sha256, file_name, original_path, file_type, "
+                     "size_bytes, page_count, status, error, added_at, processed_at FROM sources")
+        conn.execute("DROP TABLE sources")
+        conn.execute("ALTER TABLE sources_v5 RENAME TO sources")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_path ON sources(original_path)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status)")
+        # The real grid of each spreadsheet sheet: rows as a JSON list of
+        # lists. Lessons draw tables from here — never from AI text — so the
+        # numbers shown are always exactly the owner's numbers.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS doc_tables (
+                id          INTEGER PRIMARY KEY,
+                source_id   INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                page_number INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                rows_json   TEXT NOT NULL
+            )""")
+        # One designed lesson per topic: spec_json is the validated lesson
+        # (steps, visuals, quiz); checks_json records what the fact checker
+        # removed, so the owner can see the lesson was verified.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS lessons (
+                topic_id    INTEGER PRIMARY KEY REFERENCES topics(id) ON DELETE CASCADE,
+                spec_json   TEXT NOT NULL,
+                checks_json TEXT,
+                model_used  TEXT,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
+        problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if problems:
+            raise RuntimeError(f"Upgrade check failed ({len(problems)} broken links); nothing was changed.")
+        conn.execute("UPDATE schema_meta SET value = '5' WHERE key = 'schema_version'")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+
+
 def _open() -> sqlite3.Connection:
     """
     Open a raw connection with the settings this app relies on.
@@ -390,7 +468,11 @@ def init_db() -> int:
                 (str(target_version),),
             )
             version = target_version
-        return version
+    # Migrations that can't run inside a normal transaction.
+    if version < 5:
+        _migrate_v5()
+        version = 5
+    return version
 
 
 def stats() -> dict:

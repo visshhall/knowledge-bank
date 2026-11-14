@@ -79,6 +79,9 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /write/start",
   "GET /write/status",
   "POST /write/cancel",
+  // v0.6 — automatic visual lessons
+  "GET /lesson",
+  "POST /lesson/regenerate",
   // AI updates
   "POST /updates/check",
   "GET /updates/status",
@@ -288,7 +291,7 @@ ipcMain.handle("dialog:pickFiles", async () => {
     title: "Add PDFs and images to the knowledge bank",
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "PDFs and images", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] },
+      { name: "PDFs, images and spreadsheets", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "xlsx", "xlsm", "csv"] },
     ],
   });
   return result.canceled ? [] : result.filePaths;

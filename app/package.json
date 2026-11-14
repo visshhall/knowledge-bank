@@ -1,6 +1,6 @@
 {
   "name": "knowledge-bank",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Offline, interactive knowledge bank built from the owner's cybersecurity PDFs.",
   "private": true,
   "type": "module",
@@ -19,6 +19,7 @@
     "cross-env": "^7.0.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
+    "elkjs": "^0.12.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "resedit": "^3.1.0",

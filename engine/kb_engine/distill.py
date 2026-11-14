@@ -479,7 +479,7 @@ def _save(ids, labels, fit, groups, names, links, k) -> None:
     """
     Replace all topics in ONE transaction.
 
-    Written articles (Phase 3) are carried over: each new topic that shares
+    Written articles (Phase 3) and their lessons (v0.6) are carried over: each new topic that shares
     at least 60% of its passages with an old written topic (Jaccard
     similarity) inherits that article, so rebuilding topics after adding a
     few files doesn't throw away hours of overnight writing. Topics that
@@ -492,7 +492,9 @@ def _save(ids, labels, fit, groups, names, links, k) -> None:
         ).fetchall():
             members = {r[0] for r in conn.execute(
                 "SELECT passage_id FROM topic_passages WHERE topic_id = ?", (t["id"],))}
-            old_written.append({**dict(t), "members": members})
+            lesson = conn.execute("SELECT spec_json, checks_json, model_used FROM lessons WHERE topic_id = ?",
+                                  (t["id"],)).fetchone()
+            old_written.append({**dict(t), "members": members, "lesson": dict(lesson) if lesson else None})
 
         conn.execute("UPDATE passages SET cluster_id = NULL")
         conn.executemany(
@@ -543,6 +545,13 @@ def _save(ids, labels, fit, groups, names, links, k) -> None:
                         (best["body_markdown"], best["citations"], best["model_used"],
                          best["written_at"], topic_ids[t]),
                     )
+                    if best["lesson"]:  # the topic's visual lesson moves with its article
+                        conn.execute(
+                            "INSERT OR REPLACE INTO lessons(topic_id, spec_json, checks_json, model_used) "
+                            "VALUES (?, ?, ?, ?)",
+                            (topic_ids[t], best["lesson"]["spec_json"], best["lesson"]["checks_json"],
+                             best["lesson"]["model_used"]),
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +568,7 @@ def list_topics() -> dict:
         rows = conn.execute(
             """
             SELECT t.id, t.slug, t.title, t.summary, t.status, t.written_at,
+                   EXISTS(SELECT 1 FROM lessons l WHERE l.topic_id = t.id) AS has_lesson,
                    COUNT(tp.passage_id)                AS passages,
                    COUNT(DISTINCT p.cluster_id)        AS points,
                    COUNT(DISTINCT p.source_id)         AS sources,

@@ -6,6 +6,8 @@ WHAT:  1. add_paths(): accepts files and/or folders (folders are searched
           registers it as a new source or records it as an exact duplicate
           of a file already in the bank.
        2. A single background worker then extracts every pending source:
+            Sheet→ Excel (.xlsx/.xlsm) or CSV: each sheet is one "page"; the
+                   exact grid is kept (doc_tables) plus a readable text form.
             PDF  → page by page: text layer; if a page has almost no text it
                    is rendered and OCR'd (scanned page); pictures embedded in
                    the page are OCR'd too (diagram/screenshot labels).
@@ -42,6 +44,7 @@ CONNECTED TO: db.py (sources, pages, passages, images, duplicate_files,
 """
 
 import hashlib
+import json
 import os
 import threading
 import time
@@ -53,7 +56,13 @@ from . import chunking, db, ocr
 
 PDF_EXTENSIONS = {".pdf"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
-SUPPORTED_EXTENSIONS = PDF_EXTENSIONS | IMAGE_EXTENSIONS
+TABLE_EXTENSIONS = {".xlsx", ".xlsm", ".csv"}   # spreadsheets (v0.6)
+SUPPORTED_EXTENSIONS = PDF_EXTENSIONS | IMAGE_EXTENSIONS | TABLE_EXTENSIONS
+
+# Spreadsheet safety limits: a sheet bigger than this is cut (with a note),
+# so one giant export can't stall the import or flood the bank.
+MAX_SHEET_ROWS = 5000
+MAX_SHEET_COLS = 60
 
 # A PDF page with fewer characters than this is treated as scanned → OCR.
 SCANNED_PAGE_CHAR_THRESHOLD = 40
@@ -145,6 +154,16 @@ def _expand(paths: list[str]) -> tuple[list[Path], int]:
     return files, unsupported
 
 
+def _file_type(path: Path) -> str:
+    """'pdf', 'table' (Excel/CSV) or 'image', from the file extension."""
+    ext = path.suffix.lower()
+    if ext in PDF_EXTENSIONS:
+        return "pdf"
+    if ext in TABLE_EXTENSIONS:
+        return "table"
+    return "image"
+
+
 def _already_known(conn, path: Path, size: int) -> bool:
     """
     Cheap check before fingerprinting: is this exact path (with the same
@@ -196,8 +215,7 @@ def add_paths(paths: list[str]) -> dict:
                 conn.execute(
                     "INSERT INTO sources(sha256, file_name, original_path, file_type, size_bytes) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (sha, fp.name, str(fp),
-                     "pdf" if fp.suffix.lower() in PDF_EXTENSIONS else "image", size),
+                    (sha, fp.name, str(fp), _file_type(fp), size),
                 )
                 result["added"] += 1
         except OSError as exc:
@@ -317,12 +335,15 @@ def _process_source(source: dict) -> None:
         conn.execute("UPDATE sources SET status = 'extracting', error = NULL WHERE id = ?", (sid,))
         conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))   # clear any partial run
         conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
+        conn.execute("DELETE FROM doc_tables WHERE source_id = ?", (sid,))
     try:
         path = Path(source["original_path"])
         if not path.exists():
             raise FileNotFoundError("The original file was moved or deleted. Add it again from its new location.")
         if source["file_type"] == "pdf":
             page_count = _extract_pdf(sid, path)
+        elif source["file_type"] == "table":
+            page_count = _extract_table(sid, path)
         else:
             page_count = _extract_image(sid, path)
         with db.connect() as conn:
@@ -463,6 +484,78 @@ def _extract_image(sid: int, path: Path) -> int:
         )
     _store_page(sid, 1, text, True, [])
     return 1
+
+
+def _cell(value) -> str:
+    """Spreadsheet cell → clean text (whole numbers without '.0', no None)."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _read_sheets(path: Path) -> list[tuple[str, list[list[str]]]]:
+    """
+    Read every sheet as (name, rows). Values only — formulas are read as
+    their last calculated result (data_only=True), which is what the owner
+    sees in Excel. Completely empty rows and trailing empty columns are
+    dropped. CSV files become one sheet named after the file.
+    """
+    if path.suffix.lower() == ".csv":
+        import csv
+
+        with open(path, newline="", encoding="utf-8-sig", errors="replace") as f:
+            rows = [[c.strip() for c in r[:MAX_SHEET_COLS]] for r in csv.reader(f)]
+        return [(path.stem, rows[:MAX_SHEET_ROWS])]
+
+    import openpyxl  # loaded only when a spreadsheet is imported
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    sheets = []
+    try:
+        for ws in wb.worksheets:
+            rows: list[list[str]] = []
+            for r in ws.iter_rows(values_only=True, max_col=MAX_SHEET_COLS):
+                cells = [_cell(v) for v in r]
+                if any(cells):
+                    while cells and not cells[-1]:
+                        cells.pop()
+                    rows.append(cells)
+                if len(rows) >= MAX_SHEET_ROWS:
+                    break
+            sheets.append((ws.title, rows))
+    finally:
+        wb.close()
+    return sheets
+
+
+def _extract_table(sid: int, path: Path) -> int:
+    """
+    Import a spreadsheet: each sheet becomes one "page".
+      - The exact grid is stored in doc_tables (lessons draw tables and
+        compute patterns from here, never from AI text).
+      - A readable text version (one line per row, cells separated by " · ")
+        becomes the page text, so search, topics and articles can use it.
+        Empty cells are skipped in that text, because the owner's sheets
+        (like the Subnet Guide) are laid out visually with gaps.
+    RETURNS the number of sheets.
+    """
+    sheets = _read_sheets(path)
+    if not sheets:
+        raise ValueError("The spreadsheet has no readable sheets.")
+    _set(page_count=len(sheets))
+    for n, (name, rows) in enumerate(sheets, start=1):
+        _set(current_page=n)
+        lines = [f"Sheet: {name}"] + [" · ".join(c for c in row if c) for row in rows]
+        text = "\n".join(line for line in lines if line)
+        with db.connect() as conn:
+            conn.execute(
+                "INSERT INTO doc_tables(source_id, page_number, name, rows_json) VALUES (?, ?, ?, ?)",
+                (sid, n, name, json.dumps(rows, ensure_ascii=False)),
+            )
+        _store_page(sid, n, text, False, [])
+    return len(sheets)
 
 
 # ---------------------------------------------------------------------------

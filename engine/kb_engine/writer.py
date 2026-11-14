@@ -34,9 +34,14 @@ WHEN:  When the owner presses "Write articles" on the Topics screen
        most the article in progress, and the next run continues where it
        stopped. "Cancel" stops after the current article.
 
-CONNECTED TO: db.py (topics, topic_passages, passages, sources, settings),
-       ollama_client.py (generate), config.py (WRITE model), distill.py
-       (topic detail reads the article), server.py, app/src/Article.jsx.
+       v0.6: after each article, lessons.build_lesson() designs the topic's
+       visual lesson in the same job. Topics that already have an article
+       but no lesson get only the lesson.
+
+CONNECTED TO: db.py (topics, topic_passages, passages, sources, settings,
+       lessons), ollama_client.py (generate), config.py (WRITE model),
+       lessons.py (visual lessons), distill.py (topic detail reads the
+       article), server.py, app/src/Topics.jsx.
 """
 
 import json
@@ -44,7 +49,7 @@ import re
 import threading
 import time
 
-from . import config, db, ollama_client
+from . import config, db, lessons, ollama_client
 
 # Sized from the owner's benchmark (RTX 3050, 4 GB): a 4,096-token window
 # keeps qwen3.5:4b fully on the GPU (11.6 tokens/s). 8 points × ≤800 chars ≈
@@ -124,22 +129,27 @@ def status() -> dict:
     with db.connect() as conn:
         snap["written"] = conn.execute("SELECT COUNT(*) FROM topics WHERE status = 'written'").fetchone()[0]
         snap["topics"] = conn.execute("SELECT COUNT(*) FROM topics").fetchone()[0]
+        snap["lessons"] = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
     snap["write_model"] = write_model()
     return snap
 
 
-def start(rewrite_all: bool = False) -> dict:
-    """Begin writing (missing articles only, or all with rewrite_all)."""
+def start(rewrite_all: bool = False, only_topic: int | None = None) -> dict:
+    """
+    Begin writing: missing articles and lessons (default), everything
+    (rewrite_all), or just one topic's lesson (only_topic — the
+    "Regenerate lesson" button).
+    """
     global _running
     with _lock:
         if _running:
-            return {"ok": True, "message": "Already writing."}
+            return {"ok": False, "message": "The writer is busy. Try again when it finishes."}
         _running = True
     _cancel.clear()
     _set(state="running", done=0, total=0, current=None, message="Starting…",
          started_at=time.time(), model=write_model())
-    threading.Thread(target=_run, args=(rewrite_all,), name="kb-writer", daemon=True).start()
-    return {"ok": True, "message": "Writing articles."}
+    threading.Thread(target=_run, args=(rewrite_all, only_topic), name="kb-writer", daemon=True).start()
+    return {"ok": True, "message": "Working."}
 
 
 def cancel() -> dict:
@@ -246,7 +256,7 @@ def write_topic(topic_id: int) -> bool:
     return True
 
 
-def _run(rewrite_all: bool) -> None:
+def _run(rewrite_all: bool, only_topic: int | None = None) -> None:
     global _running
     try:
         if not ollama_client.is_running():
@@ -255,11 +265,15 @@ def _run(rewrite_all: bool) -> None:
             raise RuntimeError(f"The writing model {write_model()} isn't downloaded. Download it from Setup.")
         ollama_client.clear_gpu_except(write_model())   # whole 4 GB for the writer
         with db.connect() as conn:
-            where = "" if rewrite_all else "WHERE t.status != 'written'"
-            todo = [r["id"] for r in conn.execute(
-                f"""SELECT t.id FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id
-                    {where} GROUP BY t.id ORDER BY COUNT(tp.passage_id) DESC"""
-            )]
+            if only_topic is not None:
+                todo = [only_topic]
+            else:
+                where = "" if rewrite_all else \
+                    "WHERE t.status != 'written' OR t.id NOT IN (SELECT topic_id FROM lessons)"
+                todo = [r["id"] for r in conn.execute(
+                    f"""SELECT t.id FROM topics t LEFT JOIN topic_passages tp ON tp.topic_id = t.id
+                        {where} GROUP BY t.id ORDER BY COUNT(tp.passage_id) DESC"""
+                )]
         _set(total=len(todo))
         for n, tid in enumerate(todo, start=1):
             if _cancel.is_set():
@@ -268,12 +282,19 @@ def _run(rewrite_all: bool) -> None:
                 title = conn.execute("SELECT title FROM topics WHERE id = ?", (tid,)).fetchone()
             _set(current=title["title"] if title else None, message="Reading the points")
             try:
-                write_topic(tid)
+                with db.connect() as conn:
+                    written = conn.execute("SELECT status FROM topics WHERE id = ?", (tid,)).fetchone()
+                if only_topic is None and (rewrite_all or not written or written["status"] != "written"):
+                    write_topic(tid)
+                if not _cancel.is_set():
+                    _set(message="Designing the lesson")
+                    lessons.build_lesson(tid, write_model())
             except ollama_client.OllamaError as exc:
                 _set(message=f"Skipped one topic: {exc}")
             _set(done=n)
         _set(state="idle" if _cancel.is_set() else "done", current=None,
-             message="Stopped." if _cancel.is_set() else "All articles written.")
+             message="Stopped." if _cancel.is_set() else
+             ("Lesson ready." if only_topic is not None else "All articles and lessons ready."))
     except Exception as exc:
         _set(state="error", current=None, message=str(exc))
     finally:

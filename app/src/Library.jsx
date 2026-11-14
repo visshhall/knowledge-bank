@@ -52,7 +52,7 @@ export default function Library() {
     parts.push(`${r.added} new file${r.added === 1 ? "" : "s"} added`);
     if (r.duplicates) parts.push(`${r.duplicates} exact cop${r.duplicates === 1 ? "y" : "ies"} skipped`);
     if (r.already_in_bank) parts.push(`${r.already_in_bank} already in the bank`);
-    if (r.unsupported) parts.push(`${r.unsupported} not a PDF or image (ignored)`);
+    if (r.unsupported) parts.push(`${r.unsupported} not a PDF, image or spreadsheet (ignored)`);
     if (r.errors?.length) parts.push(`${r.errors.length} couldn't be opened: ${r.errors.slice(0, 2).join("; ")}`);
     setNotice({ kind: r.errors?.length ? "error" : "ok", text: parts.join(" · ") + "." });
     reloadLib();
@@ -87,7 +87,7 @@ export default function Library() {
       <header className="page-head">
         <h1>Library</h1>
         <p className="lede">
-          Add PDFs, screenshots and diagrams. Your original files are only read — never moved,
+          Add PDFs, screenshots, diagrams and spreadsheets (Excel or CSV). Your original files are only read — never moved,
           changed or copied.
         </p>
       </header>
@@ -105,7 +105,7 @@ export default function Library() {
         <span className="drop-icon" aria-hidden="true">
           <Icon name="upload" size={26} />
         </span>
-        <p className="drop-title">Drop PDFs, images or whole folders here</p>
+        <p className="drop-title">Drop PDFs, images, spreadsheets or whole folders here</p>
         <div className="actions">
           <button className="primary" onClick={async () => addPaths(await kb.pickFiles())}>
             <Icon name="file" size={18} />
@@ -333,7 +333,7 @@ function WatchedFolders() {
         </button>
       </div>
       <p className="muted small">
-        New PDFs and images saved in these folders are imported automatically every few minutes.
+        New PDFs, images and spreadsheets saved in these folders are imported automatically every few minutes.
       </p>
       {folders.length > 0 && (
         <ul className="folder-list">

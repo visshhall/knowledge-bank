@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.5 — Phase 3 (written articles), readable text, AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.6 — automatic visual lessons (diagrams + quiz, fact-checked) and Excel/CSV import, on top of written articles and the AI update checker; Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -46,7 +46,9 @@ knowledge-bank/
 │   ├── src/App.jsx           Side rail, engine status, Setup screen
 │   ├── src/Overview.jsx      Home: schematic of the bank, totals, next step
 │   ├── src/Schematic.jsx     Drawing of files → passages → topics
-│   ├── src/Topics.jsx        Build topics, write articles, topic cards, article + sources
+│   ├── src/Topics.jsx        Build topics, write articles, topic cards, lesson/article/sources tabs
+│   ├── src/Lesson.jsx        Step-by-step visual lesson, quiz, fact-check note
+│   ├── src/Diagrams.jsx      Draws lesson visuals (ELK auto-layout, tables, CIDR calculator)
 │   ├── src/Formatted.jsx     Structured display of passages and articles (no raw HTML)
 │   ├── src/Updates.jsx       AI updates card (Setup)
 │   ├── src/icons.jsx         Inline line icons
@@ -63,12 +65,13 @@ knowledge-bank/
 │       ├── db.py             Database schema (sources → pages → passages → topics)
 │       ├── server.py         Private local server the window talks to
 │       ├── setup_manager.py  Background jobs for the setup wizard
-│       ├── importer.py       Phase 1: import PDFs/images, duplicates, watched folders
+│       ├── importer.py       Phase 1: import PDFs/images/spreadsheets, duplicates, watched folders
 │       ├── ocr.py            Reads text from scans, screenshots, diagrams (offline)
 │       ├── chunking.py       Cuts page text into citable passages
 │       ├── search.py         Instant exact-word search
 │       ├── distill.py        Phase 2: embeddings, topics, repeats, links, names
 │       ├── writer.py         Phase 3: one structured, cited article per topic
+│       ├── lessons.py        v0.6: designs + fact-checks a visual lesson per topic
 │       ├── updates.py        Checks/updates Ollama and the AI models
 │       ├── system_check.py   GPU / RAM / disk / Ollama / models readiness
 │       ├── ollama_client.py  Talks to the local AI models

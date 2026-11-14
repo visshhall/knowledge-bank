@@ -84,8 +84,14 @@ def _is_heading(line: str) -> bool:
 
 
 def _is_structural(line: str) -> bool:
-    """True for lines that must keep their own line: bullets, code, headings."""
-    return bool(_BULLET.match(line) or _CODE_START.match(line)) or _is_heading(line)
+    """
+    True for lines that must keep their own line: bullets, code, headings,
+    and spreadsheet rows (cells joined by " · " in importer._extract_table).
+    The row rule only affects spreadsheets (new in v0.6), so CHUNKER_VERSION
+    stays 2 and existing banks aren't re-organised (which would clear topics).
+    """
+    return (bool(_BULLET.match(line) or _CODE_START.match(line)) or " · " in line
+            or _is_heading(line))
 
 
 def clean(text: str) -> str:

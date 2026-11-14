@@ -10,7 +10,10 @@
  *           coverage.
  *        4. Colourful topic cards (largest first) marked "Article ready"
  *           once written.
- *        5. Topic detail with two tabs:
+ *        5. Topic detail with three tabs:
+ *             Lesson        — the automatic visual lesson (Lesson.jsx):
+ *                             steps with diagrams, a quiz, fact-check note.
+ *                             Shown first whenever a lesson exists.
  *             Article       — the written article (Formatted.jsx Markdown):
  *                             coloured sections, bullets, steps, query
  *                             blocks with Copy, MITRE/event tags, and
@@ -26,9 +29,12 @@
  * CONNECTED TO: bridge.js → engine /distill/*, /write/*, /topics, /topic
  *        (server.py → distill.py, writer.py); Formatted.jsx; icons.jsx.
  */
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { Formatted, Markdown } from "./Formatted.jsx";
+// The lesson view carries the diagram layout engine (~1.4 MB), so it loads
+// only when a lesson is first opened — app start-up stays quick.
+const Lesson = lazy(() => import("./Lesson.jsx"));
 import { formatCount, kb, percent, usePoll } from "./bridge.js";
 
 /** The distil job's stages in order, with the words the owner sees. */
@@ -88,6 +94,8 @@ export default function Topics() {
   const run = list?.last_run;
   const topics = list?.topics ?? [];
   const written = topics.filter((t) => t.status === "written").length;
+  const lessons = topics.filter((t) => t.has_lesson).length;
+  const allDone = written === topics.length && lessons === topics.length;
 
   return (
     <div className="topics">
@@ -145,10 +153,10 @@ export default function Topics() {
             <Icon name="library" size={22} />
           </span>
           <div className="job-body">
-            <h2>2. Write articles</h2>
+            <h2>2. Write articles and lessons</h2>
             <p className="muted">
               {topics.length
-                ? `${written} of ${topics.length} topics written. About 1 minute per topic — leave it running overnight for a big library.`
+                ? `${written} of ${topics.length} articles and ${lessons} lessons ready. Each topic gets a written article and a step-by-step visual lesson, about 2 minutes per topic — leave it running overnight for a big library.`
                 : "Available after topics are built."}
             </p>
             {writing ? (
@@ -168,9 +176,9 @@ export default function Topics() {
                 </button>
               </div>
             ) : (
-              <button onClick={() => post("/write/start", { rewrite_all: false })} disabled={!topics.length || building || written === topics.length}>
+              <button onClick={() => post("/write/start", { rewrite_all: false })} disabled={!topics.length || building || allDone}>
                 <Icon name="sparkle" size={18} />
-                {written === 0 ? "Write articles" : written < topics.length ? "Write remaining" : "All written"}
+                {written === 0 && lessons === 0 ? "Write articles and lessons" : allDone ? "All written" : "Write remaining"}
               </button>
             )}
             {write?.state === "error" && <p className="notice error">{write.message}</p>}
@@ -221,6 +229,11 @@ export default function Topics() {
                       <Icon name="check" size={13} /> Article ready
                     </span>
                   )}
+                  {t.has_lesson && (
+                    <span className="ready lesson-ready">
+                      <Icon name="sparkle" size={13} /> Lesson ready
+                    </span>
+                  )}
                   <span>{formatCount(t.points)} points</span>
                   <span>{formatCount(t.sources)} files</span>
                   {t.loose > 0 && <span className="loose">{t.loose} loose</span>}
@@ -235,18 +248,20 @@ export default function Topics() {
 }
 
 /**
- * One topic: Article tab (with clickable citations) and Source points tab.
+ * One topic: Lesson tab, Article tab (with clickable citations) and Source points tab.
  * onOpen(id) jumps to a related topic; onBack returns to the grid.
  */
 function TopicDetail({ id, onBack, onOpen }) {
   const [data] = usePoll("/topic", 0, { id });
+  const [lessonData] = usePoll("/lesson", 0, { id });
   const [tab, setTab] = useState(null);
   const [cited, setCited] = useState(null); // point shown in the side panel
 
   if (!data) return <p className="muted">Loading topic…</p>;
   const { topic, points, related, citations, loose_threshold } = data;
   const hasArticle = Boolean(topic.article);
-  const view = tab ?? (hasArticle ? "article" : "points");
+  const hasLesson = Boolean(lessonData?.lesson);
+  const view = tab ?? (hasLesson ? "lesson" : hasArticle ? "article" : "points");
   const byId = Object.fromEntries(points.map((p) => [p.id, p]));
 
   function openCitation(n) {
@@ -286,6 +301,9 @@ function TopicDetail({ id, onBack, onOpen }) {
       )}
 
       <div className="tabs" role="tablist" aria-label="Topic views">
+        <button role="tab" aria-selected={view === "lesson"} className={view === "lesson" ? "tab on" : "tab"} onClick={() => setTab("lesson")}>
+          Lesson
+        </button>
         <button role="tab" aria-selected={view === "article"} className={view === "article" ? "tab on" : "tab"} onClick={() => setTab("article")}>
           Article
         </button>
@@ -293,6 +311,17 @@ function TopicDetail({ id, onBack, onOpen }) {
           Source points <span className="tab-count">{points.length}</span>
         </button>
       </div>
+
+      {view === "lesson" && (
+        // Diagrams keep the full width (so their text stays readable); a
+        // clicked source opens just below the lesson instead of beside it.
+        <div className="lesson-full">
+          <Suspense fallback={<p className="muted">Loading lesson…</p>}>
+            <Lesson topicId={id} onCite={(n, pointId) => byId[pointId] && setCited({ n, point: byId[pointId] })} />
+          </Suspense>
+          {cited && <CitePanel cited={cited} onClose={() => setCited(null)} />}
+        </div>
+      )}
 
       {view === "article" && (
         <div className="article-layout">
@@ -307,29 +336,7 @@ function TopicDetail({ id, onBack, onOpen }) {
             )}
           </article>
           {hasArticle && (
-            <aside className="card source-panel" aria-live="polite">
-              {cited ? (
-                <>
-                  <p className="source-panel-head">
-                    <span className="cite static">{cited.n}</span> Source
-                  </p>
-                  <Formatted text={cited.point.text} collapseAt={10} />
-                  <ul className="point-sources">
-                    {cited.point.sources.map((s, i) => (
-                      <li key={i}>
-                        <Icon name="file" size={14} />
-                        {s.file_name} <span>p.{s.page}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p className="muted small">
-                  Click any numbered chip in the article to see the exact text it came from, with its file
-                  and page.
-                </p>
-              )}
-            </aside>
+            <CitePanel cited={cited} hint="Click any numbered chip in the article to see the exact text it came from, with its file and page." />
           )}
         </div>
       )}
@@ -358,5 +365,44 @@ function TopicDetail({ id, onBack, onOpen }) {
         </ol>
       )}
     </div>
+  );
+}
+
+/**
+ * Side panel showing one cited point: its exact text and every file + page
+ * that said it. Used by both the Lesson and Article tabs.
+ */
+function CitePanel({ cited, hint, onClose }) {
+  const ref = useRef(null);
+  // Below a lesson the panel can be off-screen: bring it into view on open.
+  useEffect(() => {
+    if (onClose && cited) ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [cited, onClose]);
+  return (
+    <aside className="card source-panel" aria-live="polite" ref={ref}>
+      {cited ? (
+        <>
+          <p className="source-panel-head">
+            <span className="cite static">{cited.n}</span> Source
+            {onClose && (
+              <button className="link small close" onClick={onClose}>
+                Close
+              </button>
+            )}
+          </p>
+          <Formatted text={cited.point.text} collapseAt={10} />
+          <ul className="point-sources">
+            {cited.point.sources.map((s, i) => (
+              <li key={i}>
+                <Icon name="file" size={14} />
+                {s.file_name} <span>p.{s.page}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="muted small">{hint}</p>
+      )}
+    </aside>
   );
 }

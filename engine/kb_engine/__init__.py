@@ -34,9 +34,11 @@ MODULES:
        distill.py       — Phase 2: embeddings, topics, repeat groups,
                           topic links, topic names
        writer.py        — Phase 3: one structured, cited article per topic
+       lessons.py       — automatic visual lessons: profile, AI plan from a
+                          fixed diagram menu, calculated blocks, fact check
        updates.py       — checks/updates Ollama and the AI models
 """
 
 # Single version string for the engine. Shown in the app's status screen
 # and in benchmark reports so we always know which build produced what.
-__version__ = "0.5.1"
+__version__ = "0.6.0"

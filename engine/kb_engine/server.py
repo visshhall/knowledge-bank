@@ -28,6 +28,8 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /write/start             — write topic articles (Phase 3)
          GET  /write/status            — live progress of article writing
          POST /write/cancel            — stop after the current article
+         GET  /lesson?id=...           — a topic's visual lesson + check results
+         POST /lesson/regenerate       — redesign one topic's lesson
          POST /updates/check           — online check for Ollama/model updates
          GET  /updates/status          — result of the last check
          POST /updates/model           — update one model
@@ -52,7 +54,8 @@ SECURITY:
          and a warning is printed.
 
 CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
-       importer.py, search.py, distill.py, writer.py, updates.py; called by
+       importer.py, search.py, distill.py, writer.py, lessons.py, updates.py;
+       called by
        app/electron/main.js (which relays requests from the window).
 """
 
@@ -66,7 +69,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from . import (__version__, config, db, distill, importer, search, setup_manager,
-               system_check, updates, writer)
+               lessons, system_check, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -281,6 +284,21 @@ def write_status() -> dict:
 @app.post("/write/cancel", dependencies=[Depends(require_token)])
 def write_cancel() -> dict:
     return writer.cancel()
+
+
+class TopicRequest(BaseModel):
+    topic_id: int
+
+
+@app.get("/lesson", dependencies=[Depends(require_token)])
+def lesson(id: int) -> dict:
+    data = lessons.get_lesson(id)
+    return data or {"lesson": None}
+
+
+@app.post("/lesson/regenerate", dependencies=[Depends(require_token)])
+def lesson_regenerate(body: TopicRequest) -> dict:
+    return writer.start(only_topic=body.topic_id)
 
 
 # ---------------------------------------------------------------------------

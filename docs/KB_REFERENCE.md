@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.5.1 — model decided by benchmark (qwen3.5:4b for everything); Phases 0–3 delivered |
-| Document version | 1.9 |
+| Current version | KB v0.6.0 — automatic visual lessons + spreadsheet import; Phases 0–3 delivered, Learn mode started |
+| Document version | 2.0 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -129,11 +129,11 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | Phase | Name | What gets done | Status |
 |---|---|---|---|
 | 0 | Foundation | Finalise models and storage for RTX 3050 4 GB / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo; Windows installer | **Delivered (v0.2 installer)** — model choice pending owner benchmark |
-| 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
+| 1 | Import | PDFs + images (+ Excel/CSV since v0.6), OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | **Delivered (v0.3)** — plus instant exact-word search |
 | 2 | Distil | Clustering, topic list, topic connections, coverage check | **Delivered (v0.4)** — plus Topics screen |
 | 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | **Delivered (v0.5)** |
 | 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | Not started |
-| 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | Not started |
+| 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | **Started (v0.6)** — automatic visual lesson + quiz per topic |
 | 6 | Web assist + cyber tools | Web fallback, MITRE ATT&CK tagging, IOC extraction, KQL library | Not started |
 | 7 | Updates + release | Incremental updates, encrypted backup, Windows .exe installer | Not started |
 
@@ -230,6 +230,25 @@ Run on the owner's laptop (RTX 3050 Laptop 4 GB) with 6 of his own PDFs (281 pag
 
 Also from the report: one PDF is fully scanned (42/42 pages) — handled by OCR (since v0.3).
 
+## 9f. v0.6 — automatic visual lessons and spreadsheet import: what and why
+
+**Why (owner's request, 14 Nov 2026):** after importing a subnetting spreadsheet, the owner asked that anything imported be "seen" by the app and explained simply — with a diagram, text, or both, chosen automatically — "without any mistake" and with "proper diagrams, not random". Owner approved the design ("go ahead").
+
+**What was built:**
+- **Spreadsheet import** (`importer.py`): `.xlsx`, `.xlsm`, `.csv` (up to 5,000 rows × 60 columns per sheet). Each sheet is stored twice: as the exact grid (`doc_tables`, schema v5) and as searchable text rows (cells joined with " · ", kept as structure by the chunker).
+- **Lesson engine** (`lessons.py`), run for every topic right after its article (`writer.py`):
+  1. *Profile* — what the material is (steps, comparisons, queries, numbers, tables).
+  2. *Calculate, don't guess* — tables are shown as the real grid; number patterns (doubling/halving/powers of two) are found by code; subnet data gets a live CIDR calculator. These steps are marked "Calculated from your data".
+  3. *Plan* — the AI picks from a fixed menu of visuals (flow, chain, stack, tree, compare, cards, query walkthrough) and fills in words only.
+  4. *Verify* — every number, technique ID, IP/CIDR, event ID and query line must appear in the topic's sources; anything that doesn't is removed and counted. Numbers match whole (98 ≠ 980); single digits are checked with the word after them ("7 controls" must be in the sources; "3 steps" is fine).
+- **Lesson view** (`Lesson.jsx`, `Diagrams.jsx`): first tab on a topic; step dots, Back/Next and arrow keys; source chips that open the exact source text; a quiz at the end; "Checked against your sources: N removed" (expandable); "Regenerate lesson".
+- **Proper diagrams:** flows and trees are laid out by ELK (Eclipse Layout Kernel), a professional layout engine running offline inside the app — boxes never overlap, arrows are routed at right angles, wide flows are scaled (≥ 75%) or re-laid top-to-bottom to fit. Parts build up one by one like a teacher drawing; "reduce animations" shows them at once. The diagram code loads only when a lesson is opened.
+- Schema v5 (`lessons`, `doc_tables`, `sources.file_type` adds `table`); a v4 bank upgrades in place (tested under Wine on the packaged build).
+
+**Tested in Claude's workspace (mock AI that deliberately invents facts):** invented items (T9999, port 4444, 98765, a fake query line, "7 controls") removed; real facts kept; subnet sheet shown as real grid + patterns + calculator; regenerate works; screenshots of every step type.
+
+**To verify on the owner's laptop:** lesson quality from qwen3.5:4b on real topics; time per topic (expected ~1 extra minute).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -239,6 +258,7 @@ Also from the report: one PDF is fully scanned (42/42 pages) — handled by OCR 
 - If an original file is **moved or deleted** before it is imported, that file fails with a message; once imported, its text stays in the bank regardless.
 - **Topics are rebuilt as a whole** each time "Build topics" runs (embeddings are reused, so it's quick). Automatic per-file topic updates come with Phase 7.
 - A local 4–8B model writes well but is less capable than large cloud models; the source-link design compensates for this.
+- **Lesson fact check** compares facts (numbers, IDs, IPs, code) against the sources; it cannot judge whether a plain-language sentence without such facts is a fair summary — the source chips on every step let you check.
 
 ## 11. How we work on this project
 
@@ -287,3 +307,4 @@ Also from the report: one PDF is fully scanned (42/42 pages) — handled by OCR 
 | 14 Nov 2026 | Doc 1.7 / KB v0.4.1 | Owner's first benchmark run (v0.2) appeared stuck on model 1 of 4. Cause: no progress shown inside a model, plus settings too heavy for a 4 GB GPU (1,800-word excerpts, 8,192-token window, no answer-length cap → work spilled onto the CPU). Fix: live per-summary progress and elapsed time, Cancel button (POST /setup/benchmark/cancel), 1,200-word excerpts, 4,096-token window, 700-token answer cap, 6 PDFs by default. Tested with a slow mock: progress per summary, cancel, full run to report. |
 | 14 Nov 2026 | Doc 1.8 / KB v0.5 | Owner found raw passages unreadable and asked about AI updates. Chunker v2 keeps structure + automatic re-organise of existing banks; Formatted.jsx display; Phase 3 article writer with citations, batching for big topics, carry-over on rebuild; schema v4; AI update checker (Ollama + model fingerprints). Added section 9d. |
 | 14 Nov 2026 | Doc 1.9 / KB v0.5.1 | Benchmark received: qwen3.5:4b chosen for everything; comparison-model removal; writer sized for 4 GB (no cut-off answers); GPU cleared before embedding/writing to fix 1.2 passages/s embedding; live embedding speed + time left. Added section 9e. |
+| 14 Nov 2026 | Doc 2.0 / KB v0.6.0 | Automatic visual lessons for every topic (profile → calculated steps → AI plan from a fixed visual menu → fact check), ELK-laid-out diagrams, quiz, regenerate; Excel/CSV import with exact grids; schema v5; stricter number checks. Added section 9f. |

@@ -10,6 +10,7 @@
 # httpx     — HTTP client: talks to Ollama, downloads the Ollama installer
 # pymupdf   — fast, page-by-page PDF reading and page rendering for OCR
 # psutil    — reads RAM/disk info for the system check (system_check.py)
+# openpyxl  — reads Excel spreadsheets (.xlsx/.xlsm) for import (v0.6)
 # colorama  — Windows console colours; required by uvicorn's dependency
 #             "click" on Windows (listed explicitly because the bundle is
 #             built on Linux, where pip would otherwise skip it)
@@ -26,6 +27,7 @@ httpx==0.28.1
 pymupdf==1.28.2
 psutil==7.2.2
 colorama==0.4.6
+openpyxl==3.1.5
 onnxruntime==1.32.0
 opencv-python-headless==5.0.0.93
 numpy<3
