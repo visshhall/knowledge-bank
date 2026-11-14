@@ -59,6 +59,7 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /setup/ollama/start",
   "POST /setup/models/pull",
   "POST /setup/benchmark/start",
+  "POST /setup/benchmark/cancel",
   // Phase 1 — import, library, search
   "GET /library",
   "POST /library/add",

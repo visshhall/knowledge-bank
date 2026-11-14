@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.4 (Phase 2 Topics + Sage Vivid design — benchmark report still pending)
+**Current version:** v0.4.1 (benchmark fixed for 4 GB GPU — benchmark report still pending)
 **Last updated:** 14 November 2026
 
 ---
@@ -11,7 +11,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 
 - [x] GitHub access granted — code is pushed to `visshhall/knowledge-bank`
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
-- [ ] Install `KnowledgeBank-Setup-0.4.0.exe` over the previous version (data and models are kept) — after model downloads finish
+- [x] All AI models downloaded (14 Nov)
+- [ ] Install `KnowledgeBank-Setup-0.4.1.exe` over the previous version (data and models are kept) — after model downloads finish
 - [ ] Topics screen → Build topics, then check the topic names and groupings make sense
 - [ ] Add PDFs in Library and check: scanned pages show a count in the Scanned column (confirms OCR works on Windows)
 - [ ] Open the app → confirm "Engine ready" and the Setup panel

@@ -114,6 +114,7 @@ def generate(
     temperature: float = 0.2,
     num_ctx: int = 8192,
     think: bool = False,
+    num_predict: int | None = None,
 ) -> GenerationResult:
     """
     Ask a model to write a response (non-streaming: waits for the full answer).
@@ -130,6 +131,9 @@ def generate(
       think        — some models (Qwen 3.x) can "reason" privately before
                      answering. Off by default: much faster, and summaries
                      rarely need it. The benchmark measures both if useful.
+      num_predict  — maximum length of the answer in tokens. A hard stop so a
+                     model that rambles (or "thinks" despite think=False)
+                     can never run for many minutes on one request.
 
     RETURNS: GenerationResult with the text and timing figures.
     RAISES:  OllamaError with a readable message on any failure.
@@ -141,6 +145,8 @@ def generate(
         "think": think,
         "options": {"temperature": temperature, "num_ctx": num_ctx},
     }
+    if num_predict:
+        payload["options"]["num_predict"] = num_predict
     if system:
         payload["system"] = system
     try:

@@ -63,7 +63,8 @@ _lock = threading.Lock()
 
 _ollama_job = {"state": "idle", "message": "", "downloaded": 0, "total": 0}
 _models_job = {"state": "idle", "message": "", "current": None, "progress": {}}
-_bench_job = {"state": "idle", "message": "", "report": None, "folder": None}
+_bench_job = {"state": "idle", "message": "", "report": None, "folder": None, "started_at": None}
+_bench_cancel = threading.Event()   # set by cancel_benchmark(), read by the worker
 
 
 # --------------------------------------------------------------------------- #
@@ -285,11 +286,26 @@ def _benchmark_worker(folder: Path) -> None:
         md_path, _json_path = benchmark.run_benchmark(
             folder,
             progress=lambda msg: _update(_bench_job, message=msg),
+            should_stop=_bench_cancel.is_set,
         )
         _update(_bench_job, state="done", report=str(md_path),
                 message="Benchmark finished. Send the report to Claude.")
+    except benchmark.Cancelled:
+        _update(_bench_job, state="idle", message="Benchmark cancelled.")
     except Exception as exc:
         _update(_bench_job, state="error", message=f"Benchmark failed: {exc}")
+
+
+def cancel_benchmark() -> dict:
+    """
+    Ask the running benchmark to stop. It stops before its next model
+    request (the request in progress finishes first, at most a minute or two).
+    """
+    if _bench_job["state"] != "running":
+        return {"ok": True, "message": "Nothing to cancel."}
+    _bench_cancel.set()
+    _update(_bench_job, message="Cancelling after the current step…")
+    return {"ok": True, "message": "Cancelling."}
 
 
 def start_benchmark(folder: str) -> dict:
@@ -304,6 +320,8 @@ def start_benchmark(folder: str) -> dict:
     with _lock:
         if _bench_job["state"] == "running":
             return {"ok": True, "message": "Already running."}
-        _bench_job.update(state="running", message="Starting…", report=None, folder=str(path))
+        _bench_job.update(state="running", message="Starting…", report=None, folder=str(path),
+                          started_at=time.time())
+    _bench_cancel.clear()
     threading.Thread(target=_benchmark_worker, args=(path,), daemon=True).start()
     return {"ok": True, "message": "Started."}

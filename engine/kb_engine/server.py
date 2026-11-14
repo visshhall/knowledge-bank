@@ -11,6 +11,7 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /setup/ollama/start      — start Ollama if installed but stopped
          POST /setup/models/pull       — download AI models (with progress)
          POST /setup/benchmark/start   — run the benchmark on a chosen folder
+         POST /setup/benchmark/cancel  — stop a running benchmark
          GET  /library                 — every imported file with its counts
          POST /library/add             — import files/folders
          POST /library/remove          — take one file out of the bank
@@ -166,6 +167,11 @@ class SourceRequest(BaseModel):
 
 class WatchRequest(BaseModel):
     folders: list[str]
+
+
+@app.post("/setup/benchmark/cancel", dependencies=[Depends(require_token)])
+def setup_benchmark_cancel() -> dict:
+    return setup_manager.cancel_benchmark()
 
 
 @app.get("/library", dependencies=[Depends(require_token)])

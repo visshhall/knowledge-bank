@@ -48,7 +48,19 @@ SCANNED_PAGE_CHAR_THRESHOLD = 40
 
 # Each excerpt sent to the models is capped at roughly this many words, so
 # every model gets an identical, realistic-sized task (≈ one topic's worth).
-EXCERPT_WORD_LIMIT = 1800
+EXCERPT_WORD_LIMIT = 1200
+
+# Benchmark settings sized for the owner's RTX 3050 (4 GB). v0.4.1 change:
+# the first version used 1,800-word excerpts, an 8,192-token window and no
+# output limit; on 4 GB that pushed part of the work onto the CPU and one
+# model could take 30+ minutes with no visible progress ("looked stuck").
+BENCH_NUM_CTX = 4096        # input + output window per request
+BENCH_MAX_OUTPUT = 700      # hard cap on each answer's length (tokens)
+DEFAULT_MAX_FILES = 6       # PDFs used (6 is enough to compare models)
+
+
+class Cancelled(Exception):
+    """Raised inside the benchmark when the owner presses Cancel."""
 
 # The same instructions the real topic-writer will use (simplified), so the
 # benchmark measures the job we actually need done.
@@ -152,7 +164,8 @@ def _vram_used_mb() -> int | None:
     return gpu.get("vram_used_mb") if gpu.get("available") else None
 
 
-def bench_model(model: str, samples: list[dict], think: bool) -> dict:
+def bench_model(model: str, samples: list[dict], think: bool,
+                progress=print, label: str = "", should_stop=lambda: False) -> dict:
     """
     Run one model over every usable excerpt and collect timings + outputs.
 
@@ -167,19 +180,25 @@ def bench_model(model: str, samples: list[dict], think: bool) -> dict:
     time.sleep(2)
     vram_idle = _vram_used_mb()
 
-    warm = ollama_client.generate(model, "Reply with the single word: ready", think=False)
+    progress(f"{label}: loading the model…")
+    warm = ollama_client.generate(model, "Reply with the single word: ready", think=False,
+                                  num_ctx=BENCH_NUM_CTX, num_predict=10)
     vram_loaded = _vram_used_mb()
 
     runs: list[dict] = []
-    for s in samples:
-        if not s.get("excerpt"):
-            continue
+    usable = [s for s in samples if s.get("excerpt")]
+    for n, s in enumerate(usable, start=1):
+        if should_stop():
+            raise Cancelled()
+        progress(f"{label}: writing summary {n} of {len(usable)}")
         try:
             r = ollama_client.generate(
                 model,
                 TASK_TEMPLATE.format(text=s["excerpt"]),
                 system=SYSTEM_PROMPT,
                 think=think,
+                num_ctx=BENCH_NUM_CTX,
+                num_predict=BENCH_MAX_OUTPUT,
             )
             runs.append({
                 "file": s["file"],
@@ -299,10 +318,11 @@ def write_report(result: dict) -> tuple[Path, Path]:
 
 def run_benchmark(
     folder: Path,
-    max_files: int = 10,
+    max_files: int = DEFAULT_MAX_FILES,
     models: list[str] | None = None,
     think: bool = False,
     progress=print,
+    should_stop=lambda: False,
 ) -> tuple[Path, Path]:
     """
     Run every benchmark step and save the report.
@@ -315,6 +335,8 @@ def run_benchmark(
       progress   function called with a short status message at each step —
                  print() on the command line; the in-app wizard passes a
                  function that updates its progress text instead
+      should_stop  function returning True when the owner pressed Cancel;
+                 checked before every model request (raises Cancelled)
     RETURNS: (markdown_path, json_path)
     CALLED BY: main() below (command line) and setup_manager.py (in-app button).
     """
@@ -336,9 +358,11 @@ def run_benchmark(
             progress(f"Skipping {model} (not downloaded)")
             results.append({"model": model, "error": "not downloaded"})
             continue
-        progress(f"Testing model {index} of {len(candidates)}: {model} (a few minutes)…")
+        if should_stop():
+            raise Cancelled()
+        label = f"Model {index} of {len(candidates)} ({model})"
         try:
-            results.append(bench_model(model, samples, think))
+            results.append(bench_model(model, samples, think, progress, label, should_stop))
         except ollama_client.OllamaError as exc:
             results.append({"model": model, "error": str(exc)})
 
@@ -366,13 +390,13 @@ def main() -> None:
 
     ARGUMENTS:
       --pdfs FOLDER     folder with 5–10 representative PDFs (required)
-      --max-files N     cap on PDFs read (default 10)
+      --max-files N     cap on PDFs read (default 6)
       --models a,b,c    override the candidate list from config.py
       --think           also enable the models' reasoning mode (slower)
     """
     parser = argparse.ArgumentParser(description="Knowledge Bank model benchmark")
     parser.add_argument("--pdfs", required=True, type=Path)
-    parser.add_argument("--max-files", type=int, default=10)
+    parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
     parser.add_argument("--models", type=str, default="")
     parser.add_argument("--think", action="store_true")
     args = parser.parse_args()

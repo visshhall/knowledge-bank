@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.4 — Phase 2 (Topics) + Sage Vivid design, Windows installer; benchmark report still pending |
-| Document version | 1.6 |
+| Current version | KB v0.4.1 — Phase 2 (Topics) + Sage Vivid design; benchmark fixed for 4 GB GPU; benchmark report still pending |
+| Document version | 1.7 |
 | Last updated | 14 November 2026 |
 | Owner | Vishal Singh |
 
@@ -250,3 +250,4 @@ An offline Windows desktop app that reads every PDF and image once, distils them
 | 14 Nov 2026 | Doc 1.4 | Owner's first real run: app installed and works on Windows. System check revealed the GPU is an RTX 3050 Laptop 4 GB (not RTX 3060 6 GB) — hardware table and model strategy corrected. Fixed: readiness list now refreshes automatically when Ollama starts (fix ships in next installer). |
 | 14 Nov 2026 | Doc 1.5 / KB v0.3 | Phase 1 Import delivered (importer, OCR via RapidOCR, passages, watched folders, duplicate tracking, instant search, Library screen); new blueprint design replacing the LumenSutra-like look; side-rail navigation; Overview schematic; database schema v2; OCR made non-fatal. Added section 9b. |
 | 14 Nov 2026 | Doc 1.6 / KB v0.4 | Phase 2 Topics delivered (distill.py: embeddings, spherical k-means with restarts, repeat groups, coverage + loose fits, topic links, AI/keyword naming; Topics screen). Owner-chosen Sage Vivid design replaces the blueprint look (DM Sans + Literata, four bold accents, icons). Schema v3 (topic_passages.fit). numpy loaded lazily. Added section 9c. |
+| 14 Nov 2026 | Doc 1.7 / KB v0.4.1 | Owner's first benchmark run (v0.2) appeared stuck on model 1 of 4. Cause: no progress shown inside a model, plus settings too heavy for a 4 GB GPU (1,800-word excerpts, 8,192-token window, no answer-length cap → work spilled onto the CPU). Fix: live per-summary progress and elapsed time, Cancel button (POST /setup/benchmark/cancel), 1,200-word excerpts, 4,096-token window, 700-token answer cap, 6 PDFs by default. Tested with a slow mock: progress per summary, cancel, full run to report. |

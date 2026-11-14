@@ -5,7 +5,8 @@
  *          1. AI engine  — install (downloads Ollama's official installer and
  *                          opens it) or start Ollama
  *          2. AI models  — download all models, one progress bar per model
- *          3. Benchmark  — pick a folder of PDFs, run, open the report
+ *          3. Benchmark  — pick a folder of PDFs, run (live step + elapsed
+ *                          time + Cancel), open the report
  * WHY:   The owner wants a normal Windows app: no PowerShell, no commands.
  *        Each step unlocks when the previous one is done.
  * WHEN:  Shown on the Setup screen (SetupScreen in App.jsx), always
@@ -21,6 +22,14 @@ import { useCallback, useEffect, useState } from "react";
 import { formatBytes, kb, percent } from "./bridge.js";
 
 const POLL_MS = 1500;
+
+/** "4 min 20 s" since a Unix timestamp in seconds (from the engine). */
+function elapsed(startedAt) {
+  if (!startedAt) return "a moment";
+  const secs = Math.max(0, Math.round(Date.now() / 1000 - startedAt));
+  const m = Math.floor(secs / 60);
+  return m ? `${m} min ${secs % 60} s` : `${secs} s`;
+}
 
 export default function SetupWizard({ onStatus }) {
   const [status, setStatus] = useState(null);
@@ -171,8 +180,11 @@ export default function SetupWizard({ onStatus }) {
           </p>
           {benchJob.state === "running" ? (
             <>
-              <Progress indeterminate label="Running. This takes 10–40 minutes." />
-              <p className="small muted">{benchJob.message}</p>
+              <Progress indeterminate label={`Running for ${elapsed(benchJob.started_at)}. Usually 10–25 minutes.`} />
+              <p className="small">{benchJob.message}</p>
+              <button className="secondary" onClick={() => act("/setup/benchmark/cancel", {})}>
+                Cancel benchmark
+              </button>
             </>
           ) : (
             <button onClick={runBenchmark} disabled={!requiredPresent || !ollama.running}>
