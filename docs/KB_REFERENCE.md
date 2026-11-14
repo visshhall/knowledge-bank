@@ -1,0 +1,206 @@
+# KB — Knowledge Bank App
+## Reference Document (Living Document)
+
+| Field | Value |
+|---|---|
+| Project code | **KB** |
+| Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
+| Current version | KB v0.1 — Phase 0 foundation code complete; awaiting owner's setup + benchmark run |
+| Document version | 1.2 |
+| Last updated | 14 November 2026 |
+| Owner | Vishal Singh |
+
+> **How to use this document in a new chat:** Upload this file (and KB_PENDING.md) at the start and say: *"This is the KB reference document. Read it fully and continue from the current phase."*
+
+---
+
+## 1. Why this project exists (origin)
+
+- The owner works in cybersecurity (Microsoft Sentinel / SIEM work) and has collected **100+ PDFs** related to his job, with more arriving over time.
+- Many of these PDFs contain **the same knowledge written in different words**. Reading them all is repetitive and boring, so in practice they don't get read.
+- He wanted something that works **the way an AI learns**: gather from many sources, merge it, and present **one proper summary of everything**, without duplicates and without missing anything.
+- The idea started on 14 November 2026 as "an offline second brain for my PDFs" and grew, through discussion, into a full **interactive, animated knowledge bank**.
+
+## 2. What the app is (one paragraph)
+
+An offline Windows desktop app that reads every PDF and image once, distils them into its own organised encyclopedia of **Knowledge Topics**, and lets the owner learn from that encyclopedia instead of the PDFs. It opens on an animated **Knowledge Map** of everything it knows, answers searches with **freshly generated summary pages** (not lists of PDFs), turns the material into **interactive learning** (flashcards, quizzes, scenarios), and can optionally consult the **internet** when the PDFs don't cover something.
+
+## 3. Key design decision: distillation, not "training"
+
+**Decision:** the app does NOT train/fine-tune an AI model on the PDFs. It **distils** them.
+
+**Why:**
+- Training a model on a laptop GPU (6 GB) is impractical.
+- A trained model blends facts together and **cannot show where an answer came from** — dangerous for security work, where accuracy matters.
+- A trained model must be retrained every time new PDFs arrive.
+
+**What distillation means here:** read every page → group everything said about the same subject → write one clean merged article per topic → link every line back to its source PDF and page. This gives the "trained" feel the owner wants, while staying accurate, verifiable and instantly updatable.
+
+## 4. Guiding principles (non-negotiable)
+
+1. **Originals are never deleted or modified.** The knowledge bank is a layer on top of them.
+2. **No duplicates, nothing missed.** Duplicates are merged; a coverage check proves every passage is represented.
+3. **Every claim is traceable.** Every line in a topic page links to its source PDF and page.
+4. **Conflicts are shown, never hidden.** If sources disagree, both versions are displayed.
+5. **Offline-first and private.** Document content never leaves the laptop. Web search (optional) sends only the search words.
+6. **Never boring.** Interactive and animated, not a PDF reader.
+7. **Large files must never cause problems.** Processing is page-by-page in the background.
+
+## 5. Owner's hardware and data (confirmed 14 Nov 2026)
+
+| Item | Value | Implication |
+|---|---|---|
+| GPU | NVIDIA RTX 3060 Laptop, 6 GB VRAM | 3–4B models run fully on the GPU (fast). 8B models (Q4) are tight on 6 GB and may spill partly to RAM (slower) — acceptable for overnight distillation, decided by benchmark in Phase 0 |
+| RAM | 16 GB | Sufficient |
+| Free disk | 200 GB | Ample (models + knowledge bank need ~20–30 GB) |
+| Data volume | ~5–6 GB of PDFs (individual files mostly KB-sized), 100+ files and growing | Very manageable |
+| Scanned PDFs | Only 2–3 | OCR needed for these, plus images |
+| Processing time tolerance | Owner is fine with a few hours for the first build | First full distillation can run overnight |
+| GitHub | Account `visshhall`, private repo `knowledge-bank` | Single home for all code and documents |
+
+## 6. Features
+
+### 6.1 Home — Knowledge Map
+- Animated, interactive map of all topics and how they connect (e.g. Threat Detection → KQL → Sign-in Logs → Event 4625)
+- Bigger topics glow brighter; click to zoom in
+- Dashboard: number of sources, topics and concepts, coverage %, recently added
+- With no search typed, this screen explains what the bank knows and manages
+
+### 6.2 Topic pages (replace reading PDFs)
+- One merged article per topic: overview, key concepts, step-by-step workflows, KQL/query examples, common mistakes
+- Animated diagrams (e.g. an attack chain playing step by step, log flow through Sentinel)
+- "Sources" drawer: which PDFs contributed; original page opens only on request
+- Conflict flags where sources disagree
+
+### 6.3 Search → generated answer page
+- Global hotkey (e.g. Ctrl+Space) opens search from anywhere, even when the app is minimised
+- Exact-word search + meaning-based search + natural-language questions
+- Result is a freshly generated summary page built from all relevant material, not a list of PDFs
+
+### 6.4 Learn mode
+- Flashcards, quizzes, scenario questions ("You see 50 failed logins — what next?")
+- Spaced repetition (review timed so knowledge sticks)
+- Progress and streaks
+
+### 6.5 Web assist (optional, toggle)
+- When the PDFs don't cover something, the app searches the internet
+- Web content is clearly labelled as web-sourced, kept separate from PDF knowledge
+- Only search words are sent; PDF content never leaves the laptop
+
+### 6.6 Cybersecurity tools
+- MITRE ATT&CK technique tagging
+- IOC extraction (IPs, hashes, domains)
+- KQL / Sentinel query library
+- Interview flashcards generated from the owner's own documents
+
+### 6.7 Images
+- Standalone images and images inside PDFs are processed
+- OCR reads text from screenshots and scans
+- A local vision model describes diagrams so they are searchable
+
+## 7. How the engine works (pipeline)
+
+1. **Import** — PDFs/images added manually or via a watched folder; exact duplicate files detected by content hash.
+2. **Extract** — text read page by page (never loading a whole file); OCR for scans and images; diagrams described by a vision model.
+3. **Chunk** — text split into passages, each remembering its source file and page.
+4. **Index** — exact-word index + meaning (vector) index, for instant search.
+5. **Cluster** — passages saying the same thing in different words are grouped.
+6. **Synthesise** — the local AI writes one merged Knowledge Topic per group, with source links on every line and conflict flags.
+7. **Verify coverage** — every passage must belong to a topic; leftovers are flagged for review.
+8. **Incremental update** — new files only update the topics they affect.
+
+## 8. Technical architecture (provisional — finalised in Phase 0)
+
+| Layer | Choice | Why |
+|---|---|---|
+| App shell | Electron + React | Windows desktop app; same approach the owner chose for LumenSutra; supports global hotkey and rich animation |
+| Engine | Python (runs alongside the app) | Best ecosystem for PDF processing, OCR and local AI |
+| PDF reading | PyMuPDF (candidate) | Fast, page-by-page, handles large files |
+| OCR | Tesseract or PaddleOCR (decided in Phase 0) | Reads scans and screenshots |
+| Local AI runtime | Ollama | Runs AI models on the RTX 3060 |
+| Writing model | Two-model strategy, decided by benchmark in Phase 0: a ~4B model (e.g. Qwen 3.5 4B) for fast interactive answers, and an ~8B model (e.g. Qwen3 8B) for the overnight topic-writing job if quality gain justifies the slower speed | 6 GB VRAM fits 4B fully; 8B is tight, so it is only used where speed doesn't matter |
+| Embedding model | Local embedding model (chosen in Phase 0) | Powers meaning-based search and clustering |
+| Vision model | Small local vision model (chosen in Phase 0) | Describes diagrams |
+| Storage | SQLite with full-text search + a vector index (sqlite-vec or LanceDB, decided in Phase 0) | Single-file, fast, offline |
+| Packaging | Windows .exe installer | Final deliverable |
+
+## 9. Roadmap
+
+| Phase | Name | What gets done | Status |
+|---|---|---|---|
+| 0 | Foundation | Finalise models and storage for RTX 3060 / 16 GB; set up Electron shell, Python engine, database; create private GitHub repo | **Code complete (v0.1)** — model choice pending owner benchmark |
+| 1 | Import | PDFs + images, OCR, page-by-page large-file handling, watched folder, exact-duplicate removal | Not started |
+| 2 | Distil | Clustering, topic list, topic connections, coverage check | Not started |
+| 3 | Write the knowledge bank | Merged Knowledge Topic articles with source links and conflict flags (the long one-time overnight job) | Not started |
+| 4 | Interface | Knowledge Map home, topic pages, animations, hotkey search, generated answer pages | Not started |
+| 5 | Learn mode | Flashcards, quizzes, scenarios, spaced repetition, progress | Not started |
+| 6 | Web assist + cyber tools | Web fallback, MITRE ATT&CK tagging, IOC extraction, KQL library | Not started |
+| 7 | Updates + release | Incremental updates, encrypted backup, Windows .exe installer | Not started |
+
+## 9a. What was built in Phase 0 (v0.1) and why
+
+| Part | File(s) | What it does | Why it's built this way |
+|---|---|---|---|
+| Engine config | `engine/kb_engine/config.py` | All paths, port and model names in one place | Swapping a model after the benchmark is a one-line change; every value can be overridden by an environment variable without touching code |
+| Database | `engine/kb_engine/db.py` | Creates/upgrades the SQLite file: sources → pages → passages → topics, plus full-text index, map links, conflicts, jobs | One file, no server, instant word search (FTS5). Triggers keep the search index in sync automatically. Numbered migrations let future versions upgrade the database without losing data |
+| Coverage design | `topic_passages` table | Records which passages fed which topic | Makes "nothing missed" provable: any passage without a row is uncovered |
+| System check | `engine/kb_engine/system_check.py` | Checks Python, FTS5, GPU, RAM, disk, Ollama, models, with exact fixes | Most local-AI problems are setup problems; this makes them visible |
+| AI client | `engine/kb_engine/ollama_client.py` | Generate text, embeddings, list/unload models | Single point of contact with the AI runtime — easy to change later |
+| Engine server | `engine/kb_engine/server.py` | Private server on 127.0.0.1:8765 (`/health`, `/system`, `/stats`) | Keeps heavy work out of the window; per-launch secret token blocks other programs/web pages from querying it |
+| Benchmark | `engine/kb_engine/benchmark.py` | Tests each candidate model on the owner's own PDFs: speed, video memory, output quality; also PDF read speed, scanned pages, embedding speed | Model choice is the biggest factor in speed and quality; published benchmarks don't use this laptop or these documents |
+| App shell | `app/electron/main.cjs`, `preload.cjs` | Starts/stops the engine, creates a locked-down window, relays only allow-listed requests | Security: the page can't reach Node, the engine token, or the network; one app instance only |
+| Interface | `app/src/App.jsx`, `Constellation.jsx`, `styles.css` | Status + readiness dashboard over an animated constellation | Proves every layer connects; the constellation is the visual seed of the Phase 4 Knowledge Map |
+| Build security | `app/vite.config.js` | Adds a Content-Security-Policy to built pages | Page may not load outside scripts or contact any address |
+| Setup | `setup/setup.ps1`, `run-benchmark.ps1`, `start-app.ps1` | Installs Python, Node, Ollama (winget), libraries, models; runs checks; runs benchmark; opens app | Owner never installs anything by hand; safe to re-run as a repair tool |
+
+**Where data lives:** `%LOCALAPPDATA%\KnowledgeBank` (database + reports) — outside the code folder, so updates never touch data, and it is excluded from Git.
+
+**Tested before delivery (in Claude's Linux workspace):** database create/upgrade/cascade-delete and full-text sync; server rejects requests without the token (HTTP 401); benchmark end-to-end against a mock AI service with generated PDFs (including scanned-page detection); the Electron app launched, showed "Engine ready" with live readiness data, and stopped the engine cleanly on close; all PowerShell scripts parse-checked and the Python-detection logic run. **Not testable there:** the real RTX 3060, real Ollama models, and Windows installs — verified by the owner's run.
+
+## 10. Known limits (stated upfront)
+
+- **First distillation** of 100+ PDFs is a one-time background job taking several hours on the RTX 3060. New files afterwards take minutes.
+- **Merged articles are AI-written.** Every line links to its source so it can be checked in one click.
+- **Poor scans or handwriting** reduce OCR accuracy.
+- **Password-protected PDFs** need their password once.
+- A local 4–8B model writes well but is less capable than large cloud models; the source-link design compensates for this.
+
+## 11. How we work on this project
+
+- **This chat is the KB chat.** Code name in messages: **KB**.
+- **Private GitHub repo** `visshhall/knowledge-bank`. Every version saved there.
+- Two living documents in the repo: **KB_REFERENCE.md** (this file) and **KB_PENDING.md** (task tracker). Both updated after every change.
+- If an idea for the Sanskrit app comes up here, prefix it **"SKT idea:"** — it is logged for SKT, and no SKT code is touched from the KB chat.
+- Untagged, ambiguous requests → Claude asks which project before changing anything.
+- When a chat gets long, Claude updates this document and the work continues in a fresh chat.
+
+### Session routine
+1. Read KB_REFERENCE.md and KB_PENDING.md
+2. Confirm what this session will do
+3. Build and test (real execution tests, not just syntax checks)
+4. Update both documents, bump the version
+5. Save to the KB repo
+
+## 12. Code commenting standard (mandatory, every file)
+
+- **File header** — what this file is, why it exists, what it connects to (which files call it / which it calls), and when it runs.
+- **Every function / component** — what it does, how it does it, why it is needed, when it is called, who calls it, what it calls, inputs, outputs, and side effects.
+- **Inline comments** — on any line whose purpose or reasoning is not obvious.
+- **Standalone code** is explicitly marked as "not connected to other modules."
+- Comments are updated whenever the code changes; outdated comments count as bugs.
+- Every code file is delivered complete — nothing missing, no "rest unchanged" placeholders.
+
+## 13. Future goals
+
+- A single place where all of the owner's cybersecurity knowledge lives, merged, current and enjoyable to learn from
+- Grows automatically as new PDFs arrive
+- Supports interview preparation and day-to-day job work
+- Further goals to be added as they are decided
+
+## 14. Change log
+
+| Date | Version | Change |
+|---|---|---|
+| 14 Nov 2026 | Doc 1.0 | Initial reference document created from the planning discussion. Hardware confirmed. No code yet. |
+| 14 Nov 2026 | Doc 1.1 | Corrected model sizing: 8B models are tight on 6 GB VRAM (not "comfortable"). Adopted two-model strategy (~4B interactive, ~8B overnight), final choice by Phase 0 benchmark. |
+| 14 Nov 2026 | Doc 1.2 / KB v0.1 | Phase 0 foundation built and tested: engine (config, database schema v1, system check, Ollama client, secure local server, benchmark), Electron + React shell with status screen, Windows setup scripts. Added section 9a. |

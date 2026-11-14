@@ -1,0 +1,24 @@
+# .gitignore — files Git must never save to the repository.
+# WHY: these are either re-created by setup (libraries, builds) or private
+# (the owner's knowledge bank data and reports must never be uploaded).
+
+# Python environment and caches (re-created by setup\setup.ps1)
+engine/.venv/
+__pycache__/
+*.pyc
+
+# Node libraries and interface build output (re-created by npm)
+app/node_modules/
+app/dist/
+
+# Private data — never commit (normally lives in %LOCALAPPDATA%\KnowledgeBank)
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+reports/
+
+# Editor / OS clutter
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

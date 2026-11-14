@@ -1,0 +1,148 @@
+/*
+ * styles.css — the look of the Knowledge Bank interface.
+ *
+ * WHAT:  Colours, fonts, layout and small animations for every screen.
+ * WHY:   A dark "deep space / security console" palette suits a cyber
+ *        knowledge tool and keeps animated elements (Constellation, orb)
+ *        readable. All colours are defined once as variables below so the
+ *        whole theme can be changed in one place.
+ *        System fonts only (Segoe UI on Windows) — no downloads, works offline.
+ * WHEN:  Loaded once by main.jsx.
+ * CONNECTED TO: class names used in App.jsx and Constellation.jsx.
+ */
+
+:root {
+  --bg: #0b1020;            /* app background (also set in main.cjs to avoid a flash) */
+  --surface: rgba(17, 25, 48, 0.72); /* translucent cards over the animation */
+  --border: rgba(125, 211, 252, 0.14);
+  --text: #e6edf7;
+  --muted: #8b9bb4;
+  --accent: #5eead4;        /* teal: primary highlight */
+  --accent-2: #7dd3fc;      /* sky blue: secondary */
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --radius: 14px;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; }
+
+/* Full-screen animated background sits behind everything. */
+.constellation {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app { position: relative; z-index: 1; min-height: 100%; display: flex; flex-direction: column; }
+
+/* ---------- Top bar ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: 0.3px; }
+.brand-mark {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0%, var(--accent-2) 70%);
+  box-shadow: 0 0 14px var(--accent);
+}
+
+.badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px; font-size: 13px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.badge-dot { width: 8px; height: 8px; border-radius: 50%; }
+.badge-ready .badge-dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.badge-starting .badge-dot { background: var(--warn); animation: blink 1s infinite; }
+.badge-error .badge-dot { background: var(--bad); }
+
+/* ---------- Main content ---------- */
+.content { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 36px 28px 48px; }
+
+.center-card {
+  margin: 12vh auto 0; max-width: 520px; text-align: center;
+  padding: 40px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.center-card.error { border-color: rgba(248, 113, 113, 0.4); }
+
+/* Breathing orb shown while the engine starts. */
+.orb {
+  width: 72px; height: 72px; margin: 0 auto 20px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, var(--accent-2), var(--accent) 45%, transparent 70%);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.hero h1 { font-size: 30px; margin: 0 0 8px; font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; margin-top: 14px; }
+code {
+  background: rgba(125, 211, 252, 0.1); padding: 2px 6px; border-radius: 6px;
+  font-family: Consolas, "Cascadia Code", monospace;
+}
+
+/* ---------- Totals ---------- */
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin: 28px 0; }
+.tile {
+  padding: 18px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border);
+  animation: rise 0.5s ease both;
+}
+.tile:nth-child(2) { animation-delay: 0.05s; }
+.tile:nth-child(3) { animation-delay: 0.1s; }
+.tile:nth-child(4) { animation-delay: 0.15s; }
+.tile:nth-child(5) { animation-delay: 0.2s; }
+.tile-value { font-size: 28px; font-weight: 600; color: var(--accent); }
+.tile-label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+/* ---------- Readiness panel ---------- */
+.panel {
+  padding: 22px 24px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.panel-head { display: flex; justify-content: space-between; align-items: center; }
+.panel-head h2 { font-size: 18px; margin: 0; font-weight: 600; }
+
+button {
+  font: inherit; color: var(--bg); background: var(--accent);
+  border: none; border-radius: 10px; padding: 8px 16px; cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+button:hover:not(:disabled) { transform: translateY(-1px); }
+button:disabled { opacity: 0.6; cursor: default; }
+
+.checks { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+.checks li { display: flex; gap: 12px; align-items: flex-start; }
+.checks .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+.checks .ok .dot { background: var(--ok); }
+.checks .fix .dot { background: var(--warn); }
+.check-name { font-size: 14px; }
+.check-fix { font-size: 13px; color: var(--warn); margin-top: 2px; }
+.error-text { color: var(--bad); }
+
+/* ---------- Animations ---------- */
+@keyframes breathe { 0%, 100% { transform: scale(0.9); opacity: 0.7; } 50% { transform: scale(1.08); opacity: 1; } }
+@keyframes blink { 50% { opacity: 0.3; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Respect Windows' "reduce animations" setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 1000px) {
+  .tiles { grid-template-columns: repeat(3, 1fr); }
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<!--
+  index.html — the single page that hosts the React interface.
+
+  WHAT:  An empty shell with one <div id="root">; src/main.jsx renders the
+         whole interface into it.
+  WHY:   Kept minimal on purpose. The security lock (Content-Security-Policy)
+         is injected into the BUILT version of this file by vite.config.js,
+         not written here, because the development server needs a small
+         inline script for live-reload that the policy would block.
+  WHEN:  Loaded by electron/main.cjs at startup (dev server or dist/).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knowledge Bank</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

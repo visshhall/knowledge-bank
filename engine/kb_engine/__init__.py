@@ -1,0 +1,31 @@
+"""
+kb_engine — the Python "brain" of the Knowledge Bank app.
+
+WHAT:  This package holds all the heavy lifting that the desktop window
+       (the Electron app in /app) cannot do well by itself: reading PDFs,
+       OCR, talking to the local AI models through Ollama, and storing the
+       knowledge bank in SQLite.
+
+WHY:   Python has the best tools for PDFs (PyMuPDF), OCR and local AI.
+       Keeping this logic out of the window means the window stays smooth
+       and responsive even while hours-long processing runs in the background.
+
+HOW IT CONNECTS:
+       - app/electron/main.js starts this package as a separate process
+         (`python -m kb_engine.server`) when the app opens.
+       - The window then talks to it over a private local web address
+         (http://127.0.0.1:8765). Nothing is exposed to the network.
+
+MODULES (Phase 0):
+       config.py        — every path, port and model name in one place
+       db.py            — creates/opens the SQLite knowledge-bank database
+       system_check.py  — reports GPU, RAM, disk and Ollama status
+       ollama_client.py — small helper for calling the local AI models
+       server.py        — the local web server the window talks to
+       benchmark.py     — one-off tool that picks the best models for
+                          the owner's laptop
+"""
+
+# Single version string for the engine. Shown in the app's status screen
+# and in benchmark reports so we always know which build produced what.
+__version__ = "0.1.0"
