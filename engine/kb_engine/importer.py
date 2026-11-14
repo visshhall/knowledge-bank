@@ -308,6 +308,70 @@ def keep_anyway(source_id: int) -> dict:
     return {"ok": bool(n), "message": "Importing it in full." if n else "Not found."}
 
 
+def _retire(conn, sid: int) -> None:
+    """
+    Take an already-imported file's content out of the bank but keep its row
+    as 'set_aside' (v0.8.2). Topics that lose passages are marked 'stale'
+    (Write remaining refreshes them); topics left empty are deleted.
+    """
+    touched = [r[0] for r in conn.execute(
+        "SELECT DISTINCT tp.topic_id FROM topic_passages tp JOIN passages p ON p.id = tp.passage_id "
+        "WHERE p.source_id = ?", (sid,))]
+    conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))
+    conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
+    conn.execute("DELETE FROM doc_tables WHERE source_id = ?", (sid,))
+    conn.execute("UPDATE sources SET status = 'set_aside' WHERE id = ?", (sid,))
+    for t in touched:
+        left = conn.execute("SELECT COUNT(*) FROM topic_passages WHERE topic_id = ?", (t,)).fetchone()[0]
+        if left == 0:
+            conn.execute("DELETE FROM topics WHERE id = ?", (t,))
+        else:
+            conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
+                         "WHERE id = ? AND status = 'written'", (t,))
+
+
+def check_existing_duplicates() -> int:
+    """
+    v0.8.2, once per bank: files imported earlier whose paragraphs are
+    (almost) all already in an OLDER file are set aside as "Same content as
+    X" (the oldest copy stays). Files that only share some paragraphs are
+    left alone — topic building already merges repeated paragraphs, and
+    deleting single paragraphs would break citations in written articles.
+    RETURNS how many files were set aside.
+    """
+    if db.get_setting("duplicates_checked") or not dedupe_on():
+        return 0
+    aside = 0
+    with db.connect() as conn:
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM sources WHERE status = 'extracted' AND keep_anyway = 0 ORDER BY id")]
+        for sid in ids:
+            rows = conn.execute("SELECT text, content_hash FROM passages WHERE source_id = ?", (sid,)).fetchall()
+            real = [r for r in rows if len(r["text"].split()) >= MIN_REPEAT_WORDS]
+            if not real:
+                continue
+            owners: dict[int, int] = {}
+            for r in real:
+                o = conn.execute(
+                    "SELECT p.source_id FROM passages p JOIN sources s ON s.id = p.source_id "
+                    "WHERE p.content_hash = ? AND p.source_id < ? AND s.status = 'extracted' LIMIT 1",
+                    (r["content_hash"], sid)).fetchone()
+                if o:
+                    owners[o[0]] = owners.get(o[0], 0) + 1
+            repeat = sum(owners.values())
+            if not repeat or (len(real) - repeat) / len(real) >= NEW_SHARE_TO_KEEP:
+                continue
+            same = max(owners, key=owners.get)
+            name = conn.execute("SELECT file_name FROM sources WHERE id = ?", (same,)).fetchone()[0]
+            info = {"verdict": "duplicate", "same_as": same, "repeats_skipped": repeat,
+                    "reason": f"same content as {name} ({repeat} of {len(real)} paragraphs already in the bank)"}
+            conn.execute("UPDATE sources SET relevance_json = ? WHERE id = ?", (json.dumps(info), sid))
+            _retire(conn, sid)
+            aside += 1
+    db.set_setting("duplicates_checked", True)
+    return aside
+
+
 def check_existing_relevance() -> int:
     """
     v0.8.2, once per bank: banks imported before the relevance check may
@@ -333,20 +397,7 @@ def check_existing_relevance() -> int:
             conn.execute("UPDATE sources SET relevance_json = ? WHERE id = ?", (json.dumps(result), sid))
             if result["verdict"] != "not":
                 continue
-            touched = [r[0] for r in conn.execute(
-                "SELECT DISTINCT tp.topic_id FROM topic_passages tp JOIN passages p ON p.id = tp.passage_id "
-                "WHERE p.source_id = ?", (sid,))]
-            conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))
-            conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
-            conn.execute("DELETE FROM doc_tables WHERE source_id = ?", (sid,))
-            conn.execute("UPDATE sources SET status = 'set_aside' WHERE id = ?", (sid,))
-            for t in touched:
-                left = conn.execute("SELECT COUNT(*) FROM topic_passages WHERE topic_id = ?", (t,)).fetchone()[0]
-                if left == 0:
-                    conn.execute("DELETE FROM topics WHERE id = ?", (t,))
-                else:
-                    conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
-                                 "WHERE id = ? AND status = 'written'", (t,))
+            _retire(conn, sid)
             aside += 1
     db.set_setting("relevance_checked", True)
     return aside
@@ -552,6 +603,10 @@ def _picture_step(docs: dict) -> bool:
             ordinal = (int(last["ordinal"]) + 1) if last else 0
             section = last["section"] if last else None
             for passage in chunking.split_passages(text):
+                if (dedupe_on() and len(passage.split()) >= MIN_REPEAT_WORDS and conn.execute(
+                        "SELECT 1 FROM passages WHERE content_hash = ? AND source_id != ? LIMIT 1",
+                        (chunking.fingerprint(passage), r["source_id"])).fetchone()):
+                    continue  # v0.8.2: this diagram's text is already in another file
                 labelled = f"[Image on page {r['page_number']}] {passage}"
                 conn.execute(
                     "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
@@ -594,12 +649,16 @@ def _process_source(source: dict) -> None:
         path = Path(source["original_path"])
         if not path.exists():
             raise FileNotFoundError("The original file was moved or deleted. Add it again from its new location.")
+        _dup_start(sid)
         if source["file_type"] == "pdf":
             page_count = _extract_pdf(sid, path)
         elif source["file_type"] == "table":
             page_count = _extract_table(sid, path)
         else:
             page_count = _extract_image(sid, path)
+        duplicate = _dup_verdict(sid)
+        if duplicate:
+            raise SetAside(duplicate)  # nothing new in this file (v0.8.2)
         with db.connect() as conn:
             conn.execute(
                 "UPDATE sources SET status = 'extracted', page_count = ?, "
@@ -615,8 +674,10 @@ def _process_source(source: dict) -> None:
             except Exception as exc:
                 _set(last_error=f"{source['file_name']}: couldn't build its data page ({exc})")
     except SetAside as aside:
-        # Not about cybersecurity (v0.8.2): keep only the row (so it is never
-        # imported again and can be kept with one click), drop any text.
+        # Not about cybersecurity, or nothing new in it (v0.8.2): keep only
+        # the row (so it is never imported again and can be kept with one
+        # click), drop any text.
+        _dups.pop(sid, None)
         with db.connect() as conn:
             conn.execute("DELETE FROM pages WHERE source_id = ?", (sid,))
             conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
@@ -630,6 +691,78 @@ def _process_source(source: dict) -> None:
         with db.connect() as conn:
             conn.execute("UPDATE sources SET status = 'failed', error = ? WHERE id = ?",
                          (message, sid))
+
+
+# ---------------------------------------------------------------------------
+# Content already in the bank (v0.8.2, owner: "2 different PDFs with the same
+# content … the content should be added only if not present, otherwise
+# nothing").
+#   - Paragraph level: a passage whose fingerprint (chunking.fingerprint —
+#     same words, ignoring case/spacing/punctuation) already exists in ANOTHER
+#     file is not added again. Its page text is still stored, so "Read in
+#     context" shows the whole page. Very short passages (< MIN_REPEAT_WORDS,
+#     e.g. a heading like "Overview") are always kept — they carry structure,
+#     not content.
+#   - File level: when a file brings (almost) nothing new — under
+#     NEW_SHARE_TO_KEEP of its paragraphs — it is set aside as "Same content
+#     as X" (Library shows it; "Keep anyway" imports it in full).
+#   - Scans: if the 3 sample pages read for the relevance check are already
+#     in the bank, the scan is set aside before reading the other pages.
+# ---------------------------------------------------------------------------
+MIN_REPEAT_WORDS = 8
+NEW_SHARE_TO_KEEP = 0.05
+_dups: dict[int, dict] = {}   # source id → {"on", "new", "repeat", "matches": {sid: n}}
+
+
+def dedupe_on() -> bool:
+    """Owner's switch in Library (default ON): skip content already in the bank."""
+    return bool(db.get_setting("dedupe_filter", True))
+
+
+def _dup_start(sid: int) -> None:
+    with db.connect() as conn:
+        row = conn.execute("SELECT keep_anyway FROM sources WHERE id = ?", (sid,)).fetchone()
+    _dups[sid] = {"on": dedupe_on() and not (row and row["keep_anyway"]),
+                  "new": 0, "repeat": 0, "matches": {}}
+
+
+def _already_present(conn, sid: int, passage: str, fp: str) -> bool:
+    """Is this passage already in another file of the bank? (counts it)"""
+    d = _dups.get(sid)
+    if not d or not d["on"] or len(passage.split()) < MIN_REPEAT_WORDS:
+        # Short lines (headings, a cover page title) are kept but don't
+        # count as "new content" — a re-exported copy with a new cover is
+        # still a copy.
+        return False
+    row = conn.execute("SELECT source_id FROM passages WHERE content_hash = ? AND source_id != ? LIMIT 1",
+                       (fp, sid)).fetchone()
+    if row:
+        d["repeat"] += 1
+        d["matches"][row["source_id"]] = d["matches"].get(row["source_id"], 0) + 1
+        return True
+    d["new"] += 1
+    return False
+
+
+def _dup_verdict(sid: int) -> dict | None:
+    """After a file is read: a 'duplicate' result if it brought (almost)
+    nothing new, else None. Also records how many repeats were skipped."""
+    d = _dups.pop(sid, None)
+    if not d:
+        return None
+    total = d["new"] + d["repeat"]
+    with db.connect() as conn:
+        row = conn.execute("SELECT relevance_json FROM sources WHERE id = ?", (sid,)).fetchone()
+        info = json.loads(row["relevance_json"] or "{}") if row else {}
+        info["repeats_skipped"] = d["repeat"]
+        conn.execute("UPDATE sources SET relevance_json = ? WHERE id = ?", (json.dumps(info), sid))
+        if not d["on"] or total == 0 or d["repeat"] == 0 or d["new"] / total >= NEW_SHARE_TO_KEEP:
+            return None
+        same = max(d["matches"], key=d["matches"].get)
+        name = conn.execute("SELECT file_name FROM sources WHERE id = ?", (same,)).fetchone()
+    name = name["file_name"] if name else "another file"
+    return {"verdict": "duplicate", "same_as": same, "repeats_skipped": d["repeat"],
+            "reason": f"same content as {name} ({d['repeat']} of {total} paragraphs already in the bank)"}
 
 
 def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
@@ -652,11 +785,14 @@ def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
         state = sections if sections is not None else {}
         section = None
         for passage, section in chunking.split_with_sections(text, state):
+            fp = chunking.fingerprint(passage)
+            if _already_present(conn, sid, passage, fp):
+                continue  # v0.8.2: this paragraph is already in another file
             conn.execute(
                 "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
                 "token_count, content_hash, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (sid, page_id, page_number, ordinal, passage,
-                 chunking.approx_tokens(passage), chunking.fingerprint(passage), section),
+                 chunking.approx_tokens(passage), fp, section),
             )
             ordinal += 1
         section = state.get("major") or state.get("title")
@@ -673,6 +809,8 @@ def _store_page(sid: int, page_number: int, text: str, ocr_used: bool,
             # searchable and citable like any other text on the page.
             if len(img["ocr_text"].split()) >= MIN_IMAGE_WORDS:
                 for passage in chunking.split_passages(img["ocr_text"]):
+                    if _already_present(conn, sid, passage, chunking.fingerprint(passage)):
+                        continue  # same diagram text already in another file
                     labelled = f"[Image on page {page_number}] {passage}"
                     conn.execute(
                         "INSERT INTO passages(source_id, page_id, page_number, ordinal, text, "
@@ -891,8 +1029,54 @@ def _check_pdf(sid: int, doc) -> None:
             _set(current_page=picks[0] + 1)
             pngs = [doc[i].get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png") for i in picks]
             with ThreadPoolExecutor(max_workers=max(1, min(len(pngs), ocr.workers()))) as pool:
-                text += "\n" + "\n".join(pool.map(ocr.read_text, pngs))
+                page_texts = list(pool.map(ocr.read_text, pngs))
+            text += "\n" + "\n".join(page_texts)
+            _judge(sid, text)
+            _scan_already_present(sid, page_texts, doc.page_count)
+            return
     _judge(sid, text)
+
+
+def _scan_already_present(sid: int, page_texts: list[str], page_count: int) -> None:
+    """
+    A scan whose sample pages are ALL already in one file of the same length
+    is set aside before the remaining pages are OCR'd (the slow part).
+    A sample page counts as present when another file has a page with the
+    very same text (the same scan read again gives the same text), or when
+    at least 80% of its paragraphs are already in that file.
+    """
+    d = _dups.get(sid)
+    if not d or not d["on"]:
+        return
+    owners: dict[int, int] = {}
+    with db.connect() as conn:
+        for t in page_texts:
+            if len(t.split()) < MIN_REPEAT_WORDS * 3:
+                return  # too little text on a sample page to be sure
+            row = conn.execute("SELECT source_id FROM pages WHERE text = ? AND source_id != ? LIMIT 1",
+                               (t, sid)).fetchone()
+            if row:
+                owners[row[0]] = owners.get(row[0], 0) + 1
+                continue
+            fps = [chunking.fingerprint(p) for p, _sec in chunking.split_with_sections(t, {})
+                   if len(p.split()) >= MIN_REPEAT_WORDS]
+            hits: dict[int, int] = {}
+            for fp in fps:
+                o = conn.execute("SELECT source_id FROM passages WHERE content_hash = ? AND source_id != ? LIMIT 1",
+                                 (fp, sid)).fetchone()
+                if o:
+                    hits[o[0]] = hits.get(o[0], 0) + 1
+            best = max(hits, key=hits.get) if hits else None
+            if best is None or hits[best] < 0.8 * len(fps):
+                return  # this page has new content: read the whole scan
+            owners[best] = owners.get(best, 0) + 1
+        same = max(owners, key=owners.get)
+        if owners[same] < len(page_texts):
+            return  # sample pages match different files: not one copy
+        other = conn.execute("SELECT file_name, page_count FROM sources WHERE id = ?", (same,)).fetchone()
+    if other and other["page_count"] == page_count:
+        raise SetAside({"verdict": "duplicate", "same_as": same,
+                        "reason": f"same content as {other['file_name']} (scanned pages already in the bank)"})
 
 
 def _has_scanned_pages(doc, sample: int = 40) -> bool:
@@ -1191,8 +1375,10 @@ def start() -> None:
         db.set_setting("chunker_version", chunking.CHUNKER_VERSION)
     # v0.8.2: once per bank, set aside files already imported that are not
     # about cybersecurity (stored text only — quick, no OCR).
-    threading.Thread(target=lambda: _safe_log(check_existing_relevance, "relevance check"),
-                     name="kb-relevance", daemon=True).start()
+    def _existing_checks():
+        _safe_log(check_existing_relevance, "relevance check")
+        _safe_log(check_existing_duplicates, "same-content check")
+    threading.Thread(target=_existing_checks, name="kb-relevance", daemon=True).start()
     _ensure_worker()
     threading.Thread(target=_watch_loop, name="kb-watch", daemon=True).start()
 

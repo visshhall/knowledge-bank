@@ -72,6 +72,7 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /gpu/tune",
   "GET /library/filter", // v0.8.2: "Only keep cybersecurity files" switch
   "POST /library/filter",
+  "POST /library/dedupe", // v0.8.2: "Skip content already in the bank" switch
   "GET /import/status",
   "GET /settings/watch",
   "POST /settings/watch",

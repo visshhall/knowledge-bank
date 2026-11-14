@@ -262,7 +262,8 @@ td { padding: 12px 10px 12px 0; border-bottom: 1px solid var(--line); vertical-a
 tr.st-set_aside .file-name { color: var(--muted, #6a7a72); }
 .aside-note { display: block; font-size: 0.82rem; color: var(--muted, #6a7a72); margin-top: 4px; }
 .aside-note .link { min-height: 0; padding: 0; font-size: inherit; }
-.relevance-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; margin-left: auto; margin-right: 12px; }
+.relevance-switches { display: flex; flex-direction: column; gap: 4px; margin-left: auto; margin-right: 12px; }
+.relevance-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; }
 .relevance-switch input { width: 18px; height: 18px; accent-color: var(--teal, #1f6f5f); min-height: 0; }
 .status-pending { background: var(--surface-2); color: var(--muted); }
 

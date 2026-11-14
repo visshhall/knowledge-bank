@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.8.2 (relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.8.3 (same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 15 November 2026
 
 ---
@@ -13,7 +13,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Installed v0.2 — app runs on the owner's laptop (RTX 3050 4 GB, 16 GB RAM)
 - [x] All AI models downloaded (14 Nov)
 - [x] First real test with 6 PDFs (topics built) — feedback: text unreadable → fixed in v0.5
-- [ ] Install `KnowledgeBank-Setup-0.8.2.exe`; open Library: unrelated files show "Not cybersecurity" — check none of your security PDFs was set aside (use Keep anyway if one was, and tell Claude its name)
+- [ ] Install `KnowledgeBank-Setup-0.8.3.exe`; check files marked "Already in the bank" really are copies (Keep anyway if not, and tell Claude)
+- [ ] (0.8.2 checks) open Library: unrelated files show "Not cybersecurity" — check none of your security PDFs was set aside (use Keep anyway if one was, and tell Claude its name)
 - [ ] Setup → Graphics card → "Test and tune speed"; report the words/s and the "% on graphics card"
 - [ ] Remove a file that sits in a watched folder; confirm it does not come back after 3+ minutes
 - [ ] Import a few PDFs with v0.8.1+: Library should say "read on the graphics card" — report seconds per scanned page and whether it says "processor" instead
@@ -107,6 +108,13 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.8.3 — Same content never added twice ✅ delivered
+- [x] Paragraphs already in another file are not added again (fingerprint match; short lines kept)
+- [x] Files with (almost) nothing new set aside as "Already in the bank" + Keep anyway
+- [x] Scans compared on their 3 sample pages before full OCR
+- [x] One-time check of the existing bank; Library switch
+- [ ] Idea: near-duplicate detection for scan vs. text versions of the same document (needs fuzzy matching)
 
 ## v0.8.2 — Relevance, removed files, graphics card ✅ delivered
 - [x] Removed files remembered (schema v10 removed_files); watched folders and folder adds skip them

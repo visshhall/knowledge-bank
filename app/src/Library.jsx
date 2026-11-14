@@ -188,7 +188,11 @@ export default function Library() {
                 <tr key={s.id} className={`st-${s.status}`}>
                   <td className="file-cell" title={s.original_path}>
                     <span className="file-name">{s.file_name}</span>
-                    <span className="file-meta">{formatBytes(s.size_bytes)}</span>
+                    <span className="file-meta">
+                      {formatBytes(s.size_bytes)}
+                      {s.status === "extracted" && s.relevance?.repeats_skipped > 0 &&
+                        ` · ${formatCount(s.relevance.repeats_skipped)} paragraph${s.relevance.repeats_skipped === 1 ? "" : "s"} already in the bank, not added again`}
+                    </span>
                     {s.error && <span className="file-error">{s.error}</span>}
                     {s.status === "failed" && /password/i.test(s.error ?? "") && <Unlock source={s} />}
                     {s.status === "set_aside" && (
@@ -201,7 +205,11 @@ export default function Library() {
                     )}
                   </td>
                   <td>
-                    <span className={`status status-${s.status}`}>{STATUS_TEXT[s.status]}</span>
+                    <span className={`status status-${s.status}`}>
+                      {s.status === "set_aside" && s.relevance?.verdict === "duplicate"
+                        ? "Already in the bank"
+                        : STATUS_TEXT[s.status]}
+                    </span>
                   </td>
                   <td className="num">{s.page_count ?? "—"}</td>
                   <td className="num">{formatCount(s.passages)}</td>
@@ -236,29 +244,41 @@ export default function Library() {
 }
 
 /**
- * v0.8.2 switch: "Only keep cybersecurity files". When on (the default),
+ * v0.8.2 switches: "Only keep cybersecurity files" and "Skip content already
+ * in the bank" (paragraphs already in another file aren't added again; a
+ * file with nothing new is set aside as "Already in the bank").
+ * Relevance: when on (the default),
  * each new file is checked on a sample of its text BEFORE the slow work, and
  * files not about security are set aside (shown in the list with the reason
  * and a "Keep anyway" button). Turning it off only affects new files.
  */
 function RelevanceSwitch({ setAside }) {
-  const [on, setOn] = useState(null);
+  const [flags, setFlags] = useState(null); // {on, dedupe}
   useEffect(() => {
-    kb.get("/library/filter").then((r) => !r.error && setOn(r.on));
+    kb.get("/library/filter").then((r) => !r.error && setFlags(r));
   }, []);
-  if (on === null) return null;
-  async function toggle() {
-    const r = await kb.post("/library/filter", { on: !on });
-    if (!r.error) setOn(r.on);
+  if (flags === null) return null;
+  async function toggle(key, path) {
+    const r = await kb.post(path, { on: !flags[key] });
+    if (!r.error) setFlags({ ...flags, [key]: r.on });
   }
   return (
-    <label className="relevance-switch" title="Files that aren't about cybersecurity are set aside, not deleted">
-      <input type="checkbox" checked={on} onChange={toggle} />
-      <span>
-        Only keep cybersecurity files
-        {setAside > 0 && <span className="muted"> · {setAside} set aside</span>}
-      </span>
-    </label>
+    <div className="relevance-switches">
+      <label className="relevance-switch" title="Files that aren't about cybersecurity are set aside, not deleted">
+        <input type="checkbox" checked={flags.on} onChange={() => toggle("on", "/library/filter")} />
+        <span>Only keep cybersecurity files</span>
+      </label>
+      <label
+        className="relevance-switch"
+        title="Paragraphs already in another file are not added again; a file with nothing new is set aside"
+      >
+        <input type="checkbox" checked={flags.dedupe} onChange={() => toggle("dedupe", "/library/dedupe")} />
+        <span>
+          Skip content already in the bank
+          {setAside > 0 && <span className="muted"> · {setAside} set aside</span>}
+        </span>
+      </label>
+    </div>
   );
 }
 

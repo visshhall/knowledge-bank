@@ -264,7 +264,14 @@ class FlagRequest(BaseModel):
 
 @app.get("/library/filter", dependencies=[Depends(require_token)])
 def library_filter_get() -> dict:
-    return {"on": importer.relevance_filter_on()}
+    return {"on": importer.relevance_filter_on(), "dedupe": importer.dedupe_on()}
+
+
+@app.post("/library/dedupe", dependencies=[Depends(require_token)])
+def library_dedupe_set(body: FlagRequest) -> dict:
+    """v0.8.2: the 'Skip content already in the bank' switch in Library."""
+    db.set_setting("dedupe_filter", bool(body.on))
+    return {"on": bool(body.on)}
 
 
 @app.post("/library/filter", dependencies=[Depends(require_token)])

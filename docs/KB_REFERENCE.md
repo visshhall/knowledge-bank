@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.8.2 — non-cybersecurity files set aside automatically, removed files stay removed, AI kept on the graphics card · v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
-| Document version | 2.7 |
+| Current version | KB v0.8.3 — content already in the bank is never added twice · v0.8.2 — non-cybersecurity files set aside automatically, removed files stay removed, AI kept on the graphics card · v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
+| Document version | 2.8 |
 | Last updated | 15 November 2026 |
 | Owner | Vishal Singh |
 
@@ -481,6 +481,35 @@ The owner raised three issues:
 - Topic grouping and fact checks are plain arithmetic taking seconds, so they stay on the processor. Picture reading uses the card through DirectML (v0.8.1).
 - *Not measurable in Claude's workspace (no NVIDIA card); the mechanics were tested against the real Ollama.*
 
+## 9n. v0.8.3 — content already in the bank is not added again (15 Nov 2026)
+
+The owner asked whether two different PDFs with the same content can be skipped. He wants content added "only if not present, otherwise nothing".
+
+**What already existed:**
+- Exact copies (same bytes, by SHA-256) were skipped at import.
+- Repeated paragraphs were merged when topics were built.
+
+**What was missing:** a different file with the same content (a re-export, a second download, a new cover page) was read and listed in full.
+
+**Now** (`importer.py`; Library switch "Skip content already in the bank", on by default):
+- *Paragraph level:* a passage whose fingerprint (same words, ignoring case, spacing and punctuation) is already in another file is not added. The page text is still stored, so Read in context shows the whole page. Short lines (under 8 words: headings, cover titles) are kept and don't count as new content.
+- *File level:* a file whose paragraphs are almost all already in the bank (under 5% new) is set aside as **"Already in the bank — same content as X"**, with Keep anyway.
+- A file that adds new sections, such as an updated version, is imported with only its new paragraphs. Library shows "N paragraphs already in the bank, not added again".
+- *Scans:* the 3 sample pages read for the relevance check are compared with the bank, using identical page text or ≥80% known paragraphs. If they all match one file of the same length, the scan is set aside before the rest is OCR'd.
+- *Pictures:* diagram text already in another file is not added again.
+- *Existing banks* are checked once. Files whose paragraphs are almost all in an older file are set aside (the oldest copy stays), stale topics are marked, and empty topics are removed. Partial overlaps in existing files are left alone, because removing single paragraphs would break citations in written articles; topic building already merges them.
+
+**Tested:**
+
+| Case | Result |
+|---|---|
+| Re-exported copy with a new cover page | Set aside (17 of 17 paragraphs present) |
+| Updated version (doc1 + doc2) | Imported with only its 14 new paragraphs |
+| Same scan saved again | Set aside after OCR of 3 sample pages (15.8 s instead of ~40 s) |
+| One-time check of an existing bank | Set aside 2 files: the re-export, and a file contained entirely in another |
+
+**Limit:** "same content" means the same words. A scan and the original text PDF of the same document usually differ slightly in OCR'd words, so both are kept.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -547,3 +576,4 @@ The owner raised three issues:
 | 15 Nov 2026 | Doc 2.5 / KB v0.8.0 | Owner: weak diagrams, slow writing, invisible subnet spreadsheet. Spreadsheet data topics (datapages.py: charts, recalculated checks, bits explainer, Subnet Lab, quiz; schema v8); diagrams rewritten with walk-through animation + Play lesson; lesson prompt fixed so steps get pictures + verified fallback visuals; writer 3 calls instead of 5, live streaming, Write this topic now, line-by-line article fact check; crash guard. Added section 9k. |
 | 15 Nov 2026 | Doc 2.6 / KB v0.8.1 | Owner: import too slow. Two-pass import (text first, pictures after; schema v9 images.xref), OCR engine pool + parallel scanned pages (79 s → 30 s to searchable on 2 cores, identical passages), DirectML graphics-card OCR on Windows with automatic processor fallback, background OCR load. Added section 9l. |
 | 15 Nov 2026 | Doc 2.7 / KB v0.8.2 | Owner: unrelated PDFs, slow CPU-bound AI, removed files returning. Relevance check before slow work + set aside + Keep anyway + one-time check of existing bank (relevance.py, schema v10); removed_files so watched folders never re-add; gpu.py memory savers, speed tuning with safe fallback, Graphics card card in Setup. Added section 9m. |
+| 15 Nov 2026 | Doc 2.8 / KB v0.8.3 | Owner: skip PDFs whose content is already present; add only content not present. Paragraph-level skip by fingerprint, file-level "Already in the bank" set-aside with Keep anyway, early detection for scans, picture text, one-time check of existing bank, Library switch. Added section 9n. |
