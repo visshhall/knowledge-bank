@@ -49,7 +49,7 @@ import re
 import threading
 import time
 
-from . import chunking, config, db, facts, lessons, ollama_client
+from . import chunking, config, db, facts, lessons, ollama_client, understand
 
 # Sized from the owner's benchmark (RTX 3050, 4 GB): a 4,096-token window
 # keeps qwen3.5:4b fully on the GPU (11.6 tokens/s). 8 points × ≤800 chars ≈
@@ -82,13 +82,15 @@ SYSTEM = (
 
 ARTICLE_PROMPT = """Write a concise knowledge-bank article (about 300-450 words) titled "{title}" from the SOURCE POINTS below.
 
-Use these Markdown sections, in this order, and LEAVE OUT any section the points don't support:
+The points are already sorted by what they do (### headings), and by subject where the topic covers several things (#### About:). Use that sorting. Explain how the things CONNECT — what leads to what, what depends on what, how the variants differ — instead of listing facts. Use every fact once.
+
+Write these Markdown sections in this order, and LEAVE OUT any section the points don't support:
 ## Overview
-2-4 short sentences.
-## Key points
-- 3-8 bullets
+2-4 sentences from the "What it is" points: say what it is first, then why it matters.
 ## How it works
-1. numbered steps, only if the points describe a process or attack flow
+Explain the mechanism from cause to effect. If there are "Steps, in order" points, give them as a numbered list in the order given.
+## Types and variants
+Only when the points are grouped under several "About:" subjects: one bullet per subject saying what makes it different from the others.
 ## Detection
 - data sources, event IDs, fields and signals to watch
 ## Queries
@@ -98,9 +100,11 @@ copy each query exactly as written (use ```spl for Splunk)
 ## MITRE ATT&CK
 - T1234.001 – technique name
 ## Response
-- what to do when it is detected
+- what to do to prevent or handle it
+## Examples
+- concrete cases or tools
 ## Where sources disagree
-- only if two points contradict each other; say which says what
+- only when CONTRADICTIONS are listed below: say which point says what
 
 SOURCE POINTS:
 {points}
@@ -209,14 +213,16 @@ def cancel() -> dict:
 
 # ---------------------------------------------------------------------------
 
-def _topic_points(conn, topic_id: int) -> list[dict]:
+def _topic_points(conn, topic_id: int) -> tuple[list[dict], list[dict]]:
     """
-    The topic's distinct points, most central first, with repeated
-    statements already folded (facts.py, v0.9.1): each statement appears once.
-    Each: {"passage_id", "text"} — text carries its document part (with_section).
+    The topic's distinct points (repeated statements folded, facts.py) and the
+    contradictions found between statements. Each point carries "_prompt_text":
+    its text with its document part (with_section), cut for the prompt.
     """
-    points, _absorbed, _stats = facts.topic_points(conn, topic_id)
-    return [{"passage_id": p["id"], "text": chunking.with_section(p["text"], p["section"])} for p in points]
+    points, _absorbed, stats = facts.topic_points(conn, topic_id)
+    for p in points:
+        p["_prompt_text"] = chunking.with_section(p["text"], p["section"])[:POINT_MAX_CHARS]
+    return points, stats["conflicts"]
 
 
 def _numbered(points: list[dict], start: int) -> str:
@@ -327,28 +333,34 @@ def write_topic(topic_id: int) -> bool:
         t = conn.execute("SELECT id, title FROM topics WHERE id = ?", (topic_id,)).fetchone()
         if not t:
             return False
-        points = _topic_points(conn, topic_id)[: POINTS_PER_REQUEST + NOTE_BATCH * MAX_NOTE_BATCHES]
-    if not points:
+        all_points, conflicts = _topic_points(conn, topic_id)
+    if not all_points:
         return False
-
-    citations = {str(i + 1): p["passage_id"] for i, p in enumerate(points)}
-    direct = points[:POINTS_PER_REQUEST]
-    material = _numbered(direct, 1)
-    extra = points[POINTS_PER_REQUEST:]
+    # v0.10: the AI's understanding of each point (role + what it is about) decides
+    # which points are read directly and how they are grouped under headings.
+    direct, extra, material = understand.writer_material(all_points, conflicts, POINTS_PER_REQUEST)
+    points = (direct + extra)[: POINTS_PER_REQUEST + NOTE_BATCH * MAX_NOTE_BATCHES]
+    extra = points[len(direct):]
+    citations = {str(i + 1): p["passage_id"] if "passage_id" in p else p["id"] for i, p in enumerate(points)}
     if extra:
         notes: list[str] = []
         for b in range(0, len(extra), NOTE_BATCH):
             if _cancel.is_set():
                 return False
             batch = extra[b:b + NOTE_BATCH]
-            first = POINTS_PER_REQUEST + b + 1
+            first = len(direct) + b + 1
             _set(message=f"Reading extra points {first}–{first + len(batch) - 1} of {len(points)}")
-            notes.append(_ask(NOTES_PROMPT.format(title=t["title"], points=_numbered(batch, first)),
-                              limit=NOTES_MAX_OUTPUT))
-        material += "\n\nNOTES FROM MORE POINTS:\n" + "\n".join(notes)
+            notes.append(_ask(NOTES_PROMPT.format(title=t["title"], points=_numbered(
+                [{"text": p["_prompt_text"]} for p in batch], first)), limit=NOTES_MAX_OUTPUT))
+        material += "\n\nNOTES FROM MORE POINTS (not grouped):\n" + "\n".join(notes)
+    marker_of = {p["id"]: i + 1 for i, p in enumerate(points)}
+    clashes = [f"- [{marker_of[c['a_point']]}] says: {c['a'][:240]}\n  [{marker_of[c['b_point']]}] says: {c['b'][:240]}"
+               for c in conflicts if c["a_point"] in marker_of and c["b_point"] in marker_of][:4]
+    if clashes:
+        material += "\n\nCONTRADICTIONS FOUND BETWEEN THE POINTS (explain both sides in 'Where sources disagree'):\n" + "\n".join(clashes)
 
     _set(message="Writing the article", live="", live_topic=topic_id)
-    sources = [p["text"] for p in points]
+    sources = [p["_prompt_text"] for p in points]
     raw = _ask(ARTICLE_PROMPT.format(title=t["title"], points=material), live=True)
     lines_before = len([l for l in _clean_article(raw, {int(k) for k in citations}).splitlines() if l.strip()])
     article = _clean_article(raw, {int(k) for k in citations})
@@ -371,6 +383,7 @@ def write_topic(topic_id: int) -> bool:
     if len(article) < 40:
         return False
     checks["facts_v"] = facts.VERSION   # written from merged statements (see _needs_merge_rewrite)
+    checks["logic_v"] = understand.VERSION   # written from the AI's outline (roles + subjects)
     with db.connect() as conn:
         conn.execute(
             "UPDATE topics SET body_markdown = ?, citations = ?, status = 'written', checks_json = ?, "
@@ -386,7 +399,10 @@ def _needs_merge_rewrite(topic_id: int, checks: dict) -> bool:
     facts_v, or an older rule set) is rewritten once — but only when its topic
     really has repeats, so nothing is rewritten for nothing.
     """
-    if (checks or {}).get("facts_v", 0) >= facts.VERSION:
+    checks = checks or {}
+    if checks.get("logic_v", 0) < understand.VERSION:
+        return True                     # v0.10: written before articles were organised by meaning
+    if checks.get("facts_v", 0) >= facts.VERSION:
         return False
     return facts.count_repeats(topic_id) > 0
 
@@ -403,6 +419,8 @@ def _run(rewrite_all: bool, only_topic: int | None = None, focus: int | None = N
         if facts.ai_ready():
             _set(message="Checking which statements repeat each other…")
             facts.judge_all()
+            _set(message="Working out what each point is for and how things connect…")
+            understand.tag_all()
         ollama_client.clear_gpu_except(write_model())   # whole 4 GB for the writer
         # v0.8.2: the first time a model writes, measure whether forcing every
         # layer onto the graphics card is faster, and keep the faster way.

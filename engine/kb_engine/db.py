@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -649,6 +649,22 @@ def _migrate_v12() -> None:
         )
 
 
+def _migrate_v13() -> None:
+    """
+    Schema v13 (KB v0.10). New table point_roles (idempotent, every start): what
+    the local AI decided about a point — its role (definition / how_it_works /
+    step / detection / response / example / note) and what it is about —
+    keyed by a hash of the point's text, so a point is analysed once and the
+    answer survives topic rebuilds and hand edits. Used only by understand.py.
+    """
+    with connect() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS point_roles (key TEXT PRIMARY KEY, role TEXT NOT NULL, about TEXT)")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '13') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -724,7 +740,8 @@ def init_db() -> int:
     _migrate_v10()  # idempotent (v0.8.2: set-aside files, removed-files list)
     _migrate_v11()  # idempotent (v0.9: titles, categories, replaced versions)
     _migrate_v12()  # idempotent (v0.9.1: AI answers for repeated-statement pairs)
-    return 12
+    _migrate_v13()  # idempotent (v0.10: AI roles of points)
+    return 13
 
 
 def stats() -> dict:

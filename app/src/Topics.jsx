@@ -380,7 +380,7 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
   }
 
   if (!data) return <p className="muted">Loading topic…</p>;
-  const { topic, points, related, citations, loose_threshold, folded } = topicData ?? data;
+  const { topic, points, related, citations, loose_threshold, folded, structure } = topicData ?? data;
   const hasArticle = Boolean(topic.article);
   const hasLesson = Boolean(lessonData?.lesson);
   // From quick search: show the exact passage in Source points.
@@ -530,6 +530,7 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
         <SourcePoints
           points={points}
           looseThreshold={loose_threshold}
+          structure={structure}
           focusPoint={focusPoint}
           topic={topic}
           onEdited={(r) => {
@@ -556,8 +557,10 @@ function TopicDetail({ id, focusPoint, onBack, onOpen }) {
  *       - Points that repeat across files are already shown once (repeat
  *         groups) with "Said in N places".
  */
-function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited }) {
-  const [order, setOrder] = useState("reading");
+function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited, structure }) {
+  // v0.10: "By meaning" (the AI's outline: what it is → how it works → steps → detection …) is the default
+  // whenever the topic has an outline; the other two views stay available.
+  const [order, setOrder] = useState(structure ? "meaning" : "reading");
   // v0.9 hand edits: tick points, then move them to another topic or make
   // a new topic from them (topicedit.py). Hidden for spreadsheet topics.
   const [editing, setEditing] = useState(false);
@@ -597,6 +600,11 @@ function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited }) {
   return (
     <div>
       <div className="points-bar" role="group" aria-label="Order of points">
+        {structure && (
+          <button className={order === "meaning" ? "seg on" : "seg"} onClick={() => setOrder("meaning")} aria-pressed={order === "meaning"}>
+            By meaning
+          </button>
+        )}
         <button className={order === "reading" ? "seg on" : "seg"} onClick={() => setOrder("reading")} aria-pressed={order === "reading"}>
           In reading order
         </button>
@@ -626,6 +634,7 @@ function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited }) {
           }}
         />
       )}
+      {order === "meaning" && structure && <MeaningView structure={structure} points={points} tick={tick} looseThreshold={looseThreshold} focusPoint={focusPoint} focused={focused} />}
       {order === "reading" ? (
         <ol className="points">
           {groups.map((g, gi) => {
@@ -672,7 +681,7 @@ function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited }) {
             );
           })}
         </ol>
-      ) : (
+      ) : order === "meaning" ? null : (
         <ol className="points">
           {points.map((p) => (
             <li key={p.id} className={p.fit < looseThreshold ? "is-loose" : ""}>
@@ -695,6 +704,71 @@ function SourcePoints({ points, looseThreshold, focusPoint, topic, onEdited }) {
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+/**
+ * v0.10 "By meaning": the topic laid out the way the AI understood it
+ * (understand.py) — sections in teaching order, points grouped by what they
+ * are about, steps in order — with what the reasoning found: statements that
+ * contradict each other and parts the files never cover.
+ */
+function MeaningView({ structure, points, tick, looseThreshold, focusPoint, focused }) {
+  const byId = new Map(points.map((p) => [p.id, p]));
+  const insightIcon = { conflict: "alert", gap: "alert", pending: "refresh" };
+  return (
+    <div className="meaning">
+      {structure.insights.length > 0 && (
+        <ul className="insights" aria-label="What the reasoning found">
+          {structure.insights.map((i, n) => (
+            <li key={n} className={`insight insight-${i.kind}`}>
+              <Icon name={insightIcon[i.kind] ?? "alert"} size={15} /> {i.text}
+              {i.kind === "conflict" && (
+                <span className="clash">
+                  <q>{i.a}</q>
+                  <q>{i.b}</q>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {structure.sections.map((sec) => (
+        <section key={sec.key} className="meaning-section">
+          <h3>
+            {sec.title} <span className="tab-count">{sec.groups.reduce((n, g) => n + g.point_ids.length, 0)}</span>
+          </h3>
+          {sec.groups.map((g, gi) => (
+            <div key={gi} className="meaning-group">
+              {g.about && <h4>{g.about}</h4>}
+              <ol className="points">
+                {g.point_ids.map((id) => {
+                  const p = byId.get(id);
+                  if (!p) return null;
+                  return (
+                    <li
+                      key={id}
+                      className={`${p.fit < looseThreshold ? "is-loose" : ""} ${id === focusPoint ? "found" : ""}`}
+                      ref={id === focusPoint ? focused : undefined}
+                    >
+                      {tick(p)}
+                      {p.section && <p className="point-section">From: {p.section}</p>}
+                      <Formatted text={withoutHeading(p.text, p.section)} collapseAt={40} />
+                      <ul className="point-sources" aria-label="Sources">
+                        {p.sources.map((s, i) => (
+                          <SourceChip key={i} sourceId={s.source_id} fileName={s.file_name} page={s.page} />
+                        ))}
+                      </ul>
+                      {p.sources.length > 1 && <p className="small muted">Said in {p.sources.length} places, shown once.</p>}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          ))}
+        </section>
+      ))}
     </div>
   );
 }

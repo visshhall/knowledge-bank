@@ -696,10 +696,12 @@ def _judge_repeats() -> None:
     isn't running, and any failure is ignored (rules alone still apply).
     """
     try:
-        from . import facts
+        from . import facts, understand
         if facts.ai_ready():
             _set(stage="repeats", done=0, total=1, message="Checking which statements repeat each other…")
             facts.judge_all(lambda n, total: _set(done=n, total=total))
+            _set(stage="understanding", done=0, total=1, message="Working out what each point is for and how things connect…")
+            understand.tag_all(lambda n, total: _set(done=n, total=total))
     except Exception:
         pass
 
@@ -842,7 +844,7 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
         ).fetchall()
     # v0.9.1: repeated statements are folded (facts.py) — a point shows each
     # statement once and lists every file + page that said it.
-    from . import facts
+    from . import facts, understand
     with db.connect() as conn:
         folded, absorbed, fstats = facts.topic_points(conn, topic_id)
     points = {p["id"]: p for p in folded[:limit]}
@@ -864,6 +866,7 @@ def topic_detail(topic_id: int, limit: int = 300) -> dict | None:
     topic["checks"] = json.loads(t["checks_json"]) if t["checks_json"] else None
     return {"topic": topic, "points": list(points.values()), "citations": citations,
             "folded": fstats["merged"],
+            "structure": understand.structure(folded, fstats["conflicts"], topic.get("kind", "subject")),
             "related": [dict(x) for x in related], "loose_threshold": LOOSE_FIT}
 
 

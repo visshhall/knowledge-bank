@@ -110,6 +110,12 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.10.0 — Reasoning: roles, subjects, outline ✅ delivered
+- [x] AI labels each point's role and subject; saved per point (schema v13)
+- [x] Topics "By meaning" view, contradiction and gap notes
+- [x] Articles written from the outline with a share for every section
+- [ ] Owner check: run "Write remaining" (rewrites every article once), open a few topics under "By meaning", and tell me where a point sits in the wrong section or a subject name is odd
+
 ## v0.9.2 — Remove files completely ✅ delivered
 - [x] Remove one or many files; their topics, articles, lessons, flashcards and saved answers go with them
 - [x] Library tick boxes, "Select all shown", "Select the N set aside", one confirmation

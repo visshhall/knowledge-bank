@@ -1041,3 +1041,14 @@ tr.st-set_aside .file-name { color: var(--muted, #6a7a72); }
 .pick-confirm { flex-basis: 100%; font-size: 0.95rem; }
 button.danger { background: #b3402f; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
 button.danger:hover { background: #983526; }
+
+/* v0.10 Topics → "By meaning" (understand.py): outline sections, subjects, insights */
+.meaning-section { margin: 18px 0 8px; }
+.meaning-section h3 { margin: 0 0 6px; }
+.meaning-group h4 { margin: 12px 0 4px; font-weight: 600; opacity: 0.85; }
+.insights { list-style: none; padding: 0; margin: 8px 0 14px; display: grid; gap: 6px; }
+.insight { padding: 8px 12px; border-left: 3px solid currentColor; border-radius: 6px; background: rgba(255, 242, 223, 0.06); }
+.insight-conflict { border-color: #e0a458; }
+.insight-gap { border-color: #7fb7a4; }
+.insight-pending { border-color: #8a9ba0; opacity: 0.85; }
+.clash { display: grid; gap: 4px; margin-top: 6px; font-size: 0.92em; }

@@ -617,6 +617,23 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Measured (test library):* removing 2 of 9 files cleared 6 topics' articles, deleted 5 flashcards and 1 saved answer, left 0 dangling references.
 
+## 9r. v0.10.0 — the AI works out what each point is for (15 Nov 2026)
+
+*Why:* after v0.9.1 the owner said the reasoning was still weak: the AI should understand how things work and show data accordingly, not just merge statements. The article writer got a flat list of the most central points and a fixed template, so related facts landed in the wrong place and nothing explained how things connect.
+
+*What (`engine/kb_engine/understand.py`):*
+- For every point (after repeats are folded) the local AI decides its **role** — definition, how it works, step, detection, response, example, note (queries are recognised by rules) — and **what it is about** (1–4 words). Answers are stored by a hash of the point's text (table `point_roles`, schema v13), so each point is analysed once and the answer survives topic rebuilds and hand edits.
+- The AI's labels are grouped into at most 6 subjects by rules (a word shared by several labels names the subject: "Proxy-based C2 communication" + "DNS-based C2 communication" → "C2"). A first attempt to let the 4B model do this grouping produced nonsense, so the model only labels and the grouping is deterministic.
+- **Outline** (`structure()`): sections in teaching order — What it is → How it works → Steps, in order → How to detect it → Queries and commands → What to do about it → Examples → Other notes — points grouped by subject, steps kept in document order.
+- **What the reasoning found:** statements the AI judge marked as CONTRADICTING each other (both shown), and sections the files never cover ("Your files don't say how to detect this"), and how many points are not analysed yet.
+- **Topics screen:** a new default view "By meaning" shows the outline; "In reading order" and "Best match first" remain.
+- **Articles** are written from the outline: every section gets a share of the points read directly (a big "how it works" group can no longer push out detection or response points), points are laid out under their section and subject headings, the prompt asks the writer to explain how things connect (what leads to what, how variants differ), and listed contradictions feed "Where sources disagree".
+- When: roles are tagged after "Build/Update topics" and at the start of "Write remaining" (up to 600 points per run, the rest next time; skipped silently if the AI isn't running). Every article written before v0.10 is written once more by "Write remaining" (marker `logic_v` in its checks).
+
+*Measured (test topic, 17 points, CPU only):* tagging took about 2.5 minutes (a graphics card is much faster); 17 subject labels were grouped into Exfiltration (7), C2 (4), Encryption (2) and Other (4). On that sample every point was a mechanism description, so only one section appeared; the "no detection / no response in your files" notes were correct for those documents.
+
+*Limits:* a 4B model's role labels are a judgement, not proof — a point can sit in a neighbouring section; subjects are grouped by shared words, so unrelated labels using different words stay separate; the first run is slower because every point is analysed once. `python engine/tests/test_understand.py` covers the rules.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -687,3 +704,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 15 Nov 2026 | Doc 2.9 / KB v0.9.0 | Eleven owner-chosen improvements: junk cleaning + garbled-text OCR (cleaning.py), real file titles + categories (titles.py), Word/PowerPoint/web/text/Markdown (officefiles.py), automatic replacement of older versions, better search (filters, ranking, close matches, facets, RRF), hand-edited topics (topicedit.py), automatic rewrite of weak articles, big-library tuning + Storage card (storage.py), self-updating app (updater.cjs). Schema v11. Added section 9o. |
 | 15 Nov 2026 | Doc 3.0 / KB v0.9.1 | Repeated statements folded inside topics (facts.py, schema v12, AI judge for borderline pairs, articles rewritten once). Added section 9p. |
 | 15 Nov 2026 | Doc 3.1 / KB v0.9.2 | Removing files (one or many) now removes everything built from them: topics, articles, lessons, flashcards, saved answers. Library multi-select. Added section 9q. |
+| 15 Nov 2026 | Doc 3.2 / KB v0.10.0 | AI understands each point (role + subject); topics shown and articles written by logical outline; contradictions and gaps surfaced. Schema v13. Added section 9r. |

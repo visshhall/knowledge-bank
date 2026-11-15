@@ -80,10 +80,11 @@ using used uses can could would should might must shall within without between t
 
 class _Unit:
     """One piece of a point's text: a statement, a heading/label, or a query block."""
-    __slots__ = ("line", "raw", "fact", "code", "keep", "norm", "toks", "digits", "n")
+    __slots__ = ("line", "raw", "fact", "code", "keep", "norm", "toks", "digits", "n", "pi")
 
     def __init__(self, line: int, raw: str, fact: bool, code: bool):
         self.line, self.raw, self.fact, self.code, self.keep = line, raw, fact, code, True
+        self.pi = -1                      # index of the point this unit belongs to (set in plan())
         self.norm, self.toks, self.digits, self.n = "", frozenset(), frozenset(), 0
         if fact:
             words = _WORDS.findall(raw.lower())
@@ -155,7 +156,8 @@ _NEGATING = frozenset("""not no never cannot cant without none neither nor disab
 denies prevent prevents prevented fail fails failed unable except""".split())
 
 
-def _relation(f: _Unit, g: _Unit, verdicts: dict[str, str], pending: list | None) -> bool:
+def _relation(f: _Unit, g: _Unit, verdicts: dict[str, str], pending: list | None,
+              conflicts: list | None = None) -> bool:
     """
     Do statements f and g say the same thing?
       - identical text, or the same words in another order/spacing → yes
@@ -192,6 +194,8 @@ def _relation(f: _Unit, g: _Unit, verdicts: dict[str, str], pending: list | None
             if pending is not None:
                 pending.append((key, f.raw, g.raw))
             return False
+        if v == "CONFLICT" and conflicts is not None:
+            conflicts.append((f, g))      # two statements the AI says contradict each other
         if v not in ("SAME", "SUBSET"):
             return False
         # The small model can be too generous ("local" vs "remote" drives): the
@@ -256,12 +260,14 @@ def plan(points: list[dict], verdicts: dict[str, str] | None = None,
     verdicts = load_verdicts() if verdicts is None else verdicts
     pts = [dict(p, sources=[dict(s) for s in p["sources"]], merged=0) for p in points]
     units = [_units(p["text"]) for p in pts]
+    clash: list[tuple[_Unit, _Unit]] = []
     exact: dict[str, tuple[int, _Unit]] = {}
     index: dict[str, list[tuple[int, _Unit]]] = {}
     first_owner: dict[int, int] = {}
     merged = 0
     for pi in sorted(range(len(pts)), key=lambda i: tuple(pts[i].get("order") or (0, 0, 0))):
         for u in units[pi]:
+            u.pi = pi
             if not u.fact:
                 continue
             hit: tuple[int, _Unit] | None = None
@@ -280,7 +286,7 @@ def plan(points: list[dict], verdicts: dict[str, str] | None = None,
                             counts[id(gu)] = (gp, gu, (c[2] if c else 0) + 1)
                 best = sorted(counts.values(), key=lambda c: -c[2])[:25]
                 for gp, gu, shared in best:
-                    if shared >= 3 and _relation(u, gu, verdicts, pending):
+                    if shared >= 3 and _relation(u, gu, verdicts, pending, clash):
                         hit = (gp, gu)
                         break
             if hit is None:
@@ -330,7 +336,15 @@ def plan(points: list[dict], verdicts: dict[str, str] | None = None,
         if any(u.fact and not u.keep for u in units[pi]):
             p["text"] = _rebuild(units[pi]) or p["text"]
         result.append(p)
-    return result, absorbed, {"merged": merged, "absorbed": len(absorbed)}
+    seen_pairs, contradictions = set(), []
+    for f, g in clash:
+        k = _pair_key(f.norm, g.norm)
+        if k in seen_pairs or f.pi < 0 or g.pi < 0:
+            continue
+        seen_pairs.add(k)
+        contradictions.append({"a": f.raw.strip(), "b": g.raw.strip(),
+                               "a_point": pts[f.pi]["id"], "b_point": pts[g.pi]["id"]})
+    return result, absorbed, {"merged": merged, "absorbed": len(absorbed), "conflicts": contradictions}
 
 
 # ---------------------------------------------------------------------------
