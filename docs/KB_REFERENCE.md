@@ -604,6 +604,19 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Limits:* the check is wording-based plus a 4B model, so a repeat phrased very differently may remain; a rare wrong "same" is limited by the guard above. `python engine/tests/test_facts.py` covers the rules.
 
+## 9q. v0.9.2 — removing a file removes everything built from it (15 Nov 2026)
+
+*Why:* the owner saw unusable PDFs and their content still present. Remove already deleted a file's pages and passages, but topics, written articles, lessons, flashcards and saved answers made from it stayed behind, and there was no way to remove many files at once.
+
+*What:*
+- **Library → tick files → "Remove N selected"** (checkbox on every row, "Select all shown", "Select the N set aside"); one confirmation, then done. The single "Remove" on a row does the same for one file.
+- On removal (`importer.remove_sources` → `_clean_up_after_removal`): topics left with no content are deleted; topics that lost part of their content have their article, summary, citations and lesson cleared and are marked stale (they no longer show the removed text; "Write remaining" writes them again from what is left); flashcards made from the removed text and saved answers that cited the file are deleted; a removed spreadsheet takes its data topic with it.
+- Removed files are remembered (as before): watched folders and folder adds never bring them back; "Add files" on that exact file does.
+- The same clean-up now applies when a file is set aside automatically (not cybersecurity, already in the bank, older version).
+- Original files on disk are never touched. A file still being imported is skipped and reported.
+
+*Measured (test library):* removing 2 of 9 files cleared 6 topics' articles, deleted 5 flashcards and 1 saved answer, left 0 dangling references.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -673,3 +686,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 15 Nov 2026 | Doc 2.8 / KB v0.8.3 | Owner: skip PDFs whose content is already present; add only content not present. Paragraph-level skip by fingerprint, file-level "Already in the bank" set-aside with Keep anyway, early detection for scans, picture text, one-time check of existing bank, Library switch. Added section 9n. |
 | 15 Nov 2026 | Doc 2.9 / KB v0.9.0 | Eleven owner-chosen improvements: junk cleaning + garbled-text OCR (cleaning.py), real file titles + categories (titles.py), Word/PowerPoint/web/text/Markdown (officefiles.py), automatic replacement of older versions, better search (filters, ranking, close matches, facets, RRF), hand-edited topics (topicedit.py), automatic rewrite of weak articles, big-library tuning + Storage card (storage.py), self-updating app (updater.cjs). Schema v11. Added section 9o. |
 | 15 Nov 2026 | Doc 3.0 / KB v0.9.1 | Repeated statements folded inside topics (facts.py, schema v12, AI judge for borderline pairs, articles rewritten once). Added section 9p. |
+| 15 Nov 2026 | Doc 3.1 / KB v0.9.2 | Removing files (one or many) now removes everything built from them: topics, articles, lessons, flashcards, saved answers. Library multi-select. Added section 9q. |

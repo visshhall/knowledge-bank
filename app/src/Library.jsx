@@ -38,6 +38,8 @@ export default function Library() {
   const [lib, reloadLib] = usePoll("/library", imp?.state === "running" ? 4000 : 20000);
   const [shown, setShown] = useState(150); // rows drawn; "Show more" adds 150
   const [notice, setNotice] = useState(null); // {kind: "ok"|"error", text}
+  const [picked, setPicked] = useState(() => new Set()); // v0.9.2: ticked file ids for "Remove selected"
+  const [confirming, setConfirming] = useState(false);
   const [dragging, setDragging] = useState(false);
 
   /**
@@ -78,6 +80,20 @@ export default function Library() {
   async function removeSource(source) {
     const r = await kb.post("/library/remove", { source_id: source.id });
     setNotice({ kind: r.ok ? "ok" : "error", text: r.message || r.error });
+    setPicked((p) => {
+      const n = new Set(p);
+      n.delete(source.id);
+      return n;
+    });
+    reloadLib();
+  }
+
+  /** v0.9.2: remove every ticked file and everything built from them (topics, articles, cards, answers). */
+  async function removePicked() {
+    setConfirming(false);
+    const r = await kb.post("/library/remove-many", { source_ids: [...picked] });
+    setNotice({ kind: r.ok ? "ok" : "error", text: r.message || r.error });
+    setPicked(new Set());
     reloadLib();
   }
 
@@ -213,6 +229,47 @@ export default function Library() {
             )}
           </div>
         )}
+        {allSources.length > 0 && (
+          <div className="pick-bar">
+            <button
+              className="secondary"
+              onClick={() => setPicked(new Set(sources.filter((s) => s.status !== "extracting").map((s) => s.id)))}
+              title="Tick every file in the list below (after the filters above)"
+            >
+              Select all shown ({formatCount(sources.length)})
+            </button>
+            {setAside > 0 && (
+              <button
+                className="secondary"
+                onClick={() => setPicked(new Set(allSources.filter((s) => s.status === "set_aside").map((s) => s.id)))}
+              >
+                Select the {formatCount(setAside)} set aside
+              </button>
+            )}
+            {picked.size > 0 && !confirming && (
+              <>
+                <button className="danger" onClick={() => setConfirming(true)}>
+                  Remove {formatCount(picked.size)} selected
+                </button>
+                <button className="link" onClick={() => setPicked(new Set())}>
+                  Clear selection
+                </button>
+              </>
+            )}
+            {confirming && (
+              <span className="pick-confirm">
+                Remove {formatCount(picked.size)} file{picked.size === 1 ? "" : "s"} and everything built from them
+                (topics, articles, flashcards, saved answers)? Your original files stay where they are.{" "}
+                <button className="danger" onClick={removePicked}>
+                  Yes, remove
+                </button>{" "}
+                <button className="link" onClick={() => setConfirming(false)}>
+                  Cancel
+                </button>
+              </span>
+            )}
+          </div>
+        )}
         {allSources.length === 0 ? (
           <p className="muted">No files yet. Add some above to start building the bank.</p>
         ) : sources.length === 0 ? (
@@ -221,6 +278,16 @@ export default function Library() {
           <table>
             <thead>
               <tr>
+                <th className="pick-col">
+                  <input
+                    type="checkbox"
+                    aria-label="Tick or untick every file shown"
+                    checked={sources.length > 0 && sources.every((s) => picked.has(s.id))}
+                    onChange={(e) =>
+                      setPicked(e.target.checked ? new Set(sources.filter((s) => s.status !== "extracting").map((s) => s.id)) : new Set())
+                    }
+                  />
+                </th>
                 <th>File</th>
                 <th>Status</th>
                 <th className="num">Pages</th>
@@ -234,6 +301,22 @@ export default function Library() {
             <tbody>
               {sources.slice(0, shown).map((s) => (
                 <tr key={s.id} className={`st-${s.status}`}>
+                  <td className="pick-col">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${s.title || s.file_name}`}
+                      disabled={s.status === "extracting"}
+                      checked={picked.has(s.id)}
+                      onChange={(e) =>
+                        setPicked((p) => {
+                          const n = new Set(p);
+                          if (e.target.checked) n.add(s.id);
+                          else n.delete(s.id);
+                          return n;
+                        })
+                      }
+                    />
+                  </td>
                   <td className="file-cell" title={s.original_path}>
                     <span className="file-name">{s.title || s.file_name}</span>
                     {s.categories?.length > 0 && (

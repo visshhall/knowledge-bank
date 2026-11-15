@@ -1034,3 +1034,10 @@ tr.st-set_aside .file-name { color: var(--muted, #6a7a72); }
 .update-progress.wide > span { background: var(--teal, #1f6f5f); }
 .update-ready { margin: 8px 0 12px; }
 .update-notes { white-space: pre-wrap; font: inherit; font-size: 0.85rem; background: var(--surface-2, #eef2ee); padding: 10px 12px; border-radius: 10px; max-height: 180px; overflow: auto; }
+
+/* v0.9.2 Library: tick files and remove many at once (Library.jsx) */
+.pick-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 12px; }
+.pick-col { width: 34px; text-align: center; }
+.pick-confirm { flex-basis: 100%; font-size: 0.95rem; }
+button.danger { background: #b3402f; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
+button.danger:hover { background: #983526; }

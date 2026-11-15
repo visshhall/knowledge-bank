@@ -268,35 +268,103 @@ def add_paths(paths: list[str], picked: bool = False) -> dict:
     return result
 
 
-def remove_source(source_id: int) -> dict:
+def _clean_up_after_removal(conn, source_ids: list[int], touched_topics: set[int]) -> dict:
     """
-    Remove one file from the bank. Its pages, passages, images and duplicate
-    records are deleted automatically (database cascade). The original file
-    on disk is NOT touched. A file being extracted right now can't be
-    removed until it finishes (avoids a half-deleted state).
+    v0.9.2: take every trace of removed files out of what was built from them.
+    WHY: deleting a file's pages/passages (database cascade) left its content
+    alive in topics, written articles, lessons, flashcards and saved answers,
+    so "removed" PDFs still showed up. HOW:
+      - a topic with no passages left is deleted (its cards keep their review
+        history but lose the topic link — db.py cards.topic_id ON DELETE SET NULL);
+      - a topic that lost some passages gets its article, summary, citations
+        and lesson cleared and is marked 'stale' — it no longer shows the
+        removed text, and "Write remaining" writes it again from what is left;
+      - flashcards made from a removed passage are deleted;
+      - saved answers that cited a removed file are deleted.
+    RETURNS counts for the message shown to the owner.
     """
+    gone_topics = changed_topics = 0
+    for t in touched_topics:
+        if not conn.execute("SELECT 1 FROM topics WHERE id = ?", (t,)).fetchone():
+            continue
+        left = conn.execute("SELECT COUNT(*) FROM topic_passages WHERE topic_id = ?", (t,)).fetchone()[0]
+        if left == 0:
+            conn.execute("DELETE FROM topics WHERE id = ?", (t,))
+            gone_topics += 1
+        else:
+            conn.execute(
+                "UPDATE topics SET status = 'stale', body_markdown = NULL, summary = NULL, citations = NULL, "
+                "updated_at = datetime('now') WHERE id = ? AND kind != 'data'", (t,))
+            conn.execute("DELETE FROM lessons WHERE topic_id = ?", (t,))
+            changed_topics += 1
+    cards = conn.execute(
+        "DELETE FROM cards WHERE point_id IS NOT NULL AND point_id NOT IN (SELECT id FROM passages)").rowcount
+    answers = 0
+    for r in conn.execute("SELECT id, sources_json FROM answers").fetchall():
+        try:
+            cited = {int(x.get("source_id")) for x in json.loads(r["sources_json"]) if isinstance(x, dict) and x.get("source_id") is not None}
+        except Exception:
+            continue
+        if cited & set(source_ids):
+            conn.execute("DELETE FROM answers WHERE id = ?", (r["id"],))
+            answers += 1
+    return {"topics_removed": gone_topics, "topics_cleared": changed_topics, "cards": cards, "answers": answers}
+
+
+def remove_sources(source_ids: list[int]) -> dict:
+    """
+    Remove one or many files from the bank, together with everything built
+    from them (see _clean_up_after_removal). The original files on disk are
+    NOT touched. A file being extracted right now is skipped (try again in a
+    moment). Each removed file is remembered so watched folders and folder
+    adds never bring it back; "Add files" on that exact file undoes this.
+    """
+    removed, busy = [], 0
+    touched: set[int] = set()
     with db.connect() as conn:
-        row = conn.execute("SELECT status FROM sources WHERE id = ?", (source_id,)).fetchone()
-        if not row:
-            return {"ok": False, "message": "Not found."}
-        if row["status"] == "extracting":
-            return {"ok": False, "message": "This file is being imported right now — try again in a moment."}
-        # v0.8.2: remember the file (and its copies) so watched folders and
-        # folder adds never bring it back. "Add files" on it undoes this.
-        conn.execute(
-            "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
-            "SELECT sha256, original_path, size_bytes FROM sources WHERE id = ?", (source_id,))
-        conn.execute(
-            "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
-            "SELECT sha256, path, size_bytes FROM duplicate_files WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        for sid in dict.fromkeys(source_ids):
+            row = conn.execute("SELECT status FROM sources WHERE id = ?", (sid,)).fetchone()
+            if not row:
+                continue
+            if row["status"] == "extracting":
+                busy += 1
+                continue
+            touched.update(r[0] for r in conn.execute(
+                "SELECT DISTINCT tp.topic_id FROM topic_passages tp JOIN passages p ON p.id = tp.passage_id "
+                "WHERE p.source_id = ?", (sid,)))
+            conn.execute(
+                "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
+                "SELECT sha256, original_path, size_bytes FROM sources WHERE id = ?", (sid,))
+            conn.execute(
+                "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
+                "SELECT sha256, path, size_bytes FROM duplicate_files WHERE source_id = ?", (sid,))
+            conn.execute("DELETE FROM sources WHERE id = ?", (sid,))
+            removed.append(sid)
+        cleaned = _clean_up_after_removal(conn, removed, touched) if removed else {}
     try:
         from . import datapages
         datapages.rebuild_data_topics()  # a removed spreadsheet takes its data topic with it
     except Exception:
         pass
-    return {"ok": True, "message": "Removed from the knowledge bank and won't be imported again. "
-                                   "The original file is untouched."}
+    if not removed:
+        return {"ok": False, "removed": 0,
+                "message": "Those files are being imported right now — try again in a moment." if busy else "Not found."}
+    parts = [f"Removed {len(removed)} file{'s' if len(removed) != 1 else ''} and their content."]
+    if cleaned.get("topics_removed"):
+        parts.append(f"{cleaned['topics_removed']} topic{'s' if cleaned['topics_removed'] != 1 else ''} that only came from them "
+                     f"{'were' if cleaned['topics_removed'] != 1 else 'was'} deleted.")
+    if cleaned.get("topics_cleared"):
+        parts.append(f"{cleaned['topics_cleared']} topic{'s' if cleaned['topics_cleared'] != 1 else ''} lost part of their content — "
+                     f"press Write remaining to write {'them' if cleaned['topics_cleared'] != 1 else 'it'} again.")
+    if busy:
+        parts.append(f"{busy} still importing, not removed.")
+    parts.append("They won't be imported again; the original files are untouched.")
+    return {"ok": True, "removed": len(removed), "busy": busy, **cleaned, "message": " ".join(parts)}
+
+
+def remove_source(source_id: int) -> dict:
+    """One file — see remove_sources()."""
+    return remove_sources([source_id])
 
 
 def keep_anyway(source_id: int) -> dict:
@@ -325,13 +393,8 @@ def _retire(conn, sid: int) -> None:
     conn.execute("DELETE FROM images WHERE source_id = ?", (sid,))
     conn.execute("DELETE FROM doc_tables WHERE source_id = ?", (sid,))
     conn.execute("UPDATE sources SET status = 'set_aside' WHERE id = ?", (sid,))
-    for t in touched:
-        left = conn.execute("SELECT COUNT(*) FROM topic_passages WHERE topic_id = ?", (t,)).fetchone()[0]
-        if left == 0:
-            conn.execute("DELETE FROM topics WHERE id = ?", (t,))
-        else:
-            conn.execute("UPDATE topics SET status = 'stale', updated_at = datetime('now') "
-                         "WHERE id = ? AND status = 'written'", (t,))
+    # v0.9.2: same clean-up as a removal, so a set-aside/replaced file leaves no text in articles
+    _clean_up_after_removal(conn, [sid], set(touched))
 
 
 def _name_key(name: str) -> str:

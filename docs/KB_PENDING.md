@@ -110,6 +110,11 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.9.2 — Remove files completely ✅ delivered
+- [x] Remove one or many files; their topics, articles, lessons, flashcards and saved answers go with them
+- [x] Library tick boxes, "Select all shown", "Select the N set aside", one confirmation
+- [ ] Owner check: tick the unusable PDFs, remove them, open Topics and confirm none of their text remains
+
 ## v0.9.1 — Repeated statements folded ✅ delivered
 - [x] Sentence-level merge across a topic's points (rules for clear cases, AI judge for borderline pairs, answers saved)
 - [x] Topic screen, article writer and lessons use the merged points; citations follow absorbed points

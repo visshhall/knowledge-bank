@@ -16,6 +16,7 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /library                 — every imported file with its counts
          POST /library/add             — import files/folders
          POST /library/remove          — take one file out of the bank
+         POST /library/remove-many     — take several files out (and everything built from them)
          POST /library/retry           — re-queue files that failed
          GET  /import/status           — live import progress
          GET  /settings/watch          — watched folders
@@ -210,6 +211,10 @@ class SourceRequest(BaseModel):
     source_id: int
 
 
+class SourcesRequest(BaseModel):
+    source_ids: list[int]
+
+
 class WatchRequest(BaseModel):
     folders: list[str]
 
@@ -339,6 +344,11 @@ def library_filter_set(body: FlagRequest) -> dict:
 @app.post("/library/remove", dependencies=[Depends(require_token)])
 def library_remove(body: SourceRequest) -> dict:
     return importer.remove_source(body.source_id)
+
+
+@app.post("/library/remove-many", dependencies=[Depends(require_token)])
+def library_remove_many(body: SourcesRequest) -> dict:
+    return importer.remove_sources(body.source_ids)
 
 
 @app.post("/library/retry", dependencies=[Depends(require_token)])
