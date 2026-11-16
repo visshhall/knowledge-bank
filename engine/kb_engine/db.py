@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -738,6 +738,25 @@ def _migrate_v15() -> None:
         )
 
 
+def _migrate_v16() -> None:
+    """
+    Schema v16 (KB v0.13). One new column (idempotent, every start):
+      sources.url   the web address a page or document was copied from (NULL for files
+                    the owner added from his own disk). Set by crawler.py and shown in
+                    Library; "Open" on such a source opens this address in his browser.
+    The copy of the page itself lives in the data folder (web/…); `original_path`
+    points at that copy, so the normal import code reads it like any other file.
+    """
+    with connect() as conn:
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(sources)").fetchall()}
+        if "url" not in have:
+            conn.execute("ALTER TABLE sources ADD COLUMN url TEXT")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '16') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -816,7 +835,8 @@ def init_db() -> int:
     _migrate_v13()  # idempotent (v0.10: AI roles of points)
     _migrate_v14()  # idempotent (v0.11: saved chats)
     _migrate_v15()  # idempotent (v0.12: chat modes and personas)
-    return 15
+    _migrate_v16()  # idempotent (v0.13: web addresses of imported pages)
+    return 16
 
 
 def stats() -> dict:

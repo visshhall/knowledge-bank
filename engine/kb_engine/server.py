@@ -15,6 +15,8 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /setup/models/remove     — delete comparison models (frees disk)
          GET  /library                 — every imported file with its counts
          POST /library/add             — import files/folders
+         POST /library/add-text        — import pasted text (v0.13)
+         POST /crawl/start · GET /crawl/status · POST /crawl/stop — read a web page, section or site (v0.13)
          POST /library/remove          — take one file out of the bank
          POST /library/remove-many     — take several files out (and everything built from them)
          POST /library/retry           — re-queue files that failed
@@ -88,7 +90,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, modelpick, personas, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, modelpick, personas, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -493,6 +495,42 @@ def answer_delete(body: IdRequest) -> dict:
     return answers.delete(body.id)
 
 
+# --- v0.13: add pages from the web and pasted text ----------------------------------
+
+class CrawlStartRequest(BaseModel):
+    """Body of POST /crawl/start: a web address, how far to follow links, and the page limit."""
+    url: str
+    scope: str = "section"          # "page" | "section" | "site"
+    max_pages: int = 30
+    depth: int | None = None
+
+
+class AddTextRequest(BaseModel):
+    """Body of POST /library/add-text: text the owner pasted."""
+    title: str = ""
+    text: str
+
+
+@app.post("/crawl/start", dependencies=[Depends(require_token)])
+def crawl_start(body: CrawlStartRequest) -> dict:
+    return crawler.start(body.url, body.scope, body.max_pages, body.depth)
+
+
+@app.get("/crawl/status", dependencies=[Depends(require_token)])
+def crawl_status() -> dict:
+    return crawler.status()
+
+
+@app.post("/crawl/stop", dependencies=[Depends(require_token)])
+def crawl_stop() -> dict:
+    return crawler.stop()
+
+
+@app.post("/library/add-text", dependencies=[Depends(require_token)])
+def library_add_text(body: AddTextRequest) -> dict:
+    return importer.add_text(body.title, body.text)
+
+
 # --- v0.11: Chat (saved conversations with the library) and the model picker --
 
 class ChatSendRequest(BaseModel):
@@ -622,13 +660,13 @@ def models_compare_cancel() -> dict:
 def source_get(id: int) -> dict:
     """Where an imported file lives, so the app can open it at a page."""
     with db.connect() as conn:
-        r = conn.execute("SELECT id, file_name, file_type, original_path FROM sources WHERE id = ?",
+        r = conn.execute("SELECT id, file_name, file_type, original_path, url FROM sources WHERE id = ?",
                          (id,)).fetchone()
     if not r:
         raise HTTPException(status_code=404, detail="File not found")
     from pathlib import Path
     return {"id": r["id"], "file_name": r["file_name"], "file_type": r["file_type"],
-            "path": r["original_path"], "exists": Path(r["original_path"]).exists()}
+            "path": r["original_path"], "exists": Path(r["original_path"]).exists(), "url": r["url"]}
 
 
 # --- v0.7: analyst tools ---------------------------------------------------

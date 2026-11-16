@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.12.0 (Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.13.0 (web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -110,6 +110,15 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.13.0 — Add from the web and paste text ✅ delivered
+- [x] Library → "From the web": a page, a section or a whole site, with a page limit; Stop; progress and reasons for skipped pages
+- [x] Pages and linked documents saved as local copies, searchable, usable in Chat/Topics; opening a source opens its web address
+- [x] "Paste text" box
+- [ ] Owner check: read ONE real page of your own Ākāra site (scope "This page only"), then Chat → My files and ask something only that page says; tell me if the answer cites it
+- [ ] Owner check: read a small section of a documentation site (limit 20 pages) and tell me what was skipped and why
+- [ ] Owner check: if a page you care about comes back "almost no readable text", tell me which — it needs JavaScript and I'll look at a browser-based reader
+- [ ] Known: JavaScript-only sites and pages behind a login can't be read; a 500-page site needs several reads
+
 ## v0.12.0 — Free Chat and personas ✅ delivered
 - [x] Three modes per chat: My files / Files + general / Free chat (saved with the chat)
 - [x] Personas: Assistant, Ākāra copywriter, Coding helper, Tutor, Security analyst; make, edit, delete your own
@@ -120,7 +129,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [ ] Known: Free chat uses the same graphics card as article writing; do not run both at once
 
 ### Agreed roadmap after v0.12 (not started)
-- v0.13 Add any kind of data: Word, text, Markdown, web pages, pasted text, images with text, spreadsheets into the same bank
+- v0.13 ✅ delivered: web reading and pasted text (other file types already worked)
 - v0.14 Memory about you: durable facts (preferences, business details) you can read, edit and delete
 - v0.15 Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
 - Later ideas: voice in/out, optional web search when online, phone access (needs a security decision)

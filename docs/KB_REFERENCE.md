@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
-| Document version | 3.4 |
+| Current version | KB v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Document version | 3.5 |
 | Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
 
@@ -680,6 +680,27 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next (agreed order):* v0.13 add any kind of file or text to the bank (Word, text, web pages, images, spreadsheets, pasted text); v0.14 memory about the owner (durable facts he can see and edit); v0.15 training kit (rate answers, export a dataset from chats and files, a cloud-notebook recipe to fine-tune a small model, import it back).
 
+## 9u. v0.13.0 — Add from the web and paste text (16 Nov 2026)
+
+*Why:* the owner wants the bank to learn from anything, not only his PDFs, and asked for URLs: type an address and the app reads the page and "figures out all the data" from it, crawling the site. Most file types already worked (PDF, Word, PowerPoint, Excel/CSV, saved web pages, text, Markdown, images by OCR — see sections 4 and 9k), so the new parts are the web reader and pasted text.
+
+*What — `engine/kb_engine/crawler.py`, window `app/src/WebAdd.jsx` (a card on Library):*
+- **Three scopes:** this page only; this page and the pages under the same folder of the site ("section"); the whole site (also uses the site's sitemap.xml to find pages no link leads to). A page limit (default 1 / 30 / 100; at most 500) and a link depth (0 / 2 / 3; at most 5) bound every read.
+- **What is saved:** each page, and each PDF / Word / Excel / PowerPoint / text file it links to, is copied into the data folder (`web/<site>/…`) and registered as a source with its address (`sources.url`, schema v16). It then goes through the same import as any file: cleaning, passages, search, topics, Chat. Text that repeats across pages (menus, footers, shared paragraphs) is stored once, by the existing "already in the bank" rule. The relevance check ("is it cybersecurity?") is skipped for these (as for pasted text): he asked for them himself; that check is for files dropped in bulk.
+- **Citations:** opening a web source opens its address in his own browser, not the saved copy.
+- **A page read twice** adds nothing; **a page that changed** becomes a new copy and the older version is replaced by the v0.9 "older version" rule. Removing a web source (or a pasted note) also deletes the app's own copy of it from the data folder; a file from his own disk is never deleted.
+- **Paste text:** a box with an optional title; saved as a Markdown copy in `notes/` and imported. The same text twice is recognised.
+
+*The rules the crawler always follows (fixed in code):* only http(s); addresses on this computer or a private network (127.x, 10.x, 172.16–31.x, 192.168.x, 169.254.x, localhost …) are refused, also after a redirect, so a read can never reach the app's own engine or his router; only the same site (www. and non-www. are one site); robots.txt respected for every page the crawler finds (a page he types himself is fetched, as a browser would; Crawl-delay honoured up to 10 s); one request at a time with at least a second between them; 20 s timeout; pages up to 5 MB, documents up to 40 MB; pages marked noindex skipped; tracking parameters and #fragments ignored; at most 5 variants (filters, sorting) of one path; login, cart, checkout and admin paths skipped; images, media, archives, scripts skipped; pages with under 200 characters of readable text skipped and counted. Stop keeps what was already read.
+
+*Privacy:* this is the one place the app fetches content from the internet, and only when he presses Read; nothing about his files or chats is sent (only the page requests, with a plain user-agent "KnowledgeBank/version"). Reading a site means keeping a copy of its text: the window reminds him to read only sites he may copy for his own use.
+
+*Tested:* `engine/tests/test_crawler.py` — a small test site served from this computer: single page, section, site with sitemap, depth and page limits, other site ignored, robots.txt, noindex, tracking parameters, query-variant cap, login/cart, empty page, linked text document, redirect, unchanged and changed page, Stop, one read at a time, unreachable site, private addresses refused, malformed addresses (javascript:, file://, bad port), pasted text, removal of own copies. Also an end-to-end run through the real import worker (two pages read, imported and found by search) and a headless-browser look at the card with a stand-in engine. No real website was read from this sandbox (no open internet here), so behaviour on real sites is checked only against the test site.
+
+*Limits:* the crawler cannot run JavaScript, so a site that builds its pages in the browser (many single-page apps) comes back empty — it says so. Pages behind a login are not reachable. A site can block unknown readers; then the page is reported as not read. A big site needs several reads (500-page cap) and then the normal topic building, which takes time. Prices, stock and similar live data are a snapshot of the day it was read; read the page again to refresh it. HTML text extraction drops menus, headers, footers and side bars, so a site that puts its real content inside those tags loses it.
+
+*Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -753,3 +774,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 15 Nov 2026 | Doc 3.2 / KB v0.10.0 | AI understands each point (role + subject); topics shown and articles written by logical outline; contradictions and gaps surfaced. Schema v13. Added section 9r. |
 | 16 Nov 2026 | Doc 3.3 / KB v0.11.0 | Chat: saved multi-turn conversations with the library (cited, fact-checked, general knowledge only on request, streaming + Stop), model picker with downloads and a compare-on-my-files test. Schema v14. Fixed v0.9.2 bug: removing a file never deleted saved answers. Added section 9s. |
 | 16 Nov 2026 | Doc 3.4 / KB v0.12.0 | Free Chat: three modes per chat (My files / Files + general / Free chat), personas (5 built in, owner's own editable), schema v15. Fixed a Copy-and-edit button bug found in testing. Added section 9t. |
+| 16 Nov 2026 | Doc 3.5 / KB v0.13.0 | Read a web address (page, section, whole site; sitemap, robots.txt, polite, local addresses refused) and paste text into the bank. Schema v16 (sources.url). Added section 9u. |

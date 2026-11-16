@@ -76,6 +76,10 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /chat/delete",
   "POST /chat/send",
   "POST /chat/stop",
+  "POST /crawl/start",
+  "GET /crawl/status",
+  "POST /crawl/stop",
+  "POST /library/add-text",
   "GET /chat/personas",
   "POST /chat/persona/save",
   "POST /chat/persona/delete",
@@ -394,6 +398,11 @@ ipcMain.handle("app:restart", () => {
 ipcMain.handle("file:open", async (_event, sourceId, page) => {
   const src = await callEngine("GET", "/source", { id: Number(sourceId) });
   if (src.error) return src;
+  // v0.13: a page copied from the web opens at its web address in the owner's own browser.
+  if (src.url && /^https?:\/\//i.test(src.url)) {
+    await shell.openExternal(src.url);
+    return { ok: true };
+  }
   if (!src.exists) return { error: "The original file was moved or deleted, so it can't be opened." };
   if (src.file_type !== "pdf") {
     const err = await shell.openPath(src.path);

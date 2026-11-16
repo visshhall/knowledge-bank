@@ -1,7 +1,9 @@
 /**
  * Library.jsx — Phase 1 screen: add files, watch folders, search, manage.
  *
- * WHAT:  1. Drop zone + "Add files" / "Add folder" buttons
+ * WHAT:  0. (v0.13) "From the web / Paste text" card (WebAdd.jsx): read a web
+ *           address, a section or a whole site, or paste text, into the bank
+ *        1. Drop zone + "Add files" / "Add folder" buttons
  *        2. Live import progress (file, page x of y, files left)
  *        3. Instant search across every imported passage, with the file and
  *           page of each match and the matched words highlighted
@@ -20,6 +22,7 @@
  */
 import { useEffect, useState } from "react";
 import Icon from "./icons.jsx";
+import WebAdd from "./WebAdd.jsx";
 import { formatBytes, formatCount, kb, percent, usePoll } from "./bridge.js";
 
 /** Human wording for each source status (matches db.py's allowed values). */
@@ -132,7 +135,7 @@ export default function Library() {
         <h1>Library</h1>
         <p className="lede">
           Add PDFs, Word and PowerPoint files, saved web pages, text and Markdown, screenshots and spreadsheets (Excel
-          or CSV). Your original files are only read — never moved,
+          or CSV) — or read a web address, or paste text. Your original files are only read — never moved,
           changed or copied.
         </p>
       </header>
@@ -169,6 +172,13 @@ export default function Library() {
         </div>
         {notice && <p className={`notice ${notice.kind}`}>{notice.text}</p>}
       </section>
+
+      <WebAdd
+        onChanged={() => {
+          reloadLib();
+          reloadImp();
+        }}
+      />
 
       {imp?.state === "running" && <ImportProgress status={imp} />}
       {imp?.last_error && imp.state !== "running" && (
@@ -326,6 +336,11 @@ export default function Library() {
                             {c}
                           </span>
                         ))}
+                      </span>
+                    )}
+                    {s.url && (
+                      <span className="file-meta web-origin">
+                        <Icon name="globe" size={12} /> {s.url}
                       </span>
                     )}
                     <span className="file-meta">

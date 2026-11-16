@@ -203,7 +203,8 @@ def _removed_before(conn, path: Path, size: int, sha: str | None = None) -> bool
     return bool(sha and conn.execute("SELECT 1 FROM removed_files WHERE sha256 = ?", (sha,)).fetchone())
 
 
-def add_paths(paths: list[str], picked: bool = False) -> dict:
+def add_paths(paths: list[str], picked: bool = False, urls: dict | None = None,
+              names: dict | None = None, keep: bool = False) -> dict:
     """
     Register files/folders for import, then make sure the worker is running.
 
@@ -221,6 +222,12 @@ def add_paths(paths: list[str], picked: bool = False) -> dict:
       (Add files / drag-and-drop of the file itself). Watched-folder scans
       and folder adds always skip removed files — this is what stops
       "files I removed keep coming back".
+
+    v0.13 (used by crawler.py and add_text):
+      urls   {path: web address} — stored in sources.url for pages copied from the web.
+      names  {path: readable name} — shown instead of the copy's file name.
+      keep   True = the owner asked for this content himself, so the "is it about
+             cybersecurity?" check is skipped (that check is for files dropped in bulk).
     """
     files, unsupported = _expand(paths)
     direct = {str(Path(p)) for p in paths if picked and Path(p).is_file()}
@@ -255,9 +262,10 @@ def add_paths(paths: list[str], picked: bool = False) -> dict:
                     result["duplicates"] += 1
                     continue
                 conn.execute(
-                    "INSERT INTO sources(sha256, file_name, original_path, file_type, size_bytes) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (sha, fp.name, str(fp), _file_type(fp), size),
+                    "INSERT INTO sources(sha256, file_name, original_path, file_type, size_bytes, url, keep_anyway) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (sha, (names or {}).get(str(fp)) or fp.name, str(fp), _file_type(fp), size,
+                     (urls or {}).get(str(fp)), 1 if keep else 0),
                 )
                 result["added"] += 1
         except OSError as exc:
@@ -266,6 +274,43 @@ def add_paths(paths: list[str], picked: bool = False) -> dict:
     if result["added"]:
         _ensure_worker()
     return result
+
+
+def add_text(title: str, text: str) -> dict:
+    """
+    v0.13: put pasted text into the bank (notes, an email, a product description, anything).
+    The text is saved as a Markdown copy in the data folder (…/notes/) and imported like a file,
+    with the title as its first line. RETURNS the add_paths result plus {"ok"} or {"ok": False, "message"}.
+    The cybersecurity check is skipped: he pasted it himself.
+    """
+    text = (text or "").strip()
+    title = " ".join((title or "").split())[:120]
+    if len(text) < 20:
+        return {"ok": False, "message": "Paste some text first (at least a sentence)."}
+    if len(text) > 2_000_000:
+        return {"ok": False, "message": "That is too long to paste. Save it as a file and add the file instead."}
+    from . import config
+    title = title or " ".join(text.split())[:60]
+    folder = config.DATA_DIR / "notes"
+    folder.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "note"
+    path = folder / f"{slug}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
+    path.write_text(f"# {title}\n\n{text}\n", encoding="utf-8")
+    r = add_paths([str(path)], picked=True, names={str(path): title}, keep=True)
+    r["ok"] = True
+    if not r["added"]:
+        r["message"] = "That text is already in the bank." if (r["duplicates"] or r["already_in_bank"]) else "Nothing was added."
+    return r
+
+
+def _own_copy(path: str) -> bool:
+    """True for a copy the app itself made (web pages, pasted notes) — those are deleted with their source."""
+    from . import config
+    try:
+        p = Path(path).resolve()
+        return any(p.is_relative_to((config.DATA_DIR / d).resolve()) for d in ("web", "notes"))
+    except (OSError, ValueError):
+        return False
 
 
 def _clean_up_after_removal(conn, source_ids: list[int], touched_topics: set[int]) -> dict:
@@ -349,6 +394,7 @@ def remove_sources(source_ids: list[int]) -> dict:
     """
     removed, busy = [], 0
     touched: set[int] = set()
+    copies: list[str] = []  # the app's own copies (web pages, notes) — deleted so no text is left behind
     with db.connect() as conn:
         for sid in dict.fromkeys(source_ids):
             row = conn.execute("SELECT status FROM sources WHERE id = ?", (sid,)).fetchone()
@@ -360,6 +406,9 @@ def remove_sources(source_ids: list[int]) -> dict:
             touched.update(r[0] for r in conn.execute(
                 "SELECT DISTINCT tp.topic_id FROM topic_passages tp JOIN passages p ON p.id = tp.passage_id "
                 "WHERE p.source_id = ?", (sid,)))
+            own = conn.execute("SELECT original_path FROM sources WHERE id = ?", (sid,)).fetchone()
+            if own and _own_copy(own["original_path"]):
+                copies.append(own["original_path"])
             conn.execute(
                 "INSERT OR REPLACE INTO removed_files(sha256, path, size_bytes) "
                 "SELECT sha256, original_path, size_bytes FROM sources WHERE id = ?", (sid,))
@@ -369,6 +418,11 @@ def remove_sources(source_ids: list[int]) -> dict:
             conn.execute("DELETE FROM sources WHERE id = ?", (sid,))
             removed.append(sid)
         cleaned = _clean_up_after_removal(conn, removed, touched) if removed else {}
+    for c in copies:
+        try:
+            Path(c).unlink()
+        except OSError:
+            pass
     try:
         from . import datapages
         datapages.rebuild_data_topics()  # a removed spreadsheet takes its data topic with it
@@ -680,7 +734,7 @@ def library(limit: int = 2000) -> list[dict]:
     with db.connect() as conn:
         rows = conn.execute(
             """
-            SELECT s.id, s.file_name, s.original_path, s.file_type, s.size_bytes,
+            SELECT s.id, s.file_name, s.original_path, s.file_type, s.size_bytes, s.url,
                    s.page_count, s.status, s.error, s.added_at, s.processed_at,
                    s.relevance_json, s.keep_anyway, s.title, s.categories, s.replaced_by,
                    (SELECT COUNT(*) FROM passages p WHERE p.source_id = s.id)          AS passages,

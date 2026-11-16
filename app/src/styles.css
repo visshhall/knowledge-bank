@@ -1111,3 +1111,22 @@ button.danger:hover { background: #983526; }
 .persona-form input, .persona-form textarea { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font: 400 14px var(--sans); background: var(--surface); color: var(--ink); resize: vertical; }
 .persona-form input[readonly], .persona-form textarea[readonly] { background: var(--surface-2); color: var(--muted); }
 .persona-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* ---- v0.13: add from the web / paste text ---- */
+.web-add { display: grid; gap: 12px; padding: 16px 20px; }
+.web-tabs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); justify-self: start; }
+.web-tabs .seg { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--ink); font: 600 13.5px var(--sans); cursor: pointer; }
+.web-tabs .seg.on { background: var(--forest); color: var(--on-forest); }
+.web-tabs .seg:focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; }
+.web-form { display: grid; gap: 10px; }
+.web-form label { display: grid; gap: 4px; }
+.web-form input[type="text"], .web-form input:not([type]), .web-form input[inputmode], .web-form textarea, .web-form input[type="number"] { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font: 400 14px var(--sans); background: var(--surface); color: var(--ink); }
+.web-form textarea { resize: vertical; }
+.web-scope { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; }
+.web-scope .radio { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.web-limit { display: flex !important; align-items: center; gap: 8px; }
+.web-limit input { width: 84px; }
+.web-actions { display: flex; gap: 10px; }
+.web-progress { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.web-recent, .web-skipped { margin: 0; padding-left: 18px; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.web-origin { display: inline-flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
