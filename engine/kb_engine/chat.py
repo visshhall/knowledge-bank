@@ -53,7 +53,7 @@ import re
 import threading
 import time
 
-from . import answers, chunking, db, memory, ollama_client, personas
+from . import answers, chunking, db, learner, memory, ollama_client, personas
 
 MAX_SOURCES = 6        # passages per question (history shares the 4,096-token window)
 SOURCE_CHARS = 800     # each passage is cut to this length in the prompt
@@ -303,21 +303,25 @@ def send(chat_id: int | None, text: str, general: bool = False, mode: str | None
     return {"ok": True, "chat_id": chat_id}
 
 
-def undo_last(chat_id: int) -> dict:
+def undo_last(chat_id: int, reason: str = "regen") -> dict:
     """
     Take back the last exchange of a chat: the newest answer (if the chat ends with one) and the
     message of his that it answered. RETURNS {"ok": True, "text": <his message>}.
-    Used by the window's "Regenerate" (the text is sent again) and "Edit" (the text goes back into the
-    message box). Refused while a reply is being written, so a half-finished reply is never mixed up.
+    Used by the window's "Regenerate" (the text is sent again; reason "regen") and "Edit" (the text goes
+    back into the message box; reason "edit"). The reason is passed to training.on_undo(): Regenerate means
+    the answer was not good, Edit is neutral. Refused while a reply is being written.
     """
+    from . import training  # late import: training.py imports personas, not chat
     with _lock:
         if _state.get("state") == "running":
             return {"ok": False, "message": "Wait for the reply to finish, or press Stop."}
+    removed_answer = None
     with db.connect() as conn:
         last = conn.execute("SELECT id, role FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
                             (chat_id,)).fetchone()
         if last and last["role"] == "assistant":
             conn.execute("DELETE FROM chat_messages WHERE id = ?", (last["id"],))
+            removed_answer = last["id"]
             last = conn.execute("SELECT id, role FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
                                 (chat_id,)).fetchone()
         if not last or last["role"] != "user":
@@ -325,6 +329,10 @@ def undo_last(chat_id: int) -> dict:
         text = conn.execute("SELECT content FROM chat_messages WHERE id = ?", (last["id"],)).fetchone()["content"]
         conn.execute("DELETE FROM chat_messages WHERE id = ?", (last["id"],))
         conn.execute("UPDATE chats SET updated_at = datetime('now') WHERE id = ?", (chat_id,))
+    try:  # after the transaction above is committed (a second connection would wait on its lock)
+        training.on_undo(chat_id, removed_answer, "edit" if reason == "edit" else "regen")
+    except Exception:  # learning from use must never stop the owner redoing a message
+        pass
     return {"ok": True, "text": text}
 
 
@@ -483,6 +491,8 @@ def _run(chat_id: int, text: str, mode: str, history: list[dict], persona_id: in
         general = mode == "both"
         history = history[-HISTORY_TURNS:]  # library modes keep the window for the passages
         sources = answers._sources(_search_text(text, history), limit=MAX_SOURCES)
+        if not sources:
+            learner.note_gap(text)  # v0.16: "learn about this" when web learning is on
         if not sources and not general:
             reply, has_general, removed = finish_reply("", sources, general)
             _save_reply(chat_id, reply, {}, {"removed": [], "removed_count": 0}, False, model, started, mode)

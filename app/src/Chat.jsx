@@ -1,6 +1,10 @@
 /**
  * Chat.jsx — the home screen: a ChatGPT/Claude-style conversation with your library and the model.
  *
+ * v0.16: the app learns from use. Under each Free-chat answer: thumbs up / down and "Correct" (rewrite the
+ *        answer the way you wanted it). Copy and Regenerate count as signals too. Nothing is asked of you;
+ *        training.py turns good answers and corrections into training examples (see the Learning screen).
+ *
  * v0.15 (chat-first shell): the chat list moved into the sidebar (Sidebar.jsx), and this screen is now
  *        the whole stage: a slim top bar (chat title, model, persona, Memory), a centred conversation,
  *        and a rounded message box at the bottom with an attach button (add files to the library, or
@@ -27,7 +31,7 @@
  * WHEN:  The "chat" screen of App.jsx — the screen the app opens on.
  * CONNECTED TO: App.jsx (activeId, onActiveChange, newChatTick, onListChanged, onOpenTopic, onOpenSetup);
  *        Sidebar.jsx (shows the chat list; it refreshes when we call onListChanged);
- *        bridge.js → engine /chat/get, /chat/send, /chat/status, /chat/stop, /chat/undo, /chat/personas,
+ *        bridge.js → engine /chat/get, /chat/send, /chat/status, /chat/stop, /chat/undo, /training/signal, /training/correct, /chat/personas,
  *        /chat/persona/save, /chat/persona/delete, /models/choices, /models/select, /library/add,
  *        /crawl/start, /crawl/status, /crawl/stop (server.py → chat.py, modelpick.py, importer.py,
  *        crawler.py); MemoryPanel.jsx; Formatted.jsx (Markdown, Formatted); SourceChip.jsx; icons.jsx.
@@ -101,6 +105,8 @@ export default function Chat({ activeId, onActiveChange, newChatTick, onListChan
   const [webScope, setWebScope] = useState("page");
   const [dragging, setDragging] = useState(false); // files are being dragged over the window
   const [copied, setCopied] = useState(null); // message id whose Copy was just pressed
+  const [rated, setRated] = useState({}); // message id -> "up" | "down" (this session), so the thumb stays lit
+  const [correcting, setCorrecting] = useState(null); // { id, text } — an answer being rewritten
   const [job] = usePoll("/chat/status", 700);
   const [crawl, reloadCrawl] = usePoll("/crawl/status", 1500);
   const [models, reloadModels] = usePoll("/models/choices", 0);
@@ -214,9 +220,9 @@ export default function Chat({ activeId, onActiveChange, newChatTick, onListChan
   }
 
   /** Take back the last question and answer; resolves to the question's text (or null). */
-  async function takeBack() {
+  async function takeBack(reason) {
     if (!activeId || running) return null;
-    const r = await kb.post("/chat/undo", { chat_id: activeId });
+    const r = await kb.post("/chat/undo", { chat_id: activeId, reason });
     if (r.error || r.ok === false) {
       setNotice(r.error || r.message);
       return null;
@@ -228,20 +234,43 @@ export default function Chat({ activeId, onActiveChange, newChatTick, onListChan
 
   /** Regenerate: ask the same question again for a fresh answer. */
   async function regenerate() {
-    const text = await takeBack();
+    const text = await takeBack("regen"); // Regenerate = "that answer was not good" for the learning signals
     if (text) send(text);
   }
 
   /** Edit: put your last message back in the box to change and send again. */
   async function editLast() {
-    const text = await takeBack();
+    const text = await takeBack("edit"); // Edit = neutral
     if (text) {
       setDraft(text);
       boxRef.current?.focus();
     }
   }
 
-  async function copyText(id, text) {
+  /** Tell the engine how the owner reacted to an answer (thumbs, Copy). Quiet: failures are ignored. */
+  function signal(id, kind) {
+    kb.post("/training/signal", { message_id: id, signal: kind });
+  }
+
+  function rate(id, kind) {
+    setRated((cur) => ({ ...cur, [id]: kind }));
+    signal(id, kind);
+  }
+
+  async function saveCorrection() {
+    if (!correcting) return;
+    const r = await kb.post("/training/correct", { message_id: correcting.id, text: correcting.text });
+    if (r.ok === false || r.error) {
+      setNotice(r.message || r.error);
+      return;
+    }
+    setCorrecting(null);
+    setInfo("Saved. This corrected answer will be used to teach the model your way.");
+    loadChat(activeId);
+  }
+
+  async function copyText(id, text, isAnswer = false) {
+    if (isAnswer) signal(id, "copy");
     try {
       await navigator.clipboard.writeText(text);
       setCopied(id);
@@ -565,10 +594,17 @@ export default function Chat({ activeId, onActiveChange, newChatTick, onListChan
                 open={openSources.has(m.id)}
                 lit={lit}
                 copied={copied === m.id}
+                rating={rated[m.id]}
+                correcting={correcting?.id === m.id ? correcting : null}
+                onRate={(kind) => rate(m.id, kind)}
+                onCorrectStart={() => setCorrecting({ id: m.id, text: m.content })}
+                onCorrectChange={(text) => setCorrecting({ id: m.id, text })}
+                onCorrectSave={saveCorrection}
+                onCorrectCancel={() => setCorrecting(null)}
                 canRegenerate={lastAssistant?.id === m.id && !running}
                 onToggle={() => toggleSources(m.id)}
                 onCite={(n) => cite(m.id, n)}
-                onCopy={() => copyText(m.id, m.content)}
+                onCopy={() => copyText(m.id, m.content, true)}
                 onRegenerate={regenerate}
                 onOpenTopic={onOpenTopic}
               />
@@ -766,7 +802,7 @@ export default function Chat({ activeId, onActiveChange, newChatTick, onListChan
 }
 
 /** One answer: the text, a general-knowledge box if there is one, a checked-note, actions and the sources. */
-function AnswerCard({ m, open, lit, copied, canRegenerate, onToggle, onCite, onCopy, onRegenerate, onOpenTopic }) {
+function AnswerCard({ m, open, lit, copied, rating, correcting, onRate, onCorrectStart, onCorrectChange, onCorrectSave, onCorrectCancel, canRegenerate, onToggle, onCite, onCopy, onRegenerate, onOpenTopic }) {
   const [fromFiles, fromGeneral] = splitGeneral(m.content);
   const sources = Object.entries(m.sources ?? {});
   const removed = m.checks?.removed_count ?? 0;
@@ -801,6 +837,29 @@ function AnswerCard({ m, open, lit, copied, canRegenerate, onToggle, onCite, onC
           <button className="cx-act" onClick={onCopy} title="Copy this answer">
             <Icon name={copied ? "check" : "copy"} size={14} /> {copied ? "Copied" : "Copy"}
           </button>
+          {m.mode === "free" && (
+            <>
+              <button
+                className={`cx-act ${rating === "up" ? "lit" : ""}`}
+                onClick={() => onRate("up")}
+                aria-pressed={rating === "up"}
+                title="Good answer — the app learns from it"
+              >
+                <Icon name="thumbup" size={14} />
+              </button>
+              <button
+                className={`cx-act ${rating === "down" ? "lit" : ""}`}
+                onClick={() => onRate("down")}
+                aria-pressed={rating === "down"}
+                title="Not good — the app will not learn from it"
+              >
+                <Icon name="thumbdown" size={14} />
+              </button>
+              <button className="cx-act" onClick={onCorrectStart} title="Rewrite this answer the way you wanted it; the app learns your way">
+                <Icon name="edit" size={14} /> Correct
+              </button>
+            </>
+          )}
           {canRegenerate && (
             <button className="cx-act" onClick={onRegenerate} title="Ask again for a fresh answer">
               <Icon name="refresh" size={14} /> Regenerate
@@ -818,6 +877,26 @@ function AnswerCard({ m, open, lit, copied, canRegenerate, onToggle, onCite, onC
           )}
         </span>
       </div>
+      {correcting && (
+        <div className="cx-correct">
+          <p className="small muted">Write the answer the way you wanted it. It replaces this one and is kept as a teaching example.</p>
+          <textarea
+            value={correcting.text}
+            onChange={(e) => onCorrectChange(e.target.value)}
+            rows={8}
+            aria-label="The corrected answer"
+            maxLength={6000}
+          />
+          <div className="persona-actions">
+            <button type="button" className="small-btn" onClick={onCorrectSave} disabled={correcting.text.trim().length < 2}>
+              Save correction
+            </button>
+            <button type="button" className="secondary small-btn" onClick={onCorrectCancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {showRemoved && removed > 0 && (
         <ul className="small muted">
           {m.checks.removed.map((r, i) => (

@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.15.0 (chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.16.0 (the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -110,6 +110,18 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.16.0 — The app learns by itself ✅ delivered
+- [x] Learning screen (Knowledge section): web learning switch (OFF by default), topics, watch addresses, daily budget, recent activity, Remove everything it learned
+- [x] Thumbs up/down and Correct under Free-chat answers; Copy / Regenerate / Edit counted as signals
+- [x] Training examples built automatically; review (Reject / Restore); Export dataset + HOW_TO_FINE_TUNE.md
+- [ ] Owner check: open Learning, add one topic you care about (e.g. "Microsoft Sentinel analytics rule tuning"), turn Web learning on, press "Learn now", watch "What it just did", then look in Library for the pages (they show the web address)
+- [ ] Owner check: ask "My files" a question your files cannot answer — it should appear as a topic "from a question" (only while learning is on)
+- [ ] Owner check: in Free chat press thumbs-up on 3 answers and Correct one; Learning should show 4 examples
+- [ ] Owner check: leave learning on for a day and tell me if the pages it added are useful or junk; use "Remove everything it learned" if junk
+- [ ] Known: the web search reads DuckDuckGo's public page; if it stops returning results the topics show "nothing found" and the loop rests
+- [ ] Known: learned pages are not filtered to cybersecurity; the topic list decides what gets learned
+- [ ] Not built yet: import the fine-tuned model from inside the app; automatic memory suggestions at the end of a chat
+
 ## v0.15.0 — Chat-first app ✅ delivered
 - [x] App opens on a new chat; sidebar with chat history (Today / Yesterday / Previous 7 days / Older), rename, delete, search
 - [x] Library screens moved under a collapsible "Knowledge" section; Setup and Search everything at the foot
@@ -159,7 +171,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - v0.13 ✅ delivered: web reading and pasted text (other file types already worked)
 - v0.14 ✅ delivered: memory about you
 - v0.15 ✅ delivered: chat-first app shell
-- v0.16 Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
+- v0.16 ✅ delivered (signals, examples, export, web learning). Remaining of the old training kit: in-app import of the fine-tuned model
+- (old plan) Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
 - Later ideas: voice in/out, optional web search when online, phone access (needs a security decision)
 
 ## v0.11.0 — Chat and model picker ✅ delivered

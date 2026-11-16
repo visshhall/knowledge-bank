@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -776,6 +776,58 @@ def _migrate_v17() -> None:
         )
 
 
+def _migrate_v18() -> None:
+    """
+    Schema v18 (KB v0.16). Idempotent, every start. Adds what "the app learns from use" needs:
+      message_feedback    one row per signal the owner gave about an answer: up, down, copy, regen,
+                          edit or correct (training.py). Kept as plain counts for the Learning screen.
+      training_examples   question -> answer pairs worth teaching a model: kind 'good' (he rated or
+                          copied a Free-chat answer) or 'correction' (he rewrote an answer; the most
+                          valuable kind). `status` 'new' or 'rejected' (he can reject any in Learning).
+                          Exported as a JSONL dataset for a cloud fine-tune. Only Free-chat answers
+                          are used: library answers depend on the passages that were attached, which a
+                          fine-tune would not see.
+      learn_topics        things the app should learn about from the web: typed by the owner
+                          (origin 'owner') or noticed from questions the library could not answer
+                          (origin 'gap'). learner.py works through them.
+      learn_watch         web addresses the owner wants re-read on a schedule (learner.py).
+      sources.origin      'learned' for pages the app fetched by itself (NULL = added by the owner), and
+      sources.learn_topic the topic or watch address that led to it. Lets Learning list them and
+                          remove them all in one click.
+    """
+    with connect() as conn:
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(sources)").fetchall()}
+        if "origin" not in have:
+            conn.execute("ALTER TABLE sources ADD COLUMN origin TEXT")
+        if "learn_topic" not in have:
+            conn.execute("ALTER TABLE sources ADD COLUMN learn_topic TEXT")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_feedback ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER, signal TEXT NOT NULL, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS training_examples ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, chat_id INTEGER, "
+            "kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new', system TEXT NOT NULL DEFAULT '', "
+            "prompt TEXT NOT NULL, response TEXT NOT NULL, original TEXT, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS training_examples_msg ON training_examples(message_id)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS learn_topics ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, topic TEXT NOT NULL UNIQUE, origin TEXT NOT NULL DEFAULT 'owner', "
+            "status TEXT NOT NULL DEFAULT 'pending', pages_added INTEGER NOT NULL DEFAULT 0, last_run TEXT, "
+            "note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS learn_watch ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE, scope TEXT NOT NULL DEFAULT 'section', "
+            "max_pages INTEGER NOT NULL DEFAULT 30, pages_added INTEGER NOT NULL DEFAULT 0, last_run TEXT, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '18') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -856,7 +908,8 @@ def init_db() -> int:
     _migrate_v15()  # idempotent (v0.12: chat modes and personas)
     _migrate_v16()  # idempotent (v0.13: web addresses of imported pages)
     _migrate_v17()  # idempotent (v0.14: memory about the owner)
-    return 17
+    _migrate_v18()  # idempotent (v0.16: feedback, training examples, web learning)
+    return 18
 
 
 def stats() -> dict:

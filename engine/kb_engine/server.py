@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -125,6 +125,7 @@ async def lifespan(_app: FastAPI):
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
     importer.start()  # resume interrupted imports + start watched-folder scanner
+    learner.start()  # v0.16: web learning loop (does nothing until the owner turns it on in Learning)
     # v0.8: spreadsheets imported before data topics existed get their charts,
     # checks and Subnet Lab now, without the owner pressing "Rebuild topics".
     # Runs in a thread so a large bank never delays the '[engine] ready' line.
@@ -607,8 +608,49 @@ class ChatSendRequest(BaseModel):
 
 
 class ChatUndoRequest(BaseModel):
-    """Body of POST /chat/undo: take back the last question and answer (Regenerate / Edit)."""
+    """Body of POST /chat/undo: take back the last question and answer. reason: "regen" or "edit"."""
     chat_id: int
+    reason: str = "regen"
+
+
+class SignalRequest(BaseModel):
+    """Body of POST /training/signal: a reaction to an answer (up, down, copy)."""
+    message_id: int
+    signal: str
+
+
+class CorrectRequest(BaseModel):
+    """Body of POST /training/correct: the answer the owner wanted instead."""
+    message_id: int
+    text: str
+
+
+class ExampleStatusRequest(BaseModel):
+    id: int
+    status: str
+
+
+class LearnToggleRequest(BaseModel):
+    on: bool
+
+
+class LearnLimitsRequest(BaseModel):
+    daily_pages: int | None = None
+    round_gap_min: int | None = None
+
+
+class LearnTopicRequest(BaseModel):
+    topic: str
+
+
+class LearnWatchRequest(BaseModel):
+    url: str
+    scope: str = "section"
+    max_pages: int = 30
+
+
+class IdRequest(BaseModel):
+    id: int
 
 
 class PersonaSaveRequest(BaseModel):
@@ -672,7 +714,89 @@ def chat_send(body: ChatSendRequest) -> dict:
 
 @app.post("/chat/undo", dependencies=[Depends(require_token)])
 def chat_undo(body: ChatUndoRequest) -> dict:
-    return chat.undo_last(body.chat_id)
+    return chat.undo_last(body.chat_id, body.reason)
+
+
+# --- v0.16: learning from use (training.py) and learning from the web (learner.py) ----------------
+
+@app.post("/training/signal", dependencies=[Depends(require_token)])
+def training_signal(body: SignalRequest) -> dict:
+    return training.record(body.message_id, body.signal)
+
+
+@app.post("/training/correct", dependencies=[Depends(require_token)])
+def training_correct(body: CorrectRequest) -> dict:
+    return training.correct(body.message_id, body.text)
+
+
+@app.get("/training/status", dependencies=[Depends(require_token)])
+def training_status() -> dict:
+    return training.status()
+
+
+@app.get("/training/examples", dependencies=[Depends(require_token)])
+def training_examples(status: str = "new", limit: int = 40, offset: int = 0) -> dict:
+    return training.examples(status, limit, offset)
+
+
+@app.post("/training/example/status", dependencies=[Depends(require_token)])
+def training_example_status(body: ExampleStatusRequest) -> dict:
+    return training.set_status(body.id, body.status)
+
+
+@app.post("/training/export", dependencies=[Depends(require_token)])
+def training_export() -> dict:
+    return training.export()
+
+
+@app.get("/learn/status", dependencies=[Depends(require_token)])
+def learn_status() -> dict:
+    return learner.status()
+
+
+@app.post("/learn/enable", dependencies=[Depends(require_token)])
+def learn_enable(body: LearnToggleRequest) -> dict:
+    return learner.set_enabled(body.on)
+
+
+@app.post("/learn/limits", dependencies=[Depends(require_token)])
+def learn_limits(body: LearnLimitsRequest) -> dict:
+    return learner.set_limits(body.daily_pages, body.round_gap_min)
+
+
+@app.post("/learn/run", dependencies=[Depends(require_token)])
+def learn_run() -> dict:
+    return learner.run_now()
+
+
+@app.post("/learn/topic/add", dependencies=[Depends(require_token)])
+def learn_topic_add(body: LearnTopicRequest) -> dict:
+    return learner.add_topic(body.topic)
+
+
+@app.post("/learn/topic/remove", dependencies=[Depends(require_token)])
+def learn_topic_remove(body: IdRequest) -> dict:
+    return learner.remove_topic(body.id)
+
+
+@app.post("/learn/watch/add", dependencies=[Depends(require_token)])
+def learn_watch_add(body: LearnWatchRequest) -> dict:
+    return learner.add_watch(body.url, body.scope, body.max_pages)
+
+
+@app.post("/learn/watch/remove", dependencies=[Depends(require_token)])
+def learn_watch_remove(body: IdRequest) -> dict:
+    return learner.remove_watch(body.id)
+
+
+@app.get("/learn/pages", dependencies=[Depends(require_token)])
+def learn_pages(limit: int = 50, offset: int = 0) -> dict:
+    return learner.learned_pages(limit, offset)
+
+
+@app.post("/learn/remove-all", dependencies=[Depends(require_token)])
+def learn_remove_all() -> dict:
+    return learner.remove_all_learned()
 
 
 @app.get("/chat/personas", dependencies=[Depends(require_token)])

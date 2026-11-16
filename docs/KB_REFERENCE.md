@@ -5,7 +5,7 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.15.0 — the app is chat-first: it opens on a new chat, with a ChatGPT/Claude-style sidebar, attach files / add a web page from the message box, Regenerate and Edit; v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Current version | KB v0.16.0 — the app learns by itself: web learning (finds and reads pages on topics, adds them straight to the library, within a daily budget) and learning from use (thumbs, Copy, Regenerate, Correct → training examples → dataset export); v0.15.0 — the app is chat-first: it opens on a new chat, with a ChatGPT/Claude-style sidebar, attach files / add a web page from the message box, Regenerate and Edit; v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
 | Document version | 3.6 |
 | Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
@@ -701,6 +701,31 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9x. v0.16.0 — The app learns by itself (16 Nov 2026)
+
+*Why:* the owner asked how the app can improve apart from files he adds, and then asked for it to crawl the web to learn. He chose **fully automatic** and **add immediately**. A local model on a 4 GB laptop cannot rewrite its own weights safely, so "learning" here means two things the app can do alone: grow its library from the web, and collect/prepare training data from how he uses it. The real fine-tune stays a short cloud run he starts.
+
+**A. Learning from use (`training.py`, schema v18)**
+- Signals the window reports: thumbs-up and Copy = good; thumbs-down and Regenerate = not good; Edit = neutral; "Correct" = he rewrites a Free-chat answer.
+- A good Free-chat answer becomes a *training example* (his question → the answer, with the persona's instructions as system text). A correction replaces the plain example and keeps the model's original.
+- Never an example: shorter than 40 characters, over ~6,000, "Your files don't cover this…", answers the fact-checker trimmed, anything marked down, and **any library-mode answer** (those depend on passages attached to the question, so teaching them would teach inventing).
+- Learning screen: counts, a bar to ~300 examples (the point where a fine-tune is worth trying), a review list with Reject/Restore, and **Export dataset** → `<data folder>/training/dataset-<date>.jsonl` (one chat per line, "messages" format, duplicates removed) plus `HOW_TO_FINE_TUNE.md` (cloud notebook steps, GGUF export, `ollama create akara-mine -f Modelfile`, pick it in the model list). Needs at least 20 examples.
+- Not built: importing the fine-tuned model from inside the app (the recipe uses one `ollama create` command instead).
+
+**B. Learning from the web (`learner.py`, `websearch.py`)**
+- A background loop, **OFF until he turns it on** in Learning. While on, each round it takes one topic (his own first, then topics noticed from questions "My files" could not answer — `chat.note_gap`), searches the web, reads up to 4 pages (one per site) with the normal crawler (robots.txt, polite delay, never local addresses) and **adds them straight to the library**, marked `sources.origin = 'learned'` with the topic.
+- Watch addresses (his list) are re-read about every 24 h; the existing duplicate check means only changed content is added.
+- Hard limits: daily page budget (default 60, 5–300), at most one topic per round, 20 minutes between rounds (5–240), only when online and not while he is running a web read himself, nothing from social/video/shopping sites, and a 3-hour rest after 4 empty rounds in a row.
+- Everything is visible and reversible: topic list with results, recent activity, "Learn now", "Remove everything it learned" (asks twice; his own files are never touched).
+- `websearch.py` reads DuckDuckGo's public "lite" results page (no key, only the search words leave the laptop). It can change layout or refuse bursts; then it returns nothing and the loop waits. Swapping the provider only touches that file.
+- Learned pages are not cybersecurity-filtered (kept anyway), so a topic far from his field adds pages on that topic; the cap and Remove-all are the safety net.
+
+*Connected to:* `db.py` (`_migrate_v18`: message_feedback, training_examples, learn_topics, learn_watch, sources.origin/learn_topic), `chat.py` (`undo_last(chat_id, reason)`, `note_gap`), `crawler.py` (`start(..., origin, topic)`), `server.py` (`/training/*`, `/learn/*`), `main.cjs` allowlist, `Learning.jsx`, `Chat.jsx`, `Sidebar.jsx`.
+
+*Tests:* `test_training.py`, `test_learner.py` (local test site + fake search; budget, offline, pause, watch, removal, parser).
+
+*Planned next:* import a fine-tuned model from the window; run "suggest memory" automatically at the end of a chat; rate library answers separately.
+
 ## 9w. v0.15.0 — Chat-first app (16 Nov 2026)
 
 *Why:* the owner asked to turn the whole Knowledge Bank into a chat app "with all the UI/UX like that, not just models". Before, Chat was one of eight screens in a side rail. Now the app opens on Chat and the library is what the chat draws on.
@@ -813,3 +838,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.5 / KB v0.13.0 | Read a web address (page, section, whole site; sitemap, robots.txt, polite, local addresses refused) and paste text into the bank. Schema v16 (sources.url). Added section 9u. |
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
+| 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |

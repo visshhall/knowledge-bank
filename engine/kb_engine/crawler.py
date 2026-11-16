@@ -284,11 +284,14 @@ def _fetch(client: httpx.Client, url: str, max_bytes: int) -> tuple[bytes, str, 
 # The crawl
 # ---------------------------------------------------------------------------
 
-def start(url: str, scope: str = "section", max_pages: int = MAX_PAGES_DEFAULT, depth: int | None = None) -> dict:
+def start(url: str, scope: str = "section", max_pages: int = MAX_PAGES_DEFAULT, depth: int | None = None,
+          origin: str | None = None, topic: str | None = None) -> dict:
     """
     Begin reading a web address in the background. RETURNS {"ok": True} or {"ok": False, "message"}.
     scope: "page" | "section" | "site"; max_pages up to 500; depth (links followed from the first
     page) up to 5 — default 2 for a section, 3 for a site, 0 for a single page.
+    origin/topic (v0.16): learner.py passes origin="learned" and the topic that led here; every page this
+    read adds is then marked in the library as learned by the app (sources.origin / learn_topic).
     """
     clean = normalize_url(url)
     if not clean:
@@ -304,7 +307,8 @@ def start(url: str, scope: str = "section", max_pages: int = MAX_PAGES_DEFAULT, 
             return {"ok": False, "message": "A web read is already running. Stop it or wait for it to finish."}
         _state.clear()
         _state.update(state="running", start_url=clean, scope=scope, max_pages=max_pages, fetched=0, stored=0,
-                      skipped={}, recent=[], current=clean, message="Starting…", started_at=time.time())
+                      skipped={}, recent=[], current=clean, message="Starting…", started_at=time.time(),
+                      origin=origin, topic=topic)
     _stop.clear()
     threading.Thread(target=_crawl, args=(clean, scope, max_pages, depth), name="kb-crawl", daemon=True).start()
     return {"ok": True}
@@ -456,6 +460,11 @@ def _crawl(start_url: str, scope: str, max_pages: int, depth: int) -> None:
                 if result["added"]:
                     stored += 1
                     _set(stored=stored)
+                    if _state.get("origin"):  # a page the app fetched by itself: mark it so Learning can list/remove it
+                        from . import db
+                        with db.connect() as conn:
+                            conn.execute("UPDATE sources SET origin = ?, learn_topic = ? WHERE original_path = ?",
+                                         (_state["origin"], _state.get("topic"), str(path)))
                     note(final, title, "added")
                 elif result["duplicates"]:
                     skip("same content as a page already in the bank")

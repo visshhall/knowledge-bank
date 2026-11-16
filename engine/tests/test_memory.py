@@ -20,7 +20,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-memory-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import answers, chat, db, memory, ollama_client  # noqa: E402
 
-assert db.init_db() == 17
+assert db.init_db() == 18
 
 # --- add, limits, duplicates ------------------------------------------------------------------------
 assert memory.add("")["ok"] is False and memory.add("hi")["ok"] is False

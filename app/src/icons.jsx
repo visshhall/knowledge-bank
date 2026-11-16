@@ -5,7 +5,7 @@
  *        stroke icons: overview, library, topics, setup, search, upload,
  *        folder, eye, sparkle, arrow-left, file, check, alert, refresh,
  *        and (v0.7) answer, learn, tools, map, grid, open, lock, globe, copy,
- *        and (v0.11) chat, and (v0.15) plus, send, clip, panel, edit, trash, stop, down.
+ *        and (v0.11) chat, and (v0.15) plus, send, clip, panel, edit, trash, stop, down, and (v0.16) thumbup, thumbdown.
  * WHY:   Icons make the side rail and buttons quicker to scan. Drawing them
  *        inline (instead of an icon font or image files) keeps them crisp at
  *        any size, lets them take the text colour (currentColor), and works
@@ -52,6 +52,9 @@ const PATHS = {
   trash: ["M4 7h16", "M9 7V4h6v3", "M6 7l1 13h10l1-13", "M10 11v6", "M14 11v6"],
   stop: ["M7 7h10v10H7z"],
   down: ["M6 9l6 6 6-6"],
+  // v0.16 feedback on answers
+  thumbup: ["M7 11v9H4v-9z", "M7 11l4-7a2 2 0 0 1 2 2v4h5.5a2 2 0 0 1 2 2.3l-1.2 6a2 2 0 0 1-2 1.7H7"],
+  thumbdown: ["M7 13V4H4v9z", "M7 13l4 7a2 2 0 0 0 2-2v-4h5.5a2 2 0 0 0 2-2.3l-1.2-6a2 2 0 0 0-2-1.7H7"],
 };
 
 /**
