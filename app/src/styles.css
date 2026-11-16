@@ -1130,3 +1130,21 @@ button.danger:hover { background: #983526; }
 .web-progress { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .web-recent, .web-skipped { margin: 0; padding-left: 18px; display: grid; gap: 2px; overflow-wrap: anywhere; }
 .web-origin { display: inline-flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
+
+/* ---- v0.14: memory about you ---- */
+.msg-user-wrap { justify-self: end; max-width: min(80%, 640px); display: grid; justify-items: end; gap: 2px; }
+.msg-user-wrap .msg-user { max-width: 100%; }
+.msg-user-wrap > .link { opacity: 0.6; }
+.msg-user-wrap:hover > .link, .msg-user-wrap > .link:focus-visible { opacity: 1; }
+.memory-panel { display: grid; gap: 10px; padding: 14px 18px; }
+.memory-switch { display: flex; align-items: center; gap: 8px; font-size: 14px; flex-wrap: wrap; }
+.memory-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.memory-add input[type="text"], .memory-add input:not([type]) { flex: 1 1 280px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font: 400 14px var(--sans); background: var(--surface); color: var(--ink); }
+.memory-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.memory-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.memory-text { overflow-wrap: anywhere; font-size: 14px; }
+.memory-actions { display: inline-flex; gap: 10px; flex-shrink: 0; align-items: center; }
+.memory-edit { display: flex; gap: 8px; width: 100%; align-items: center; }
+.memory-edit input { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; font: 400 14px var(--sans); background: var(--surface); color: var(--ink); }
+.memory-foot { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.memory-proposals { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }

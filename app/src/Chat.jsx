@@ -1,6 +1,9 @@
 /**
  * Chat.jsx — v0.11/v0.12 "Chat": talk to your library, or freely to the model, in saved conversations.
  *
+ * v0.14: a "Memory" button opens a list of short facts about you (MemoryPanel.jsx) that Free chat
+ *        uses; "Remember" under each of your messages pre-fills a new fact from that message.
+ *
  * v0.12: a three-way switch above the message box chooses how a chat answers —
  *        "My files" (library only, cited and checked), "Files + general" (files
  *        first, then a labelled general-knowledge part) or "Free chat" (no files,
@@ -40,6 +43,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import SourceChip from "./SourceChip.jsx";
+import MemoryPanel from "./MemoryPanel.jsx";
 import { Formatted, Markdown } from "./Formatted.jsx";
 import { kb, usePoll } from "./bridge.js";
 
@@ -81,6 +85,9 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
   const [personaId, setPersonaId] = useState(null); // who answers in Free chat (null = the Assistant)
   const [editing, setEditing] = useState(null); // the persona being written: { id, name, prompt, builtin }
   const [showPersonas, setShowPersonas] = useState(false);
+  const [showMemory, setShowMemory] = useState(false); // the Memory panel (v0.14)
+  const [prefill, setPrefill] = useState(""); // text for a new memory fact, from "Remember" under a message
+  const clearPrefill = useCallback(() => setPrefill(""), []);
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(null); // { id, value }
   const [confirmDelete, setConfirmDelete] = useState(null); // chat id waiting for a second click
@@ -357,10 +364,15 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
                 </button>
               </label>
             )}
+            <button className="link small" onClick={() => setShowMemory(!showMemory)} aria-expanded={showMemory}>
+              {showMemory ? "Close memory" : "Memory"}
+            </button>
             <button className="link small" onClick={onOpenSetup}>
               Download and compare models
             </button>
           </div>
+
+          {showMemory && <MemoryPanel chatId={activeId} prefill={prefill} onPrefillUsed={clearPrefill} />}
 
           {free && showPersonas && (
             <section className="card persona-editor" aria-label="Personas">
@@ -459,8 +471,17 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
 
             {messages.map((m) =>
               m.role === "user" ? (
-                <div key={m.id} className="msg-user">
-                  {m.content}
+                <div key={m.id} className="msg-user-wrap">
+                  <div className="msg-user">{m.content}</div>
+                  <button
+                    className="link small"
+                    onClick={() => {
+                      setShowMemory(true);
+                      setPrefill(m.content);
+                    }}
+                  >
+                    Remember
+                  </button>
                 </div>
               ) : (
                 <AnswerCard

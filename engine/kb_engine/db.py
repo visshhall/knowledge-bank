@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -757,6 +757,25 @@ def _migrate_v16() -> None:
         )
 
 
+def _migrate_v17() -> None:
+    """
+    Schema v17 (KB v0.14). One new table (idempotent, every start):
+      user_memory   short facts the owner wants the assistant to know about him (his business,
+                    preferences, projects). `pinned` 1 = always included first. Used only by
+                    memory.py; shown and edited in Chat → Memory. Facts are only ever added by
+                    the owner (typed, or approved from a suggestion) — never silently.
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_memory ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '17') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -836,7 +855,8 @@ def init_db() -> int:
     _migrate_v14()  # idempotent (v0.11: saved chats)
     _migrate_v15()  # idempotent (v0.12: chat modes and personas)
     _migrate_v16()  # idempotent (v0.13: web addresses of imported pages)
-    return 16
+    _migrate_v17()  # idempotent (v0.14: memory about the owner)
+    return 17
 
 
 def stats() -> dict:

@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.13.0 (web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.14.0 (memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -110,6 +110,14 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.14.0 — Memory about you ✅ delivered
+- [x] Chat → Memory: add, edit, pin, delete, forget everything, on/off switch
+- [x] "Remember" under your messages; "Suggest from this chat" (you approve each fact)
+- [x] Free chat uses the facts; library answers never do
+- [ ] Owner check: add 4–5 facts about Ākāra and how you like things written, then in Free chat ask for a planter page without repeating them and tell me if it used them
+- [ ] Owner check: press "Suggest from this chat" after a long Free chat and tell me if the suggestions are useful or noisy
+- [ ] Known: a small model uses a fact only some of the time; for important writing, also say it in the message
+
 ## v0.13.0 — Add from the web and paste text ✅ delivered
 - [x] Library → "From the web": a page, a section or a whole site, with a page limit; Stop; progress and reasons for skipped pages
 - [x] Pages and linked documents saved as local copies, searchable, usable in Chat/Topics; opening a source opens its web address
@@ -130,7 +138,7 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 
 ### Agreed roadmap after v0.12 (not started)
 - v0.13 ✅ delivered: web reading and pasted text (other file types already worked)
-- v0.14 Memory about you: durable facts (preferences, business details) you can read, edit and delete
+- v0.14 ✅ delivered: memory about you
 - v0.15 Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
 - Later ideas: voice in/out, optional web search when online, phone access (needs a security decision)
 

@@ -16,6 +16,8 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /library                 — every imported file with its counts
          POST /library/add             — import files/folders
          POST /library/add-text        — import pasted text (v0.13)
+         GET  /memory · POST /memory/add · /memory/update · /memory/delete · /memory/clear · /memory/enable
+              · /memory/suggest {chat_id} · GET /memory/suggest/status   (v0.14 memory about the owner)
          POST /crawl/start · GET /crawl/status · POST /crawl/stop — read a web page, section or site (v0.13)
          POST /library/remove          — take one file out of the bank
          POST /library/remove-many     — take several files out (and everything built from them)
@@ -90,7 +92,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, modelpick, personas, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -493,6 +495,67 @@ def answer_get(id: int) -> dict:
 @app.post("/answer/delete", dependencies=[Depends(require_token)])
 def answer_delete(body: IdRequest) -> dict:
     return answers.delete(body.id)
+
+
+# --- v0.14: memory about the owner (memory.py) --------------------------------------
+
+class MemoryAddRequest(BaseModel):
+    text: str
+    pinned: bool = False
+
+
+class MemoryUpdateRequest(BaseModel):
+    id: int
+    text: str | None = None
+    pinned: bool | None = None
+
+
+class EnableRequest(BaseModel):
+    on: bool
+
+
+class MemorySuggestRequest(BaseModel):
+    chat_id: int
+
+
+@app.get("/memory", dependencies=[Depends(require_token)])
+def memory_list() -> dict:
+    return memory.list_all()
+
+
+@app.post("/memory/add", dependencies=[Depends(require_token)])
+def memory_add(body: MemoryAddRequest) -> dict:
+    return memory.add(body.text, body.pinned)
+
+
+@app.post("/memory/update", dependencies=[Depends(require_token)])
+def memory_update(body: MemoryUpdateRequest) -> dict:
+    return memory.update(body.id, body.text, body.pinned)
+
+
+@app.post("/memory/delete", dependencies=[Depends(require_token)])
+def memory_delete(body: IdRequest) -> dict:
+    return memory.delete(body.id)
+
+
+@app.post("/memory/clear", dependencies=[Depends(require_token)])
+def memory_clear() -> dict:
+    return memory.clear()
+
+
+@app.post("/memory/enable", dependencies=[Depends(require_token)])
+def memory_enable(body: EnableRequest) -> dict:
+    return memory.set_enabled(body.on)
+
+
+@app.post("/memory/suggest", dependencies=[Depends(require_token)])
+def memory_suggest(body: MemorySuggestRequest) -> dict:
+    return memory.suggest(body.chat_id)
+
+
+@app.get("/memory/suggest/status", dependencies=[Depends(require_token)])
+def memory_suggest_status() -> dict:
+    return memory.suggest_status()
 
 
 # --- v0.13: add pages from the web and pasted text ----------------------------------

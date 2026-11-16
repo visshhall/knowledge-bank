@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
-| Document version | 3.5 |
+| Current version | KB v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Document version | 3.6 |
 | Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
 
@@ -701,6 +701,22 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9v. v0.14.0 — Memory about you (16 Nov 2026)
+
+*Why:* the owner wants an assistant that knows him (his business, preferences, projects) without repeating himself in every chat, and wants to be able to see and control everything it knows. For a small local model this is the cheapest and safest form of "training": no training at all, only context. Agreed roadmap step after Free chat and web reading.
+
+*What — `engine/kb_engine/memory.py`, panel `app/src/MemoryPanel.jsx` (button "Memory" in the Chat bar; table `user_memory`, schema v17):*
+- **A plain list of short facts** (each up to 300 characters, at most 200). He can add, edit, pin (pinned facts are always used first), delete, or "Forget everything" (asks twice). A switch "Use my memory in Free chat" turns it off without erasing it.
+- **Nothing is saved unless he presses a button.** Two ways to add besides typing: "Remember" under any of his messages (pre-fills the box with that message to shorten), and "Suggest from this chat" — the model reads only what HE wrote in that chat and proposes up to 5 lasting facts (already-saved ones are shown to it so it doesn't repeat them; temporary things are to be skipped); each proposal has Remember / Skip.
+- **Where it is used:** only in Free chat. The facts are added to the model's instructions (after the persona) under "what the owner has told you about himself — use it only when it helps, never list it back". "My files" and "Files + general" answers are not shaped by it, so a cited answer can never be influenced by something he once said. About 1,400 characters (roughly 350 tokens) go into one reply — pinned first, then newest — because the model's window is small; the panel shows how much fits.
+- Memory lives in the one database file, so encrypted backups include it, and it never leaves the laptop.
+
+*Tested:* `engine/tests/test_memory.py` (add/limits/duplicates, edit/pin/delete/clear, on/off, prompt budget and order, Free chat gets the facts and library prompts do not, parsing of model suggestions in several shapes, nothing saved without approval, only his words are read, failure explained, schema v17); older tests still pass; panel rendered in a headless browser. Real model (qwen3.5:4b, CPU): Free chat answered with the memory loaded in 16 s; suggestions from a sample chat first proposed a duplicate and a temporary fact, so the prompt now includes the saved list and says to skip "this month / right now" — the second run proposed nothing, i.e. it is cautious.
+
+*Limits:* a 4B model uses a remembered fact only some of the time (a one-line tagline did not visibly use the brand fact), so for important writing also say it in the message or choose the persona. Suggestions are a convenience, not a judge: read each one. Memory holds facts, not conversations — to find an old conversation use the chat search. Do not store passwords or card numbers; the app does not stop him, so don't.
+
+*Planned next:* v0.15 training kit (see 9t).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -775,3 +791,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.3 / KB v0.11.0 | Chat: saved multi-turn conversations with the library (cited, fact-checked, general knowledge only on request, streaming + Stop), model picker with downloads and a compare-on-my-files test. Schema v14. Fixed v0.9.2 bug: removing a file never deleted saved answers. Added section 9s. |
 | 16 Nov 2026 | Doc 3.4 / KB v0.12.0 | Free Chat: three modes per chat (My files / Files + general / Free chat), personas (5 built in, owner's own editable), schema v15. Fixed a Copy-and-edit button bug found in testing. Added section 9t. |
 | 16 Nov 2026 | Doc 3.5 / KB v0.13.0 | Read a web address (page, section, whole site; sitemap, robots.txt, polite, local addresses refused) and paste text into the bank. Schema v16 (sources.url). Added section 9u. |
+| 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |

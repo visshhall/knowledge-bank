@@ -41,7 +41,7 @@ WHEN:  Called from server.py: GET /chat/list, POST /chat/new, GET /chat/get,
 CONNECTED TO: answers.py (retrieval `_sources`, fact check `finalize`),
        ollama_client.py (generate, streaming, stop), db.py (tables `chats`
        and `chat_messages`, schema v14; `mode` and `persona_id`, schema v15; setting
-       `chat_model`), personas.py (persona_prompt), writer.py (write_model = the
+       `chat_model`), personas.py (persona_prompt), memory.py (block: his saved facts, Free mode only), writer.py (write_model = the
        default model), chunking.with_section.
 PRIVACY: nothing here talks to any server except the local Ollama.
 """
@@ -53,7 +53,7 @@ import re
 import threading
 import time
 
-from . import answers, chunking, db, ollama_client, personas
+from . import answers, chunking, db, memory, ollama_client, personas
 
 MAX_SOURCES = 6        # passages per question (history shares the 4,096-token window)
 SOURCE_CHARS = 800     # each passage is cut to this length in the prompt
@@ -383,8 +383,11 @@ def _free_history_text(history: list[dict]) -> str:
 
 def build_free_prompt(question: str, history: list[dict], persona_id: int | None) -> tuple[str, str]:
     """The (system, prompt) pair for a Free reply: the persona's instructions and the conversation."""
-    return (personas.persona_prompt(persona_id),
-            PROMPT_FREE.format(history=_free_history_text(history), question=question))
+    system = personas.persona_prompt(persona_id)
+    facts = memory.block()  # v0.14: what the owner told the assistant about himself ('' when off or empty)
+    if facts:
+        system = f"{system}\n\n{facts}"
+    return system, PROMPT_FREE.format(history=_free_history_text(history), question=question)
 
 
 def split_general(body: str) -> tuple[str, str]:
