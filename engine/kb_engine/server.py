@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -752,6 +752,42 @@ def training_example_status(body: ExampleStatusRequest) -> dict:
 @app.post("/training/export", dependencies=[Depends(require_token)])
 def training_export() -> dict:
     return training.export()
+
+
+# --- v0.18: coverage, gaps and site quality (coverage.py) -------------------------------------
+
+class SiteRequest(BaseModel):
+    host: str
+    action: str
+
+
+class PruneRequest(BaseModel):
+    days: int = 45
+
+
+@app.get("/coverage/status", dependencies=[Depends(require_token)])
+def coverage_status() -> dict:
+    return coverage.status()
+
+
+@app.post("/coverage/plan", dependencies=[Depends(require_token)])
+def coverage_plan() -> dict:
+    return coverage.plan_topics(force=True)
+
+
+@app.post("/coverage/auto", dependencies=[Depends(require_token)])
+def coverage_auto(body: LearnToggleRequest) -> dict:
+    return coverage.set_auto(body.on)
+
+
+@app.post("/coverage/site", dependencies=[Depends(require_token)])
+def coverage_site(body: SiteRequest) -> dict:
+    return coverage.set_site(body.host, body.action)
+
+
+@app.post("/coverage/prune-unused", dependencies=[Depends(require_token)])
+def coverage_prune(body: PruneRequest) -> dict:
+    return coverage.prune_unused(body.days)
 
 
 # --- v0.17: mistakes and lessons (mistakes.py) ---------------------------------------------------

@@ -19,11 +19,16 @@
  *           turns them into short lessons it follows in every reply. Lessons apply automatically; each shows its
  *           evidence, whether it is working ("working" / "not helping — switched off") and can be turned off or
  *           deleted. "Find patterns now" runs the search at once.
+ *        4. (v0.18) WHAT IT KNOWS AND WHAT'S MISSING — a bar per category (how well the library covers it, with a flag
+ *           on weak ones and how often answers cited it), "Fill the gaps now" (adds web topics for the weakest
+ *           categories), a switch for doing that automatically, counts of learned pages (useful / not used yet /
+ *           thin), "Remove unused pages" (learned pages 45+ days old that no answer used), and the web sites it
+ *           trusts or avoids with Block / Allow / Let the app decide.
  * WHEN:  Opened from the sidebar's Knowledge section. Polls /learn/status every 3 s while open (so a
  *        running round shows live) and /training/status every 6 s.
  * CONNECTED TO: bridge.js → engine /learn/status, /learn/enable, /learn/limits, /learn/run, /learn/topic/*,
  *        /learn/watch/*, /learn/pages, /learn/remove-all, /training/status, /training/examples,
- *        /training/example/status, /training/export, /lessons/status, /lessons/enable, /lessons/run, /lessons/rule/toggle, /lessons/rule/delete (server.py → learner.py, training.py, mistakes.py); styles.css (.learn-*).
+ *        /training/example/status, /training/export, /lessons/status, /lessons/enable, /lessons/run, /lessons/rule/toggle, /lessons/rule/delete, /coverage/status, /coverage/plan, /coverage/auto, /coverage/site, /coverage/prune-unused (server.py → learner.py, training.py, mistakes.py, coverage.py); styles.css (.learn-*).
  */
 import { useState } from "react";
 import Icon from "./icons.jsx";
@@ -41,6 +46,7 @@ export default function Learning() {
       </header>
       <WebLearning />
       <Lessons />
+      <Coverage />
       <TrainingData />
     </div>
   );
@@ -111,6 +117,7 @@ function WebLearning() {
               <span>{t.topic}</span>
               <span className={`learn-tag ${t.status}`}>{t.status === "pending" ? "waiting" : t.status === "done" ? `${t.pages_added} page${t.pages_added === 1 ? "" : "s"}` : "nothing found"}</span>
               {t.origin === "gap" && <span className="learn-tag" title="Your files could not answer this question">from a question</span>}
+              {t.origin === "coverage" && <span className="learn-tag" title="The library is thin on this category">fills a gap</span>}
               <button className="link small" onClick={() => call("/learn/topic/remove", { id: t.id })} aria-label={`Remove topic ${t.topic}`}>Remove</button>
             </li>
           ))}
@@ -277,6 +284,99 @@ function TrainingData() {
 
 const KIND_LABEL = { down: "thumbs-down", regen: "asked again", correct: "you corrected it", removed: "facts removed" };
 const VERDICT = { new: "new", working: "working", unclear: "no clear effect yet", not_helping: "not helping" };
+
+/** v0.18 card: coverage per category, gaps, learned-page usefulness and trusted/avoided sites. */
+function Coverage() {
+  const [st, reload] = usePoll("/coverage/status", 8000);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!st) return null;
+
+  async function act(path, body, after) {
+    setBusy(true);
+    const r = await kb.post(path, body || {});
+    setMsg(after ? after(r) : r.message || r.error || "");
+    setBusy(false);
+    reload();
+  }
+
+  const L = st.learned;
+  return (
+    <section className="card learn-card" aria-label="What the library knows and what is missing">
+      <div className="learn-head">
+        <h2>What it knows and what is missing</h2>
+        <label className="learn-switch" title="Let the app add web topics for weak categories by itself (needs Web learning on)">
+          <input type="checkbox" checked={st.auto} onChange={async (e) => { await kb.post("/coverage/auto", { on: e.target.checked }); reload(); }} />
+          {st.auto ? "Fills gaps itself" : "Gaps: manual"}
+        </label>
+      </div>
+      <p className="muted">
+        Each bar shows how well your library covers a category: files, depth and how recent. Categories that your
+        questions keep using but that are thin are flagged. “Fill the gaps” adds web-learning topics for the weakest ones.
+      </p>
+      <ul className="cov-list" aria-label="Coverage by category">
+        {st.categories.map((c) => (
+          <li key={c.category} className={c.weak ? "weak" : ""}>
+            <span className="cov-name">{c.category}</span>
+            <div className="learn-bar" role="img" aria-label={`${c.category} coverage ${c.score} out of 100`}><div style={{ width: `${c.score}%` }} /></div>
+            <span className="small muted cov-meta">{c.sources} files · {c.passages} passages{c.cited ? ` · used ${c.cited}×` : ""}</span>
+            {c.weak && <span className="learn-tag pending" title="Below the coverage target">gap</span>}
+          </li>
+        ))}
+      </ul>
+      <div className="learn-form">
+        <button className="small-btn" disabled={busy || !st.weak.length} onClick={() => act("/coverage/plan")}>
+          Fill the gaps now
+        </button>
+        <span className="muted small">Web learning must be on for the topics to be read.</span>
+      </div>
+
+      <div className="learn-stats">
+        <div className="learn-stat"><strong>{L.useful}</strong><span className="small muted">learned pages used in answers</span></div>
+        <div className="learn-stat"><strong>{L.unused}</strong><span className="small muted">not used yet</span></div>
+        <div className="learn-stat"><strong>{L.total}</strong><span className="small muted">learned pages kept</span></div>
+      </div>
+      <div className="learn-form">
+        <button
+          className="small-btn"
+          disabled={busy || !L.unused}
+          onClick={() => act("/coverage/prune-unused", { days: 45 }, (r) => (r.removed ? `Removed ${r.removed} unused page${r.removed === 1 ? "" : "s"}.` : r.message || "Nothing old and unused."))}
+        >
+          Remove unused pages (45+ days)
+        </button>
+        <span className="muted small">Pages with almost no readable text are removed automatically.</span>
+      </div>
+      {msg && <p className="notice ok">{msg}</p>}
+
+      <h3>Web sites</h3>
+      {st.sites.length ? (
+        <ul className="learn-list" aria-label="Web sites it has read">
+          {st.sites.map((w) => (
+            <li key={w.host} style={w.blocked ? { opacity: 0.7 } : undefined}>
+              <span>
+                {w.host}
+                <span className="small muted"><br />{w.useful} used · {w.pages} kept · {w.thin} thin · {w.removed} removed by you</span>
+              </span>
+              <span className={`learn-tag ${w.blocked ? "failed" : w.manual === 2 ? "done" : ""}`}>
+                {w.blocked ? (w.manual === 1 ? "blocked by you" : "skipped — mostly junk") : w.manual === 2 ? "always allowed" : "trusted"}
+              </span>
+              {w.blocked ? (
+                <button className="small-btn" disabled={busy} onClick={() => act("/coverage/site", { host: w.host, action: "allow" }, () => "Allowed.")}>Allow</button>
+              ) : (
+                <button className="small-btn" disabled={busy} onClick={() => act("/coverage/site", { host: w.host, action: "block" }, () => "Blocked.")}>Block</button>
+              )}
+              {w.manual !== 0 && (
+                <button className="small-btn" disabled={busy} onClick={() => act("/coverage/site", { host: w.host, action: "auto" }, () => "The app decides again.")}>Let the app decide</button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted small">No site yet. Once web learning has read pages, each site appears here with how useful it was.</p>
+      )}
+    </section>
+  );
+}
 
 function Lessons() {
   const [st, reload] = usePoll("/lessons/status", 5000);

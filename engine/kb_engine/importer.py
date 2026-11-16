@@ -384,15 +384,18 @@ def _cited_source_ids(sources_json: str | None) -> set[int]:
     return found
 
 
-def remove_sources(source_ids: list[int]) -> dict:
+def remove_sources(source_ids: list[int], feedback: bool = True) -> dict:
     """
     Remove one or many files from the bank, together with everything built
     from them (see _clean_up_after_removal). The original files on disk are
     NOT touched. A file being extracted right now is skipped (try again in a
     moment). Each removed file is remembered so watched folders and folder
     adds never bring it back; "Add files" on that exact file undoes this.
+    feedback (v0.18): True = a learned web page removed by the owner counts against its site (coverage.py learns
+    which sites are junk); the app's own clean-ups and "Remove everything it learned" pass False.
     """
     removed, busy = [], 0
+    learned_urls: list[str] = []
     touched: set[int] = set()
     copies: list[str] = []  # the app's own copies (web pages, notes) — deleted so no text is left behind
     with db.connect() as conn:
@@ -406,7 +409,9 @@ def remove_sources(source_ids: list[int]) -> dict:
             touched.update(r[0] for r in conn.execute(
                 "SELECT DISTINCT tp.topic_id FROM topic_passages tp JOIN passages p ON p.id = tp.passage_id "
                 "WHERE p.source_id = ?", (sid,)))
-            own = conn.execute("SELECT original_path FROM sources WHERE id = ?", (sid,)).fetchone()
+            own = conn.execute("SELECT original_path, origin, url FROM sources WHERE id = ?", (sid,)).fetchone()
+            if own and own["origin"] == "learned" and own["url"]:
+                learned_urls.append(own["url"])
             if own and _own_copy(own["original_path"]):
                 copies.append(own["original_path"])
             conn.execute(
@@ -423,6 +428,9 @@ def remove_sources(source_ids: list[int]) -> dict:
             Path(c).unlink()
         except OSError:
             pass
+    if feedback and learned_urls and removed:
+        from . import coverage
+        coverage.note_removed(learned_urls)
     try:
         from . import datapages
         datapages.rebuild_data_topics()  # a removed spreadsheet takes its data topic with it

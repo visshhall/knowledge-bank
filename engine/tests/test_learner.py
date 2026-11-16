@@ -23,7 +23,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-learn-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import crawler, db, importer, learner, websearch  # noqa: E402
 
-assert db.init_db() == 19
+assert db.init_db() == 20
 importer._ensure_worker = lambda: None
 crawler.ALLOW_PRIVATE = True
 crawler.MIN_DELAY = 0.0
@@ -113,6 +113,7 @@ assert learner.run_round() == "busy"
 crawler.status = orig
 
 # --- owner topics come before gaps; budget limits ------------------------------------------------------------
+db.set_setting("learn_auto_gaps", False)   # v0.18: gap planning is tested in test_coverage.py, not here
 db.set_setting("learn_daily", 5)
 results["urls"] = [f"{BASE}/b1", f"{BASE}/b2", f"{BASE}/b3"]
 due()

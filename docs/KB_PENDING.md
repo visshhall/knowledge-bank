@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.17.0 (learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.18.0 (finds gaps per category and fetches what is missing, scores learned pages, blocks junk sites; v0.17.0 learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -109,6 +109,16 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.18.0 — Gaps, page usefulness, junk sites ✅ delivered
+- [x] Coverage score per category, weak/gap flags, automatic web topics for thin categories, "Fill the gaps now"
+- [x] Learned pages judged useful / not used yet / thin; thin pages removed automatically; "Remove unused pages (45+ days)"
+- [x] Per-site score; junk sites skipped automatically; Block / Allow / Let the app decide
+- [ ] Owner check: Learning → "What it knows and what is missing": categories you care about should show real bars; press "Fill the gaps now" and look for topics tagged "fills a gap" in Learn from the web
+- [ ] Owner check: with Web learning on for a day or two, look at the Web sites list; block any site you do not trust
+- [ ] Known: usefulness is based on answers citing a page, so it takes days of use to mean much
+- [ ] Known: categories are the fixed cybersecurity list for now
+- [ ] Next (agreed order): automatic categories/sub-categories (v0.19); pattern and visualisation screens with animations (v0.20)
 
 ## v0.17.0 — Learning from mistakes ✅ delivered
 - [x] Mistake log (thumbs-down, Regenerate, Correct, facts removed), patterns by counting and by the AI, lessons added to replies automatically, effectiveness check

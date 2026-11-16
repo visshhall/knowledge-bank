@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -862,6 +862,28 @@ def _migrate_v19() -> None:
         )
 
 
+def _migrate_v20() -> None:
+    """
+    Schema v20 (KB v0.18). One new table (idempotent, every start):
+      site_stats   what the app has learned about each web site it reads pages from (coverage.py): how many
+                   of its pages were useful (cited in answers), thin (almost no readable text) or removed by
+                   the owner, a score, and whether the site is `blocked` (the app stopped reading it because
+                   it keeps producing junk). `manual` 1 = the owner forced it blocked, 2 = forced allowed,
+                   0 = the app decides. Shown in Learning; used by learner.py to skip bad sites and prefer good ones.
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS site_stats ("
+            "host TEXT PRIMARY KEY, pages INTEGER NOT NULL DEFAULT 0, useful INTEGER NOT NULL DEFAULT 0, "
+            "thin INTEGER NOT NULL DEFAULT 0, removed INTEGER NOT NULL DEFAULT 0, score REAL NOT NULL DEFAULT 0, "
+            "blocked INTEGER NOT NULL DEFAULT 0, manual INTEGER NOT NULL DEFAULT 0, "
+            "updated_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '20') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -944,7 +966,8 @@ def init_db() -> int:
     _migrate_v17()  # idempotent (v0.14: memory about the owner)
     _migrate_v18()  # idempotent (v0.16: feedback, training examples, web learning)
     _migrate_v19()  # idempotent (v0.17: mistake log and lessons)
-    return 19
+    _migrate_v20()  # idempotent (v0.18: per-site learning)
+    return 20
 
 
 def stats() -> dict:

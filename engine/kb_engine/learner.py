@@ -30,7 +30,7 @@ import datetime as _dt
 import threading
 import time
 
-from . import crawler, db, websearch
+from . import coverage, crawler, db, websearch
 
 PAGES_PER_TOPIC = 4        # pages read per topic (one per site, from the search results)
 WATCH_REREAD_HOURS = 24    # how often a watch address is read again
@@ -199,7 +199,7 @@ def remove_all_learned() -> dict:
         ids = [r["id"] for r in conn.execute("SELECT id FROM sources WHERE origin = 'learned'")]
     if not ids:
         return {"ok": True, "removed": 0, "message": "Nothing learned by the app to remove."}
-    return importer.remove_sources(ids)
+    return importer.remove_sources(ids, feedback=False)  # a bulk reset says nothing about any site
 
 
 def set_enabled(on: bool) -> dict:
@@ -298,6 +298,26 @@ def run_round(now: float | None = None) -> str:
         cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=WATCH_REREAD_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
         watch = conn.execute("SELECT id, url, scope, max_pages FROM learn_watch WHERE last_run IS NULL OR last_run < ? "
                              "ORDER BY last_run IS NOT NULL, last_run LIMIT 1", (cutoff,)).fetchone()
+    # v0.18: judge the pages learned so far; remove thin ones, block sites that keep giving junk.
+    try:
+        m = coverage.maintain()
+        if m["pruned"]:
+            _note("(clean-up)", "", f"removed {m['pruned']} page{'s' if m['pruned'] != 1 else ''} with almost no readable text")
+        for h in m["blocked"]:
+            _note("(clean-up)", h, "site blocked — mostly thin or removed pages, never cited")
+    except Exception:
+        pass
+    if not topic and not watch and coverage.auto_enabled():
+        # Nothing to do: look for what the library lacks and make topics for it (at most every 12 hours).
+        last = db.get_setting("coverage_checked", 0) or 0
+        if now - last > 12 * 3600:
+            db.set_setting("coverage_checked", now)
+            plan = coverage.plan_topics()
+            if plan["added"]:
+                _say("idle", plan["message"])
+                _note("(gaps)", "", plan["message"])
+                _next_round = 0.0
+                return "planned"
     if not topic and not watch:
         _say("idle", "Web learning is on. Nothing to learn right now — add a topic or a watch address, or it will "
                      "pick up questions your files could not answer.")
@@ -309,7 +329,10 @@ def run_round(now: float | None = None) -> str:
     gap = round_gap_minutes() * 60
     if topic:
         _say("reading", f"Learning about “{topic['topic']}”…")
-        urls = search(topic["topic"], limit=PAGES_PER_TOPIC)
+        urls, blocked = coverage.rank_urls(search(topic["topic"], limit=PAGES_PER_TOPIC + 3))  # v0.18: good sites first, junk sites skipped
+        urls = urls[:PAGES_PER_TOPIC]
+        for h in blocked:
+            _note(topic["topic"], h, "skipped — this site keeps giving thin or removed pages")
         added = 0
         if not urls:
             _fails += 1

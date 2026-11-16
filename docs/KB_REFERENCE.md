@@ -701,6 +701,25 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9z. v0.18.0 — Gaps, page usefulness and junk sites (16 Nov 2026)
+
+*Why:* the owner wanted the app to find what it is missing and fetch it on its own, and to cope with junk data instead of only adding more. After "Go ahead" on the proposal, v0.18 adds measured quality per category and per web site.
+
+*How (`coverage.py`, schema v20: `site_stats`):*
+1. **Coverage per category.** For each category from `titles.py` it counts files, passages, learned pages, newest addition and how often answers cited it (60 days). Score 0–100 = files (50, full at 8) + depth (30, full at 300 passages) + freshness (20, fades after 30 days, gone by 150). Weak = score under 50, or cited 3+ times and under 70.
+2. **Gaps become topics.** `plan_topics()` takes the weakest categories (max 2 per run, none again within 14 days), asks the AI for 2 specific search phrases from the titles already there (plain phrases if the AI is busy), and adds them as topics marked "fills a gap". The learner does this by itself when web learning is on, the "fills gaps itself" switch is on, and nothing else is waiting (checked at most every 12 hours). "Fill the gaps now" does it on demand and ignores the 14-day wait.
+3. **Learned pages.** Each is *useful* (cited in an answer), *thin* (fewer than 3 passages or failed import) or *unused*. Thin uncited pages are removed automatically at the start of each web-learning round. "Remove unused pages (45+ days)" removes old pages no answer ever cited.
+4. **Sites.** Per host: pages kept, useful, thin, removed by him. A site is **blocked** when it has given at least 4 pages, 60% or more thin or removed, and was never cited. Search results from blocked sites are skipped; the rest are ordered by site score (cited pages count 3, thin −2, removed by him −3). Removing a learned page by hand counts against its site; "Remove everything it learned" and the app's own clean-ups do not.
+5. **His word wins.** Learning → "What it knows and what is missing" → Web sites: Block, Allow, "Let the app decide".
+
+*Limits:* categories are still the fixed cybersecurity list in `titles.py`; pages outside it are not planned for. Usefulness needs real use (citations take days to appear), so early on most pages read "not used yet". A blocked site can be allowed again but its earlier thin pages stay counted.
+
+*Connected to:* `db.py` (`_migrate_v20`), `learner.py` (maintain, plan_topics, rank_urls), `importer.py` (`remove_sources(feedback=)`), `server.py` (`/coverage/*`), `Learning.jsx`.
+
+*Not built yet (agreed next):* v0.19 automatic categories and sub-categories; v0.20 pattern and visualisation screens with animations.
+
+*Tests:* `test_coverage.py`.
+
 ## 9y. v0.17.0 — Learning from mistakes (16 Nov 2026)
 
 *Why:* the owner asked for pattern recognition that identifies problems, learns from them, corrects its mistakes and does not repeat them. He chose to build "mistake memory + lessons" first and to let lessons **apply automatically with an undo**. A local model cannot rewrite itself, so the app improves the *standing instructions* it gives the model, and measures whether that worked.
@@ -856,4 +875,5 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 4.0 / KB v0.18.0 | Coverage per category, automatic topics for thin areas, usefulness of learned pages, junk-site blocking and owner Block/Allow. Schema v20. Added section 9z. |
 | 16 Nov 2026 | Doc 3.9 / KB v0.17.0 | Learning from mistakes: mistake log, counted and AI-found patterns, automatic lessons added to replies, effectiveness check with auto switch-off. Schema v19. Added section 9y. |

@@ -1342,3 +1342,11 @@ button.danger:hover { background: #983526; }
 .learn-ex { display: grid; gap: 6px; padding: 10px 12px; background: var(--surface-2); border-radius: 12px; }
 .learn-ex p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .learn-ex .q { font-weight: 700; }
+
+/* v0.18 Learning → coverage card (Learning.jsx Coverage) */
+.cov-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cov-list li { display: grid; grid-template-columns: 170px 1fr auto auto; align-items: center; gap: 10px; }
+.cov-list .cov-name { font-weight: 600; overflow-wrap: anywhere; }
+.cov-list li.weak .learn-bar > div { background: var(--mustard, #c9962b); }
+.cov-list .cov-meta { white-space: nowrap; }
+@media (max-width: 720px) { .cov-list li { grid-template-columns: 1fr auto; } .cov-list .learn-bar { grid-column: 1 / -1; order: 3; } }
