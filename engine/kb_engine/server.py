@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -125,6 +125,7 @@ async def lifespan(_app: FastAPI):
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
     importer.start()  # resume interrupted imports + start watched-folder scanner
+    taxonomy.start()  # v0.19: categories that grow (idle until files fit no category)
     learner.start()  # v0.16: web learning loop (does nothing until the owner turns it on in Learning)
     # v0.8: spreadsheets imported before data topics existed get their charts,
     # checks and Subnet Lab now, without the owner pressing "Rebuild topics".
@@ -788,6 +789,52 @@ def coverage_site(body: SiteRequest) -> dict:
 @app.post("/coverage/prune-unused", dependencies=[Depends(require_token)])
 def coverage_prune(body: PruneRequest) -> dict:
     return coverage.prune_unused(body.days)
+
+
+# --- v0.19: categories that grow (taxonomy.py) -------------------------------------------------
+
+class CategoryRename(BaseModel):
+    name: str
+    new: str
+
+
+class CategoryMerge(BaseModel):
+    name: str
+    into: str
+
+
+class CategoryName(BaseModel):
+    name: str
+
+
+@app.get("/taxonomy/status", dependencies=[Depends(require_token)])
+def taxonomy_status() -> dict:
+    return taxonomy.status()
+
+
+@app.post("/taxonomy/run", dependencies=[Depends(require_token)])
+def taxonomy_run() -> dict:
+    return taxonomy.grow()
+
+
+@app.post("/taxonomy/auto", dependencies=[Depends(require_token)])
+def taxonomy_auto(body: LearnToggleRequest) -> dict:
+    return taxonomy.set_auto(body.on)
+
+
+@app.post("/taxonomy/rename", dependencies=[Depends(require_token)])
+def taxonomy_rename(body: CategoryRename) -> dict:
+    return taxonomy.rename(body.name, body.new)
+
+
+@app.post("/taxonomy/merge", dependencies=[Depends(require_token)])
+def taxonomy_merge(body: CategoryMerge) -> dict:
+    return taxonomy.merge(body.name, body.into)
+
+
+@app.post("/taxonomy/delete", dependencies=[Depends(require_token)])
+def taxonomy_delete(body: CategoryName) -> dict:
+    return taxonomy.delete(body.name)
 
 
 # --- v0.17: mistakes and lessons (mistakes.py) ---------------------------------------------------

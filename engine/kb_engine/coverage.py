@@ -19,9 +19,9 @@ WHY:   The owner wanted the app to find what is missing by itself and to cope wi
        Here the pattern is per-site and per-category quality, measured from real use.
 WHEN:  maintain() runs at the start of each web-learning round (learner.py); plan_topics() when learning is on and
        nothing is waiting; status() when Learning is opened; note_removed() when the owner removes a learned page.
-LIMITS: categories are the fixed set in titles.py (cybersecurity-oriented); pages outside them count as "Other" and
-       are never planned. Open-ended categories and sub-categories are the next version.
-CONNECTED TO: db.py (site_stats — schema v20; sources.origin, categories), titles.py (CATEGORIES), learner.py
+LIMITS: categories are the built-in ones plus those grown by taxonomy.py; a file that fits none is "unplaced" until
+       taxonomy.py groups it (it is not planned for until then).
+CONNECTED TO: db.py (site_stats — schema v20; sources.origin, categories), taxonomy.py (all_top: built-in + grown categories), learner.py
        (calls maintain, plan_topics, rank_urls), importer.py (remove_sources calls note_removed; prune uses
        remove_sources), chat.py/importer.py (_cited_source_ids reads which sources answers cited),
        ollama_client.py (topic phrases), server.py (/coverage/*), Learning.jsx.
@@ -33,7 +33,7 @@ import json
 import re
 from urllib.parse import urlparse
 
-from . import db, ollama_client, titles
+from . import db, ollama_client, taxonomy
 
 TARGET_SOURCES = 8        # files in a category before its "files" part is full marks
 TARGET_PASSAGES = 300     # passages before its "depth" part is full marks
@@ -82,7 +82,7 @@ def score_category(sources: int, passages: int, days_since_new: float | None) ->
 
 def categories() -> list[dict]:
     """Coverage of every category, weakest (highest priority) first."""
-    names = list(titles.CATEGORIES)
+    names = taxonomy.all_top()   # v0.19: built-in categories plus the ones grown from the data
     stats = {n: {"category": n, "sources": 0, "passages": 0, "learned": 0, "cited": 0, "newest": None} for n in names}
     with db.connect() as conn:
         cites = _cited_counts(conn)

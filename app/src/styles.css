@@ -1350,3 +1350,15 @@ button.danger:hover { background: #983526; }
 .cov-list li.weak .learn-bar > div { background: var(--mustard, #c9962b); }
 .cov-list .cov-meta { white-space: nowrap; }
 @media (max-width: 720px) { .cov-list li { grid-template-columns: 1fr auto; } .cov-list .learn-bar { grid-column: 1 / -1; order: 3; } }
+
+/* v0.19 Learning → categories card (Learning.jsx Categories) and Library sub-category chips */
+.cat-tree, .cat-subs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.cat-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 10px; background: var(--surface-2); border-radius: 10px; }
+.cat-toggle { border: 0; background: none; width: 22px; font-size: 14px; cursor: pointer; color: var(--ink); }
+.cat-toggle:disabled { cursor: default; opacity: .4; }
+.cat-name { font-weight: 600; flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+.cat-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cat-actions select { border: 1px solid var(--line); border-radius: 10px; padding: 5px 8px; font: 500 13px var(--sans); background: var(--surface); color: var(--ink); max-width: 160px; }
+.cat-subs { margin: 4px 0 4px 32px; }
+.cat-subs li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 10px; border-left: 2px solid var(--line); }
+.cat-chip.sub { opacity: .8; }

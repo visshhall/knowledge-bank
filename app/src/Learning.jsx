@@ -24,11 +24,14 @@
  *           categories), a switch for doing that automatically, counts of learned pages (useful / not used yet /
  *           thin), "Remove unused pages" (learned pages 45+ days old that no answer used), and the web sites it
  *           trusts or avoids with Block / Allow / Let the app decide.
+ *        5. (v0.19) CATEGORIES — the built-in categories plus the ones the app grew from the data, each with its
+ *           sub-categories and file counts; "Find new categories now"; a switch for doing it automatically; for grown
+ *           categories Rename / Merge into… / Delete; how many files still fit no category.
  * WHEN:  Opened from the sidebar's Knowledge section. Polls /learn/status every 3 s while open (so a
  *        running round shows live) and /training/status every 6 s.
  * CONNECTED TO: bridge.js → engine /learn/status, /learn/enable, /learn/limits, /learn/run, /learn/topic/*,
  *        /learn/watch/*, /learn/pages, /learn/remove-all, /training/status, /training/examples,
- *        /training/example/status, /training/export, /lessons/status, /lessons/enable, /lessons/run, /lessons/rule/toggle, /lessons/rule/delete, /coverage/status, /coverage/plan, /coverage/auto, /coverage/site, /coverage/prune-unused (server.py → learner.py, training.py, mistakes.py, coverage.py); styles.css (.learn-*).
+ *        /training/example/status, /training/export, /lessons/status, /lessons/enable, /lessons/run, /lessons/rule/toggle, /lessons/rule/delete, /coverage/status, /coverage/plan, /coverage/auto, /coverage/site, /coverage/prune-unused, /taxonomy/status, /taxonomy/run, /taxonomy/auto, /taxonomy/rename, /taxonomy/merge, /taxonomy/delete (server.py → learner.py, training.py, mistakes.py, coverage.py, taxonomy.py); styles.css (.learn-*).
  */
 import { useState } from "react";
 import Icon from "./icons.jsx";
@@ -47,6 +50,7 @@ export default function Learning() {
       <WebLearning />
       <Lessons />
       <Coverage />
+      <Categories />
       <TrainingData />
     </div>
   );
@@ -284,6 +288,80 @@ function TrainingData() {
 
 const KIND_LABEL = { down: "thumbs-down", regen: "asked again", correct: "you corrected it", removed: "facts removed" };
 const VERDICT = { new: "new", working: "working", unclear: "no clear effect yet", not_helping: "not helping" };
+
+/** v0.19 card: the category tree (built-in + grown), with sub-categories and owner controls for grown ones. */
+function Categories() {
+  const [st, reload] = usePoll("/taxonomy/status", 8000);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState({});
+  if (!st) return null;
+
+  async function act(path, body, after) {
+    setBusy(true);
+    const r = await kb.post(path, body || {});
+    setMsg(r.ok === false ? r.message || r.error || "Not done." : after ? after(r) : r.message || "");
+    setBusy(false);
+    reload();
+  }
+  const grown = st.categories.filter((c) => c.grown);
+
+  return (
+    <section className="card learn-card" aria-label="Categories">
+      <div className="learn-head">
+        <h2>Categories that grow</h2>
+        <label className="learn-switch" title="Let the app add categories and sub-categories as your files change">
+          <input type="checkbox" checked={st.auto} onChange={async (e) => { await kb.post("/taxonomy/auto", { on: e.target.checked }); reload(); }} />
+          {st.auto ? "Grows by itself" : "Manual"}
+        </label>
+      </div>
+      <p className="muted">
+        Files that fit no category are grouped into new ones, and a category with many files is split into sub-categories.
+        The built-in categories stay; the ones the app adds can be renamed, merged into another, or deleted.
+      </p>
+      <div className="learn-form">
+        <button className="small-btn" disabled={busy} onClick={() => act("/taxonomy/run", {}, (r) => r.message)}>
+          {busy ? "Looking…" : "Find new categories now"}
+        </button>
+        <span className="muted small">
+          {st.unplaced ? `${st.unplaced} file${st.unplaced === 1 ? "" : "s"} fit no category yet. ` : "Every file has a category. "}
+          {st.last?.at ? `Last run ${st.last.at}: ${st.last.message}` : ""}
+        </span>
+      </div>
+      {msg && <p className="notice ok">{msg}</p>}
+      <ul className="cat-tree" aria-label="Categories">
+        {st.categories.map((c) => (
+          <li key={c.name}>
+            <div className="cat-row">
+              <button className="cat-toggle" disabled={!c.subs.length} onClick={() => setOpen({ ...open, [c.name]: !open[c.name] })} aria-expanded={!!open[c.name]}>
+                {c.subs.length ? (open[c.name] ? "▾" : "▸") : "·"}
+              </button>
+              <span className="cat-name">{c.name}</span>
+              <span className="small muted">{c.files} file{c.files === 1 ? "" : "s"}{c.subs.length ? ` · ${c.subs.length} sub` : ""}</span>
+              {c.grown && <span className="learn-tag done" title={c.terms.join(", ")}>{c.origin === "owner" ? "renamed by you" : "added by the app"}</span>}
+              {c.grown && (
+                <span className="cat-actions">
+                  <button className="small-btn" disabled={busy} onClick={() => { const n = window.prompt("New name for this category", c.name); if (n && n !== c.name) act("/taxonomy/rename", { name: c.name, new: n }, () => "Renamed."); }}>Rename</button>
+                  <select aria-label={`Merge ${c.name} into`} disabled={busy} value="" onChange={(e) => e.target.value && act("/taxonomy/merge", { name: c.name, into: e.target.value }, () => "Merged.")}>
+                    <option value="">Merge into…</option>
+                    {st.categories.filter((o) => o.name !== c.name).map((o) => <option key={o.name} value={o.name}>{o.name}</option>)}
+                  </select>
+                  <button className="small-btn" disabled={busy} onClick={() => window.confirm(`Delete “${c.name}”? Its files stay in the library and become uncategorised.`) && act("/taxonomy/delete", { name: c.name }, () => "Deleted.")}>Delete</button>
+                </span>
+              )}
+            </div>
+            {open[c.name] && c.subs.length > 0 && (
+              <ul className="cat-subs">
+                {c.subs.map((x) => <li key={x.name}><span>{x.name}</span><span className="small muted">{x.files} file{x.files === 1 ? "" : "s"}</span></li>)}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+      {grown.length === 0 && <p className="muted small">No category has been added yet. They appear when several files fit none of the built-in ones.</p>}
+    </section>
+  );
+}
 
 /** v0.18 card: coverage per category, gaps, learned-page usefulness and trusted/avoided sites. */
 function Coverage() {

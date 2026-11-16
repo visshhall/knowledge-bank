@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -884,6 +884,29 @@ def _migrate_v20() -> None:
         )
 
 
+def _migrate_v21() -> None:
+    """
+    Schema v21 (KB v0.19). Categories that grow from the data (taxonomy.py). Idempotent, every start:
+      taxonomy      the categories and sub-categories the app (or the owner) added to the built-in list in
+                    titles.py. name is unique; parent NULL = a top-level category, otherwise the name of its parent;
+                    terms_json = the words/phrases that tag a file with it; origin auto|owner; status active|hidden.
+      sources.subcats   JSON list of "Parent / Child" sub-categories of a file.
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS taxonomy ("
+            "id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, parent TEXT, terms_json TEXT NOT NULL DEFAULT '[]', "
+            "origin TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'active', "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
+        if "subcats" not in cols:
+            conn.execute("ALTER TABLE sources ADD COLUMN subcats TEXT")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '21') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -967,7 +990,8 @@ def init_db() -> int:
     _migrate_v18()  # idempotent (v0.16: feedback, training examples, web learning)
     _migrate_v19()  # idempotent (v0.17: mistake log and lessons)
     _migrate_v20()  # idempotent (v0.18: per-site learning)
-    return 20
+    _migrate_v21()  # idempotent (v0.19: categories that grow)
+    return 21
 
 
 def stats() -> dict:

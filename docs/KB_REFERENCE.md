@@ -701,6 +701,23 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9aa. v0.19.0 — Categories that grow from the data (16 Nov 2026)
+
+*Why:* the owner: "categories need to be expanded automatically as per new data, not anything fixed". Until now a file got one of 11 built-in cybersecurity categories or none.
+
+*How (`taxonomy.py`, schema v21: table `taxonomy`, column `sources.subcats`):*
+1. **Tagging at import.** `importer._name_and_tag` calls `taxonomy.classify`: built-in list first (judged on the text as before); when none fits, the grown categories (2 of their words, or 1 in the title); then sub-categories of the chosen categories.
+2. **New categories.** A background loop (every 5 min, idle when nothing to do) or "Find new categories now" takes files that fit nothing. First it tries the grown categories (so older files join categories created later). The rest go to the AI: it sees the existing category names plus up to 15 unplaced files (title and first lines) and proposes up to 3 new categories with their marker words; a category needs at least 2 files, a 3–40 character name, at least 3 marker words, and a name that is not the same as an existing one (then it extends that one instead). Without the AI (not running or busy) words shared by at least 3 files form a group named after the word, never a word that is in more than 60% of the files. At most 3 new per run, 40 grown categories in all.
+3. **Sub-categories.** A category with 12 or more files is split into 2–6 sub-categories (AI names, or shared words as above); files are tagged "Parent / Child" and the Library shows them as small chips.
+4. **Tidying.** Near-duplicate grown categories are merged; a grown category left with no files is removed.
+5. **Control.** Learning → "Categories that grow": the tree with file counts, switch "Grows by itself", "Find new categories now"; for grown categories Rename / Merge into… / Delete. Built-in categories cannot be renamed or deleted but can be merged into. Coverage (v0.18) and the Library filter include grown categories automatically.
+
+*Limits:* only files that fit no category are placed into grown ones, so a file already tagged with a built-in category keeps it. The AI's names can be odd; rename or merge them. Plain-mode names are single words or word pairs from the titles. Sub-categories are decided once per category (when it first reaches 12 files).
+
+*Not built yet (agreed next):* v0.20 pattern and visualisation screens with animations (knowledge map, coverage heatmap, mistake trends, learning timeline).
+
+*Tests:* `test_taxonomy.py`.
+
 ## 9z. v0.18.0 — Gaps, page usefulness and junk sites (16 Nov 2026)
 
 *Why:* the owner wanted the app to find what it is missing and fetch it on its own, and to cope with junk data instead of only adding more. After "Go ahead" on the proposal, v0.18 adds measured quality per category and per web site.
@@ -875,5 +892,6 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 4.1 / KB v0.19.0 | Categories and sub-categories grow from the data (AI or plain word groups), owner Rename/Merge/Delete, Library sub-category chips, coverage includes grown categories. Schema v21. Added section 9aa. |
 | 16 Nov 2026 | Doc 4.0 / KB v0.18.0 | Coverage per category, automatic topics for thin areas, usefulness of learned pages, junk-site blocking and owner Block/Allow. Schema v20. Added section 9z. |
 | 16 Nov 2026 | Doc 3.9 / KB v0.17.0 | Learning from mistakes: mistake log, counted and AI-found patterns, automatic lessons added to replies, effectiveness check with auto switch-off. Schema v19. Added section 9y. |

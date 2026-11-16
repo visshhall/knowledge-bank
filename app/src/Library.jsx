@@ -329,11 +329,16 @@ export default function Library() {
                   </td>
                   <td className="file-cell" title={s.original_path}>
                     <span className="file-name">{s.title || s.file_name}</span>
-                    {s.categories?.length > 0 && (
+                    {(s.categories?.length > 0 || s.subcats?.length > 0) && (
                       <span className="cat-chips">
                         {s.categories.map((c) => (
                           <span key={c} className="cat-chip">
                             {c}
+                          </span>
+                        ))}
+                        {(s.subcats ?? []).map((c) => (
+                          <span key={c} className="cat-chip sub" title="Sub-category">
+                            {c.split(" / ").slice(1).join(" / ")}
                           </span>
                         ))}
                       </span>

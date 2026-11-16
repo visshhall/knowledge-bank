@@ -567,10 +567,11 @@ def _name_and_tag(sid: int) -> None:
                     meta = None
             title = titles.guess_title(src["file_name"], meta, first[0] if first else None,
                                        page1[0] if page1 else None)
-        cats = titles.categorise(sample)
+        from . import taxonomy  # v0.19: built-in + grown categories, and sub-categories
+        cats, subs = taxonomy.classify(sample, title or src["file_name"])
         with db.connect() as conn:
-            conn.execute("UPDATE sources SET title = ?, categories = ? WHERE id = ?",
-                         (title, json.dumps(cats), sid))
+            conn.execute("UPDATE sources SET title = ?, categories = ?, subcats = ? WHERE id = ?",
+                         (title, json.dumps(cats), json.dumps(subs), sid))
     except Exception as exc:
         _set(last_error=f"naming a file failed: {exc}")
 
@@ -744,7 +745,7 @@ def library(limit: int = 2000) -> list[dict]:
             """
             SELECT s.id, s.file_name, s.original_path, s.file_type, s.size_bytes, s.url,
                    s.page_count, s.status, s.error, s.added_at, s.processed_at,
-                   s.relevance_json, s.keep_anyway, s.title, s.categories, s.replaced_by,
+                   s.relevance_json, s.keep_anyway, s.title, s.categories, s.subcats, s.replaced_by,
                    (SELECT COUNT(*) FROM passages p WHERE p.source_id = s.id)          AS passages,
                    (SELECT COUNT(*) FROM pages g WHERE g.source_id = s.id AND g.ocr_used = 1) AS ocr_pages,
                    (SELECT COUNT(*) FROM images i WHERE i.source_id = s.id)            AS images,
@@ -766,6 +767,10 @@ def library(limit: int = 2000) -> list[dict]:
             d["categories"] = json.loads(d.get("categories") or "[]")
         except ValueError:
             d["categories"] = []
+        try:  # v0.19 sub-categories ("Parent / Child")
+            d["subcats"] = json.loads(d.get("subcats") or "[]")
+        except ValueError:
+            d["subcats"] = []
         out.append(d)
     return out
 
