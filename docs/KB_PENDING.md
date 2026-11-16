@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.16.0 (the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.17.0 (learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -109,6 +109,14 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.17.0 — Learning from mistakes ✅ delivered
+- [x] Mistake log (thumbs-down, Regenerate, Correct, facts removed), patterns by counting and by the AI, lessons added to replies automatically, effectiveness check
+- [ ] Owner check: in Free chat use Correct on 3–4 answers where you shorten them or remove "Certainly!"; open Learning → "Learn from its mistakes" → "Find patterns now"; a lesson should appear
+- [ ] Owner check: after about 10 more Free-chat answers, look at the lesson's tag: working / no clear effect / not helping (switched off)
+- [ ] Owner check: turn a lesson off and on; delete one
+- [ ] Known: judging a lesson needs real use (about 10 answers) — new lessons show "new" at first
+- [ ] Next (agreed order): gap detection per category + automatic topics; usefulness scoring of learned pages and junk-site learning; automatic categories/sub-categories; pattern and visualisation screens
 
 ## v0.16.0 — The app learns by itself ✅ delivered
 - [x] Learning screen (Knowledge section): web learning switch (OFF by default), topics, watch addresses, daily budget, recent activity, Remove everything it learned

@@ -53,7 +53,7 @@ import re
 import threading
 import time
 
-from . import answers, chunking, db, learner, memory, ollama_client, personas
+from . import answers, chunking, db, learner, memory, mistakes, ollama_client, personas
 
 MAX_SOURCES = 6        # passages per question (history shares the 4,096-token window)
 SOURCE_CHARS = 800     # each passage is cut to this length in the prompt
@@ -315,13 +315,13 @@ def undo_last(chat_id: int, reason: str = "regen") -> dict:
     with _lock:
         if _state.get("state") == "running":
             return {"ok": False, "message": "Wait for the reply to finish, or press Stop."}
-    removed_answer = None
+    removed_answer, answer_text, answer_mode = None, "", None
     with db.connect() as conn:
-        last = conn.execute("SELECT id, role FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+        last = conn.execute("SELECT id, role, content, mode FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
                             (chat_id,)).fetchone()
         if last and last["role"] == "assistant":
             conn.execute("DELETE FROM chat_messages WHERE id = ?", (last["id"],))
-            removed_answer = last["id"]
+            removed_answer, answer_text, answer_mode = last["id"], last["content"], last["mode"]
             last = conn.execute("SELECT id, role FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
                                 (chat_id,)).fetchone()
         if not last or last["role"] != "user":
@@ -330,7 +330,7 @@ def undo_last(chat_id: int, reason: str = "regen") -> dict:
         conn.execute("DELETE FROM chat_messages WHERE id = ?", (last["id"],))
         conn.execute("UPDATE chats SET updated_at = datetime('now') WHERE id = ?", (chat_id,))
     try:  # after the transaction above is committed (a second connection would wait on its lock)
-        training.on_undo(chat_id, removed_answer, "edit" if reason == "edit" else "regen")
+        training.on_undo(chat_id, removed_answer, "edit" if reason == "edit" else "regen", answer_text, answer_mode, text)
     except Exception:  # learning from use must never stop the owner redoing a message
         pass
     return {"ok": True, "text": text}
@@ -420,6 +420,9 @@ def build_free_prompt(question: str, history: list[dict], persona_id: int | None
     facts = memory.block()  # v0.14: what the owner told the assistant about himself ('' when off or empty)
     if facts:
         system = f"{system}\n\n{facts}"
+    lessons = mistakes.block("free")  # v0.17: standing lessons found from past mistakes ('' when none)
+    if lessons:
+        system = f"{system}\n\n{lessons}"
     return system, PROMPT_FREE.format(history=_free_history_text(history), question=question)
 
 
@@ -498,6 +501,9 @@ def _run(chat_id: int, text: str, mode: str, history: list[dict], persona_id: in
             _save_reply(chat_id, reply, {}, {"removed": [], "removed_count": 0}, False, model, started, mode)
             return
         system, prompt = build_prompt(text, history, sources, general)
+        lessons = mistakes.block("both" if general else "library")  # v0.17 lessons from past mistakes
+        if lessons:
+            system = f"{system}\n\n{lessons}"
         _set(stage=f"Writing with {model}…")
         r = ollama_client.generate(model, prompt, system=system, temperature=0.2, num_ctx=NUM_CTX,
                                    num_predict=MAX_OUTPUT, on_text=lambda t: _set(live=t),
@@ -550,4 +556,6 @@ def _save_reply(chat_id: int, reply: str, sources: dict, checks: dict, has_gener
             "VALUES (?, 'assistant', ?, ?, ?, ?, ?, ?, ?)",
             (chat_id, reply, json.dumps(sources), json.dumps(checks), 1 if has_general else 0, model, seconds, mode))
         conn.execute("UPDATE chats SET updated_at = datetime('now') WHERE id = ?", (chat_id,))
+    if (checks or {}).get("removed_count"):  # v0.17: the fact-checker had to remove claims → a mistake to learn from
+        mistakes.log_message("removed", cur.lastrowid, "; ".join(str(x) for x in (checks.get("removed") or [])[:5]))
     _set(state="done", stage=None, live=None, message_id=cur.lastrowid, seconds=seconds)

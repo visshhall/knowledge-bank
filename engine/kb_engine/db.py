@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -828,6 +828,40 @@ def _migrate_v18() -> None:
         )
 
 
+def _migrate_v19() -> None:
+    """
+    Schema v19 (KB v0.17). Idempotent, every start. Two tables for "learn from mistakes" (mistakes.py):
+      mistake_log   one row per time an answer went wrong: the owner marked it down ('down'), asked again
+                    ('regen'), rewrote it ('correct', `detail` holds his version), or the fact-checker removed
+                    claims from a library answer ('removed', `detail` lists them). Keeps the question and a
+                    cut of the answer so patterns can be found later. `rule_id` = the lesson it fed, if any.
+      lesson_rules  standing instructions found from those mistakes ("Start with the answer; no opening
+                    pleasantries."). `source` 'pattern' (found by counting, e.g. his corrections are always
+                    shorter) or 'model' (the AI grouped similar mistakes). `scope` says where it applies
+                    (free / library / both / all). `status` 'active' or 'off'. `baseline_rate` is how often
+                    answers in that scope went wrong before the lesson, so mistakes.py can later check
+                    whether the lesson helped (`verdict`) and switch it off if it did not.
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS lesson_rules ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'all', "
+            "source TEXT NOT NULL DEFAULT 'model', key TEXT, status TEXT NOT NULL DEFAULT 'active', "
+            "evidence INTEGER NOT NULL DEFAULT 1, baseline_rate REAL, verdict TEXT NOT NULL DEFAULT 'new', "
+            "note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS lesson_rules_key ON lesson_rules(key) WHERE key IS NOT NULL")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS mistake_log ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, chat_id INTEGER, message_id INTEGER, "
+            "mode TEXT, question TEXT, answer TEXT, detail TEXT, rule_id INTEGER, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute("CREATE INDEX IF NOT EXISTS mistake_log_rule ON mistake_log(rule_id)")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '19') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -909,7 +943,8 @@ def init_db() -> int:
     _migrate_v16()  # idempotent (v0.13: web addresses of imported pages)
     _migrate_v17()  # idempotent (v0.14: memory about the owner)
     _migrate_v18()  # idempotent (v0.16: feedback, training examples, web learning)
-    return 18
+    _migrate_v19()  # idempotent (v0.17: mistake log and lessons)
+    return 19
 
 
 def stats() -> dict:

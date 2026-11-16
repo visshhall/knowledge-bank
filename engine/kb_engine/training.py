@@ -30,7 +30,7 @@ import datetime as _dt
 import hashlib
 import json
 
-from . import config, db, personas
+from . import config, db, mistakes, personas
 
 READY_AT = 300          # good examples before a fine-tune is worth trying
 MIN_RESPONSE_CHARS = 40  # shorter answers teach nothing
@@ -76,6 +76,17 @@ def _log(conn, message_id, chat_id, signal) -> None:
 
 def record(message_id: int, signal: str) -> dict:
     """
+    One reaction to an answer (see _record). A thumbs-down is also a MISTAKE for mistakes.py — logged after the
+    database transaction above has been committed, since mistakes.py opens its own connection.
+    """
+    result = _record(message_id, signal)
+    if signal == "down" and result.get("ok"):
+        mistakes.log_message("down", message_id)
+    return result
+
+
+def _record(message_id: int, signal: str) -> dict:
+    """
     One reaction to an answer. up/copy → keep it as a 'good' example (if it passes the filter and has not
     been marked down); down → drop any example made from it. RETURNS {"ok": True, "example": bool}.
     """
@@ -105,16 +116,20 @@ def record(message_id: int, signal: str) -> dict:
         return {"ok": True, "example": bool(have)}
 
 
-def on_undo(chat_id: int, message_id: int | None, reason: str) -> None:
+def on_undo(chat_id: int, message_id: int | None, reason: str, answer: str = "", mode: str | None = None,
+            question: str = "") -> None:
     """
-    Called by chat.undo_last() just before the newest answer is deleted. 'regen' = he asked again, so the
-    answer was not good: log it and drop its example. 'edit' = he rewrote his question: neutral, just logged.
+    Called by chat.undo_last() after the newest answer was deleted. 'regen' = he asked again, so the
+    answer was not good: log it (also as a mistake for mistakes.py, with the answer text passed in because the
+    message no longer exists) and drop its example. 'edit' = he rewrote his question: neutral, just logged.
     """
     if message_id is None:
         return
     with db.connect() as conn:
         _log(conn, message_id, chat_id, "regen" if reason == "regen" else "edit")
         conn.execute("DELETE FROM training_examples WHERE message_id = ?", (message_id,))
+    if reason == "regen":
+        mistakes.log_raw("regen", chat_id, message_id, mode, question, answer)
 
 
 def correct(message_id: int, text: str) -> dict:
@@ -142,6 +157,8 @@ def correct(message_id: int, text: str) -> dict:
                      "VALUES (?, ?, 'correction', ?, ?, ?, ?)",
                      (message_id, msg["chat_id"], system, prompt, text, original))
         _log(conn, message_id, msg["chat_id"], "correct")
+        chat_id, mode = msg["chat_id"], msg["mode"]
+    mistakes.log_raw("correct", chat_id, message_id, mode, prompt, original, text)  # his version = what was wanted
     return {"ok": True}
 
 

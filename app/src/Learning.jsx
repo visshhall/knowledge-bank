@@ -14,11 +14,16 @@
  *           "Export dataset", which writes the dataset and a how-to recipe into the data folder.
  * WHY:   The owner asked for the app to learn by itself, not only from data he adds. Everything it
  *        does on its own is visible here and can be switched off or undone.
+ *        3. (v0.17) MISTAKES AND LESSONS — every answer that went wrong (thumbs-down, Regenerate, Correct, facts the
+ *           checker removed) is logged; the app finds patterns (by counting his corrections, and with the AI) and
+ *           turns them into short lessons it follows in every reply. Lessons apply automatically; each shows its
+ *           evidence, whether it is working ("working" / "not helping — switched off") and can be turned off or
+ *           deleted. "Find patterns now" runs the search at once.
  * WHEN:  Opened from the sidebar's Knowledge section. Polls /learn/status every 3 s while open (so a
  *        running round shows live) and /training/status every 6 s.
  * CONNECTED TO: bridge.js → engine /learn/status, /learn/enable, /learn/limits, /learn/run, /learn/topic/*,
  *        /learn/watch/*, /learn/pages, /learn/remove-all, /training/status, /training/examples,
- *        /training/example/status, /training/export (server.py → learner.py, training.py); styles.css (.learn-*).
+ *        /training/example/status, /training/export, /lessons/status, /lessons/enable, /lessons/run, /lessons/rule/toggle, /lessons/rule/delete (server.py → learner.py, training.py, mistakes.py); styles.css (.learn-*).
  */
 import { useState } from "react";
 import Icon from "./icons.jsx";
@@ -35,6 +40,7 @@ export default function Learning() {
         </p>
       </header>
       <WebLearning />
+      <Lessons />
       <TrainingData />
     </div>
   );
@@ -264,6 +270,99 @@ function TrainingData() {
         </div>
       ) : (
         <p className="muted small">{show === "new" ? "No examples yet. Use Free chat and press the thumbs-up on answers you like, or Correct on ones you would write differently." : "Nothing rejected."}</p>
+      )}
+    </section>
+  );
+}
+
+const KIND_LABEL = { down: "thumbs-down", regen: "asked again", correct: "you corrected it", removed: "facts removed" };
+const VERDICT = { new: "new", working: "working", unclear: "no clear effect yet", not_helping: "not helping" };
+
+function Lessons() {
+  const [st, reload] = usePoll("/lessons/status", 5000);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!st) return null;
+
+  async function find() {
+    setBusy(true);
+    const r = await kb.post("/lessons/run", {});
+    setMsg(r.message || r.error || "");
+    setBusy(false);
+    reload();
+  }
+
+  return (
+    <section className="card learn-card" aria-label="Mistakes and lessons">
+      <div className="learn-head">
+        <h2>Learn from its mistakes</h2>
+        <label className="learn-switch">
+          <input
+            type="checkbox"
+            checked={st.on}
+            onChange={async (e) => {
+              await kb.post("/lessons/enable", { on: e.target.checked });
+              reload();
+            }}
+          />
+          {st.on ? "On" : "Off"}
+        </label>
+      </div>
+      <p className="muted">
+        Every answer that goes wrong is noted: a thumbs-down, Regenerate, a Correct, or facts the checker had to remove.
+        The app looks for patterns (for example “your corrections are always shorter”) and turns them into short lessons
+        it follows in later answers. It then checks whether each lesson really reduced mistakes, and switches it off if it
+        did not. You can turn off or delete any lesson.
+      </p>
+      <div className="learn-stats">
+        <div className="learn-stat"><strong>{st.total}</strong><span className="small muted">mistakes noted</span></div>
+        <div className="learn-stat"><strong>{st.active}</strong><span className="small muted">lessons in use</span></div>
+        <div className="learn-stat"><strong>{st.counts.correct}</strong><span className="small muted">your corrections</span></div>
+        <div className="learn-stat"><strong>{st.counts.removed}</strong><span className="small muted">facts removed</span></div>
+      </div>
+      <div className="learn-form">
+        <button className="small-btn" onClick={find} disabled={busy || st.running || !st.on}>
+          {busy || st.running ? "Looking…" : "Find patterns now"}
+        </button>
+        <span className="muted small">It also does this by itself once enough new mistakes have piled up.</span>
+      </div>
+      {msg && <p className="notice ok">{msg}</p>}
+
+      {st.rules.length > 0 ? (
+        <ul className="learn-list" aria-label="Lessons">
+          {st.rules.map((r) => (
+            <li key={r.id} style={r.status === "off" ? { opacity: 0.6 } : undefined}>
+              <span>
+                {r.text}
+                {r.note && <span className="small muted"><br />{r.note}</span>}
+              </span>
+              <span className="learn-tag" title="Where this lesson applies">{r.scope === "all" ? "everywhere" : r.scope === "free" ? "Free chat" : r.scope === "library" ? "My files" : "Files + general"}</span>
+              <span className="learn-tag" title={r.source === "pattern" ? "Found by counting how you change answers" : "Found by the AI from similar mistakes"}>{r.source === "pattern" ? "counted" : "AI"} · {r.evidence}×</span>
+              <span className={`learn-tag ${r.verdict === "working" ? "done" : r.verdict === "not_helping" ? "failed" : "pending"}`}>{VERDICT[r.verdict]}</span>
+              <button className="link small" onClick={async () => { await kb.post("/lessons/rule/toggle", { id: r.id, on: r.status !== "active" }); reload(); }}>
+                {r.status === "active" ? "Turn off" : "Turn on"}
+              </button>
+              <button className="link small" onClick={async () => { await kb.post("/lessons/rule/delete", { id: r.id }); reload(); }} aria-label={`Delete lesson ${r.text}`}>Delete</button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted small">No lessons yet. They appear after a few corrections or thumbs-downs in Free chat.</p>
+      )}
+
+      {st.recent.length > 0 && (
+        <>
+          <h3 className="model-sub">Latest mistakes noted</h3>
+          <ul className="learn-list" aria-label="Recent mistakes">
+            {st.recent.map((m) => (
+              <li key={m.id}>
+                <span className="small">{m.question || "(no question)"}{m.kind === "removed" && m.detail ? ` — ${m.detail}` : ""}</span>
+                <span className="learn-tag">{KIND_LABEL[m.kind]}</span>
+                {m.rule_id && <span className="learn-tag done">fed a lesson</span>}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );

@@ -5,7 +5,7 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.16.0 — the app learns by itself: web learning (finds and reads pages on topics, adds them straight to the library, within a daily budget) and learning from use (thumbs, Copy, Regenerate, Correct → training examples → dataset export); v0.15.0 — the app is chat-first: it opens on a new chat, with a ChatGPT/Claude-style sidebar, attach files / add a web page from the message box, Regenerate and Edit; v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Current version | KB v0.17.0 — learns from its mistakes: logs bad answers, finds patterns (counting + AI), turns them into lessons it follows, checks they helped and switches off those that did not; v0.16.0 — the app learns by itself: web learning (finds and reads pages on topics, adds them straight to the library, within a daily budget) and learning from use (thumbs, Copy, Regenerate, Correct → training examples → dataset export); v0.15.0 — the app is chat-first: it opens on a new chat, with a ChatGPT/Claude-style sidebar, attach files / add a web page from the message box, Regenerate and Edit; v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
 | Document version | 3.6 |
 | Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
@@ -701,6 +701,23 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9y. v0.17.0 — Learning from mistakes (16 Nov 2026)
+
+*Why:* the owner asked for pattern recognition that identifies problems, learns from them, corrects its mistakes and does not repeat them. He chose to build "mistake memory + lessons" first and to let lessons **apply automatically with an undo**. A local model cannot rewrite itself, so the app improves the *standing instructions* it gives the model, and measures whether that worked.
+
+*How (`mistakes.py`, schema v19: `mistake_log`, `lesson_rules`):*
+1. **Log.** A mistake is recorded when he gives a thumbs-down, presses Regenerate, uses Correct (his version is kept beside the model's), or the fact-checker removes claims from a library answer. Edit is neutral. Each message+kind is logged once.
+2. **Find patterns.** (a) *By counting, no AI:* from his corrections — answers he makes shorter or longer, bullet lists he turns into prose (or the reverse), opening pleasantries and closing offers he deletes. A habit in at least 3 corrections and 60% of them becomes a lesson. (b) *With the AI:* once 5 new mistakes are waiting (or any correction), and not while a reply is being written, the model reads them together and proposes up to 3 general lessons; a lesson needs 2 supporting mistakes or 1 correction, must be 8–170 characters and not about one fact. 10-minute cooldown.
+3. **Apply.** Active lessons (max 12; at most 900 characters) are added to the instructions of every reply in their scope (Free chat / My files / Files + general / everywhere). Very similar lessons are merged, not duplicated.
+4. **Check.** After 10 new answers in its scope each lesson is judged against the share of bad answers before it: ≤70% of that = *working*; not lower = *not helping* and the **app switches it off**. Turning a lesson back on starts a fresh check.
+5. **Control.** Learning → "Learn from its mistakes": on/off switch for the whole feature, "Find patterns now", each lesson with evidence, scope and verdict, Turn off / Delete, and the latest mistakes noted.
+
+*Limits:* lessons change how the model is told to write, not what it knows; they cannot fix a missing fact (the library and web learning do that). The AI's lessons are only as good as the small model's reading of the mistakes — that is why each is measured and can be switched off. The judgement needs real use (about 10 answers per lesson) before it says anything.
+
+*Not built yet (agreed next):* gap detection per category with automatic topics for thin areas, usefulness scoring of learned pages / learning which sites are junk, automatic categories and sub-categories, and the pattern/visualisation screens (knowledge map, coverage heatmap, mistake trends, learning timeline).
+
+*Tests:* `test_mistakes.py`.
+
 ## 9x. v0.16.0 — The app learns by itself (16 Nov 2026)
 
 *Why:* the owner asked how the app can improve apart from files he adds, and then asked for it to crawl the web to learn. He chose **fully automatic** and **add immediately**. A local model on a 4 GB laptop cannot rewrite its own weights safely, so "learning" here means two things the app can do alone: grow its library from the web, and collect/prepare training data from how he uses it. The real fine-tune stays a short cloud run he starts.
@@ -839,3 +856,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 3.9 / KB v0.17.0 | Learning from mistakes: mistake log, counted and AI-found patterns, automatic lessons added to replies, effectiveness check with auto switch-off. Schema v19. Added section 9y. |

@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -470,6 +470,11 @@ class IdRequest(BaseModel):
     id: int
 
 
+class RuleToggleRequest(BaseModel):
+    id: int
+    on: bool
+
+
 @app.post("/answer/ask", dependencies=[Depends(require_token)])
 def answer_ask(body: AskRequest) -> dict:
     """Start writing a cited answer from the best passages (background)."""
@@ -747,6 +752,33 @@ def training_example_status(body: ExampleStatusRequest) -> dict:
 @app.post("/training/export", dependencies=[Depends(require_token)])
 def training_export() -> dict:
     return training.export()
+
+
+# --- v0.17: mistakes and lessons (mistakes.py) ---------------------------------------------------
+
+@app.get("/lessons/status", dependencies=[Depends(require_token)])
+def lessons_status() -> dict:
+    return mistakes.status()
+
+
+@app.post("/lessons/enable", dependencies=[Depends(require_token)])
+def lessons_enable(body: LearnToggleRequest) -> dict:
+    return mistakes.set_enabled(body.on)
+
+
+@app.post("/lessons/run", dependencies=[Depends(require_token)])
+def lessons_run() -> dict:
+    return mistakes.run_patterns()
+
+
+@app.post("/lessons/rule/toggle", dependencies=[Depends(require_token)])
+def lessons_toggle(body: RuleToggleRequest) -> dict:
+    return mistakes.set_rule(body.id, body.on)
+
+
+@app.post("/lessons/rule/delete", dependencies=[Depends(require_token)])
+def lessons_delete(body: IdRequest) -> dict:
+    return mistakes.delete_rule(body.id)
 
 
 @app.get("/learn/status", dependencies=[Depends(require_token)])
