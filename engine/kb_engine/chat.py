@@ -1,5 +1,5 @@
 """
-chat.py — v0.11 Chat: a saved, multi-turn conversation with your own library.
+chat.py — v0.11/v0.12 Chat: saved, multi-turn conversations with your library or, in Free mode, with the model alone.
 
 WHAT:  Lets the owner talk to the Knowledge Bank the way he would to a
        colleague who has read all his PDFs:
@@ -20,7 +20,17 @@ WHAT:  Lets the owner talk to the Knowledge Bank the way he would to a
            flagged `general` so the window can label it clearly.
          - Writing is streamed (the window polls status()) and can be
            stopped; the part already written is kept and checked.
-WHY:   The owner asked to turn the Knowledge Bank itself into the chat app,
+       v0.12 adds THREE MODES, remembered per chat:
+         library  only from his files, every sentence cited and fact-checked (v0.11);
+         both     files first, plus a clearly marked general-knowledge part (v0.11's
+                  "Also use general knowledge" switch);
+         free     no files at all: the model answers like any general AI chat, shaped
+                  by a PERSONA (personas.py — instructions the owner can write himself).
+                  Nothing in a Free reply is fact-checked or cited, and the window
+                  labels it "not from your files". A longer part of the conversation
+                  is sent along than in the library modes, since there are no passages
+                  competing for room in the 4,096-token window.
+WHY:  The owner asked to turn the Knowledge Bank itself into the chat app,
        because it already holds the enriched data of ~200 PDFs. Reusing the
        bank (instead of a separate chat program) keeps every answer
        traceable to a file and page, and keeps everything on this laptop.
@@ -30,8 +40,9 @@ WHEN:  Called from server.py: GET /chat/list, POST /chat/new, GET /chat/get,
        importer.py calls forget_sources() when a file is removed.
 CONNECTED TO: answers.py (retrieval `_sources`, fact check `finalize`),
        ollama_client.py (generate, streaming, stop), db.py (tables `chats`
-       and `chat_messages`, schema v14; setting `chat_model`), writer.py
-       (write_model = the default model), chunking.with_section.
+       and `chat_messages`, schema v14; `mode` and `persona_id`, schema v15; setting
+       `chat_model`), personas.py (persona_prompt), writer.py (write_model = the
+       default model), chunking.with_section.
 PRIVACY: nothing here talks to any server except the local Ollama.
 """
 
@@ -42,7 +53,7 @@ import re
 import threading
 import time
 
-from . import answers, chunking, db, ollama_client
+from . import answers, chunking, db, ollama_client, personas
 
 MAX_SOURCES = 6        # passages per question (history shares the 4,096-token window)
 SOURCE_CHARS = 800     # each passage is cut to this length in the prompt
@@ -50,6 +61,11 @@ HISTORY_TURNS = 4      # earlier messages sent to the model (2 questions + 2 ans
 HISTORY_CHARS = 500    # each earlier message is cut to this length in the prompt
 NUM_CTX = 4096
 MAX_OUTPUT = 800
+FREE_HISTORY_TURNS = 12   # Free mode: how many earlier messages are looked at …
+FREE_HISTORY_CHARS = 6000  # … and the most text of them that is sent (newest first); no passages share the window
+FREE_MESSAGE_CHARS = 2000  # one earlier message is cut to this length
+FREE_MAX_OUTPUT = 1200
+MODES = ("library", "both", "free")
 DEFAULT_TITLE = "New chat"
 GENERAL_MARK = "From general knowledge (not from your files):"
 CLEARED = "This answer used a file that was removed from the bank, so it was cleared."
@@ -94,6 +110,13 @@ QUESTION: {question}
 Answer from your own general knowledge only. Begin with the exact line: """ + GENERAL_MARK + """
 Be brief and say plainly when you are unsure."""
 
+PROMPT_FREE = """CONVERSATION SO FAR:
+{history}
+
+OWNER: {question}
+
+Reply to the owner's latest message."""
+
 _lock = threading.Lock()
 _state: dict = {"state": "idle"}
 _stop = threading.Event()
@@ -117,6 +140,17 @@ def chat_model() -> str:
     """
     from .writer import write_model  # late import: writer imports lessons → avoids a cycle
     return db.get_setting("chat_model") or write_model()
+
+
+def normalize_mode(mode: str | None, general: bool = False) -> str:
+    """
+    The mode a message is sent in. An explicit valid `mode` wins; otherwise the
+    old v0.11 `general` flag decides (True → "both", False → "library"), so a
+    window or script that only knows v0.11 keeps working.
+    """
+    if mode in MODES:
+        return mode
+    return "both" if general else "library"
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +177,7 @@ def list_chats(q: str | None = None) -> dict:
     """
     q = " ".join((q or "").split())
     sql = ("SELECT c.id, c.title, c.updated_at, "
-           "(SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages FROM chats c")
+           "c.mode, (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages FROM chats c")
     args: list = []
     if q:
         sql += (" WHERE c.title LIKE ? ESCAPE '\\' OR c.id IN "
@@ -158,7 +192,8 @@ def list_chats(q: str | None = None) -> dict:
 def get_chat(chat_id: int) -> dict | None:
     """One chat with all its messages (sources decoded), or None."""
     with db.connect() as conn:
-        c = conn.execute("SELECT id, title, created_at, updated_at FROM chats WHERE id = ?", (chat_id,)).fetchone()
+        c = conn.execute("SELECT id, title, mode, persona_id, created_at, updated_at FROM chats WHERE id = ?",
+                         (chat_id,)).fetchone()
         if not c:
             return None
         rows = conn.execute("SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY id", (chat_id,)).fetchall()
@@ -173,10 +208,12 @@ def get_chat(chat_id: int) -> dict | None:
         except ValueError:
             checks = {}
         messages.append({"id": r["id"], "role": r["role"], "content": r["content"], "sources": sources,
-                         "checks": checks, "general": bool(r["general"]), "model_used": r["model_used"],
+                         "checks": checks, "general": bool(r["general"]),
+                         "mode": (r["mode"] or ("both" if r["general"] else "library")) if r["role"] == "assistant" else None,
+                         "model_used": r["model_used"],
                          "seconds": r["seconds"], "created_at": r["created_at"]})
-    return {"id": c["id"], "title": c["title"], "created_at": c["created_at"],
-            "updated_at": c["updated_at"], "messages": messages}
+    return {"id": c["id"], "title": c["title"], "mode": c["mode"], "persona_id": c["persona_id"],
+            "created_at": c["created_at"], "updated_at": c["updated_at"], "messages": messages}
 
 
 def rename_chat(chat_id: int, title: str) -> dict:
@@ -222,12 +259,16 @@ def forget_sources(conn, source_ids) -> int:
 # Sending a message
 # ---------------------------------------------------------------------------
 
-def send(chat_id: int | None, text: str, general: bool = False) -> dict:
+def send(chat_id: int | None, text: str, general: bool = False, mode: str | None = None,
+         persona_id: int | None = None) -> dict:
     """
     Add the owner's message to a chat and start writing the reply in the
-    background. chat_id None starts a new chat. RETURNS
-    {"ok", "chat_id"} or {"ok": False, "message"}.
+    background. chat_id None starts a new chat. `mode` is "library", "both" or
+    "free" (see the top of this file); `general` is the older v0.11 way to ask
+    for "both". The mode and persona are saved on the chat, so the chat opens
+    the way it was last used. RETURNS {"ok", "chat_id"} or {"ok": False, "message"}.
     """
+    mode = normalize_mode(mode, general)
     text = (text or "").strip()
     if len(text) < 2:
         return {"ok": False, "message": "Type a message first."}
@@ -242,18 +283,22 @@ def send(chat_id: int | None, text: str, general: bool = False) -> dict:
             return {"ok": False, "message": "That chat no longer exists."}
         history = conn.execute(
             "SELECT role, content FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
-            (chat_id, HISTORY_TURNS)).fetchall()[::-1]
+            (chat_id, FREE_HISTORY_TURNS)).fetchall()[::-1]
+        if persona_id is not None and not personas.get(persona_id):
+            persona_id = None  # a deleted persona falls back to the Assistant
         conn.execute("INSERT INTO chat_messages(chat_id, role, content) VALUES (?, 'user', ?)", (chat_id, text))
         title = c["title"]
         if title == DEFAULT_TITLE:  # the first question names the chat
             title = " ".join(text.split())[:60]
-        conn.execute("UPDATE chats SET title = ?, updated_at = datetime('now') WHERE id = ?", (title, chat_id))
+        conn.execute("UPDATE chats SET title = ?, mode = ?, persona_id = ?, updated_at = datetime('now') WHERE id = ?",
+                     (title, mode, persona_id, chat_id))
     _stop.clear()
     with _lock:
         _state.clear()
-        _state.update(state="running", chat_id=chat_id, stage="Finding the best passages…",
+        _state.update(state="running", chat_id=chat_id,
+                      stage="Thinking…" if mode == "free" else "Finding the best passages…",
                       live=None, started_at=time.time())
-    threading.Thread(target=_run, args=(chat_id, text, bool(general), [dict(h) for h in history]),
+    threading.Thread(target=_run, args=(chat_id, text, mode, [dict(h) for h in history], persona_id),
                      name="kb-chat", daemon=True).start()
     return {"ok": True, "chat_id": chat_id}
 
@@ -306,7 +351,7 @@ def build_prompt(question: str, history: list[dict], sources: list[dict], genera
     The (system, prompt) pair for one question. Shared with the model
     comparison (modelpick.py) so a model is judged on exactly what Chat sends.
     """
-    hist = _history_text(history)
+    hist = _history_text(history[-HISTORY_TURNS:])
     if not sources:
         return SYSTEM_GENERAL, PROMPT_NO_SOURCES.format(history=hist, question=question)
     numbered = "\n\n".join(
@@ -314,6 +359,32 @@ def build_prompt(question: str, history: list[dict], sources: list[dict], genera
         for i, s in enumerate(sources, start=1))
     return (SYSTEM_GENERAL if general else SYSTEM_LIBRARY,
             PROMPT.format(history=hist, sources=numbered, question=question))
+
+
+def _free_history_text(history: list[dict]) -> str:
+    """
+    The earlier conversation for Free mode: the newest messages that fit in
+    FREE_HISTORY_CHARS, each cut to FREE_MESSAGE_CHARS, oldest first. (Library
+    modes send far less, because retrieved passages need the room.)
+    """
+    if not history:
+        return "(this is the first message)"
+    kept: list[str] = []
+    used = 0
+    for h in reversed(history):
+        who = "Owner" if h["role"] == "user" else "Assistant"
+        line = f"{who}: {h['content'].strip()[:FREE_MESSAGE_CHARS]}"
+        if used + len(line) > FREE_HISTORY_CHARS and kept:
+            break
+        kept.append(line)
+        used += len(line)
+    return "\n".join(reversed(kept))
+
+
+def build_free_prompt(question: str, history: list[dict], persona_id: int | None) -> tuple[str, str]:
+    """The (system, prompt) pair for a Free reply: the persona's instructions and the conversation."""
+    return (personas.persona_prompt(persona_id),
+            PROMPT_FREE.format(history=_free_history_text(history), question=question))
 
 
 def split_general(body: str) -> tuple[str, str]:
@@ -372,16 +443,21 @@ def finish_reply(body: str, sources: list[dict], general: bool) -> tuple[str, bo
     return msg, False, removed
 
 
-def _run(chat_id: int, text: str, general: bool, history: list[dict]) -> None:
+def _run(chat_id: int, text: str, mode: str, history: list[dict], persona_id: int | None = None) -> None:
     started = time.time()
     try:
         if not ollama_client.is_running():
             raise RuntimeError("The AI engine (Ollama) isn't running. Start it from Setup.")
         model = chat_model()
+        if mode == "free":
+            _run_free(chat_id, text, history, persona_id, model, started)
+            return
+        general = mode == "both"
+        history = history[-HISTORY_TURNS:]  # library modes keep the window for the passages
         sources = answers._sources(_search_text(text, history), limit=MAX_SOURCES)
         if not sources and not general:
             reply, has_general, removed = finish_reply("", sources, general)
-            _save_reply(chat_id, reply, {}, {"removed": [], "removed_count": 0}, False, model, started)
+            _save_reply(chat_id, reply, {}, {"removed": [], "removed_count": 0}, False, model, started, mode)
             return
         system, prompt = build_prompt(text, history, sources, general)
         _set(stage=f"Writing with {model}…")
@@ -398,21 +474,42 @@ def _run(chat_id: int, text: str, general: bool, history: list[dict]) -> None:
                | {"text": s["text"], "cited": i in cited}
                for i, s in enumerate(sources, start=1)}
         _save_reply(chat_id, reply, src, {"removed": removed, "removed_count": len(removed)},
-                    has_general, model, started)
+                    has_general, model, started, mode)
     except Exception as exc:
         _set(state="error", stage=None, live=None, message=str(exc))
 
 
+def _run_free(chat_id: int, text: str, history: list[dict], persona_id: int | None,
+              model: str, started: float) -> None:
+    """
+    Write one Free reply: no passages, no citations, no fact check. The persona's
+    instructions are the system prompt. A little more warmth than the library
+    modes (temperature 0.6) because here the owner wants a conversation, not a
+    quotation. Called only by _run.
+    """
+    system, prompt = build_free_prompt(text, history, persona_id)
+    _set(stage=f"Writing with {model}…")
+    r = ollama_client.generate(model, prompt, system=system, temperature=0.6, num_ctx=NUM_CTX,
+                               num_predict=FREE_MAX_OUTPUT, on_text=lambda t: _set(live=t),
+                               should_stop=_stop.is_set)
+    reply = re.sub(r"\s*\[\d+\]", "", r.text.strip())  # nothing here came from a file, so no source markers
+    if not reply:
+        reply = "The model returned nothing. Try again, or choose another model above."
+    if _stop.is_set():
+        reply += "\n\n*(Stopped before the end.)*"
+    _save_reply(chat_id, reply, {}, {"removed": [], "removed_count": 0}, False, model, started, "free")
+
+
 def _save_reply(chat_id: int, reply: str, sources: dict, checks: dict, has_general: bool,
-                model: str, started: float) -> None:
+                model: str, started: float, mode: str = "library") -> None:
     seconds = round(time.time() - started, 1)
     with db.connect() as conn:
         if not conn.execute("SELECT 1 FROM chats WHERE id = ?", (chat_id,)).fetchone():
             _set(state="idle", stage=None, live=None)  # the owner deleted the chat meanwhile
             return
         cur = conn.execute(
-            "INSERT INTO chat_messages(chat_id, role, content, sources_json, checks_json, general, model_used, seconds) "
-            "VALUES (?, 'assistant', ?, ?, ?, ?, ?, ?)",
-            (chat_id, reply, json.dumps(sources), json.dumps(checks), 1 if has_general else 0, model, seconds))
+            "INSERT INTO chat_messages(chat_id, role, content, sources_json, checks_json, general, model_used, seconds, mode) "
+            "VALUES (?, 'assistant', ?, ?, ?, ?, ?, ?, ?)",
+            (chat_id, reply, json.dumps(sources), json.dumps(checks), 1 if has_general else 0, model, seconds, mode))
         conn.execute("UPDATE chats SET updated_at = datetime('now') WHERE id = ?", (chat_id,))
     _set(state="done", stage=None, live=None, message_id=cur.lastrowid, seconds=seconds)

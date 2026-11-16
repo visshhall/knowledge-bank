@@ -5,8 +5,8 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
-| Document version | 3.3 |
+| Current version | KB v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Document version | 3.4 |
 | Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
 
@@ -658,6 +658,28 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Limits:* a 4B model can still misread a follow-up; only the last four messages are remembered, so a long chat forgets its start; the general-knowledge part is not checked and can be wrong; fact checking only catches numbers, IDs and commands, not a wrong explanation; the model sizes shown for suggestions are approximate; a comparison on three questions says little about quality, so the answers must be read, not just the numbers.
 
+## 9t. v0.12.0 — Free Chat and personas (16 Nov 2026)
+
+*Why:* the owner wants the Knowledge Bank to become his own private AI app — not only a search over his job PDFs but a model he can talk to about anything (business copy, code, learning, planning), with no company filter on it. He chose to build this inside the Knowledge Bank rather than as a separate app, so the same installer, database, model picker and later training features serve both. Choices made with him: Free Chat first; a mode switch at the top of Chat rather than a separate screen; only mainstream models in the picker (no "uncensored" community models).
+
+*What — three modes, saved per chat (`chats.mode`, schema v15):*
+- **My files** — exactly v0.11: only his files, every sentence cited and fact-checked.
+- **Files + general** — v0.11's "Also use general knowledge": files first, then a labelled, unchecked general part.
+- **Free chat** — no files, no search, no fact check, no source markers. The model answers like any general AI chat. Each Free reply is labelled in the window "Free chat — written by the model, not from your files, not fact-checked", so it can never be mistaken for a sourced answer. More of the conversation is sent along than in the library modes (up to 12 earlier messages / 6,000 characters, newest first) because no passages compete for the 4,096-token window; replies may be up to 1,200 tokens; temperature 0.6 (0.2 in the library modes).
+- The old `general` flag still works and means "Files + general", so nothing written for v0.11 breaks.
+
+*What — personas (`engine/kb_engine/personas.py`, table `personas`):* a persona is a name plus the instructions the model follows in Free chat. Five are built in and read-only: **Assistant**, **Ākāra copywriter** (luxury tone, meta title ≤ 60, meta description ≤ 155, slug, headline, description, benefit bullets; uses only facts he gives it and asks for missing ones), **Coding helper**, **Tutor**, **Security analyst**. He can create, edit and delete his own (name up to 60 characters, instructions up to 4,000), or press "Copy and edit" on a built-in. Every persona also receives a short base rule: answer directly and completely without unrequested warnings or lectures, say plainly when unsure, never invent facts, numbers, quotes, links or sources. Built-ins are refreshed from the app on every start (so improved wording ships), his own are never touched. Deleting a persona makes the chats that used it fall back to the Assistant.
+
+*What the app does and does not do about "no restrictions":* the app adds no filter of its own — everything stays on his laptop and nothing is logged anywhere. Any refusal or caution comes from the model itself. The model picker lists mainstream models only (Qwen, Phi, Gemma, Llama); it still accepts any Ollama model name typed by hand.
+
+*Window (`app/src/Chat.jsx`):* the switch sits beside the Send button; in Free chat a Persona picker and "Edit personas" appear in the top bar. Opening a saved chat restores its mode and persona. A found-in-testing bug is recorded in Known limits below.
+
+*Tested:* `engine/tests/test_free_chat.py` (built-in protection, persona rules, all three modes, no search and no passages in Free, persona text reaches the model, source markers stripped, longer Free history with a cap, library history unchanged, mode and persona remembered, deleted-persona fallback, empty reply explained, schema v15 on a v14 database run twice); existing `test_chat.py` and `test_modelpick.py` still pass. Rendered in a headless browser with a stand-in engine. One real-model run (qwen3.5:4b, CPU): the Ākāra copywriter persona produced a meta title, description and slug, and a follow-up ("make the description warmer and shorter") used the first answer.
+
+*Limits:* a 4B model writes passable first drafts, not finished luxury copy — read and edit what it gives. In the real test it put a leading "/" in the URL slug and cannot know materials or sizes (it asked for them, as instructed). Free chat answers are the model's own words and can be wrong. Only recent messages are remembered. Free chat and article writing share the graphics card; do not run both at once. A UI bug found while testing: the "Copy and edit" button and the "Save persona" button were the same screen element, so one click copied *and* saved; they now have separate keys.
+
+*Planned next (agreed order):* v0.13 add any kind of file or text to the bank (Word, text, web pages, images, spreadsheets, pasted text); v0.14 memory about the owner (durable facts he can see and edit); v0.15 training kit (rate answers, export a dataset from chats and files, a cloud-notebook recipe to fine-tune a small model, import it back).
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -730,3 +752,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 15 Nov 2026 | Doc 3.1 / KB v0.9.2 | Removing files (one or many) now removes everything built from them: topics, articles, lessons, flashcards, saved answers. Library multi-select. Added section 9q. |
 | 15 Nov 2026 | Doc 3.2 / KB v0.10.0 | AI understands each point (role + subject); topics shown and articles written by logical outline; contradictions and gaps surfaced. Schema v13. Added section 9r. |
 | 16 Nov 2026 | Doc 3.3 / KB v0.11.0 | Chat: saved multi-turn conversations with the library (cited, fact-checked, general knowledge only on request, streaming + Stop), model picker with downloads and a compare-on-my-files test. Schema v14. Fixed v0.9.2 bug: removing a file never deleted saved answers. Added section 9s. |
+| 16 Nov 2026 | Doc 3.4 / KB v0.12.0 | Free Chat: three modes per chat (My files / Files + general / Free chat), personas (5 built in, owner's own editable), schema v15. Fixed a Copy-and-edit button bug found in testing. Added section 9t. |

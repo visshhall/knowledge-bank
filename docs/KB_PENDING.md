@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.11.0 (Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.12.0 (Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -109,6 +109,21 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.12.0 — Free Chat and personas ✅ delivered
+- [x] Three modes per chat: My files / Files + general / Free chat (saved with the chat)
+- [x] Personas: Assistant, Ākāra copywriter, Coding helper, Tutor, Security analyst; make, edit, delete your own
+- [x] Free replies are labelled "not from your files"; nothing in them is cited or fact-checked
+- [ ] Owner check: switch to Free chat, pick "Ākāra copywriter", ask for a product page for one real planter (give it the size, material and colour) and tell me how the tone reads
+- [ ] Owner check: write one persona of your own in "Edit personas" and try it
+- [ ] Owner check: open an old library chat and a Free chat and confirm each opens in its own mode
+- [ ] Known: Free chat uses the same graphics card as article writing; do not run both at once
+
+### Agreed roadmap after v0.12 (not started)
+- v0.13 Add any kind of data: Word, text, Markdown, web pages, pasted text, images with text, spreadsheets into the same bank
+- v0.14 Memory about you: durable facts (preferences, business details) you can read, edit and delete
+- v0.15 Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
+- Later ideas: voice in/out, optional web search when online, phone access (needs a security decision)
 
 ## v0.11.0 — Chat and model picker ✅ delivered
 - [x] Chat screen: saved chats (new, rename, delete, search), cited and fact-checked answers, follow-ups, streaming + Stop

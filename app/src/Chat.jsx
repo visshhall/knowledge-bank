@@ -1,5 +1,13 @@
 /**
- * Chat.jsx — v0.11 "Chat": talk to your library in saved conversations.
+ * Chat.jsx — v0.11/v0.12 "Chat": talk to your library, or freely to the model, in saved conversations.
+ *
+ * v0.12: a three-way switch above the message box chooses how a chat answers —
+ *        "My files" (library only, cited and checked), "Files + general" (files
+ *        first, then a labelled general-knowledge part) or "Free chat" (no files,
+ *        like any AI chat). The choice is saved with each chat. In Free chat a
+ *        PERSONA shapes the answers: pick one of the built-ins (Assistant, Ākāra
+ *        copywriter, Coding helper, Tutor, Security analyst) or write your own in
+ *        "Edit personas". Free replies are labelled "not from your files".
  *
  * WHAT:  - Left: your saved chats (newest first), a box to search them by
  *          title or text, "New chat", rename and delete.
@@ -24,6 +32,7 @@
  * WHEN:  The "Chat" screen in the side rail (App.jsx).
  * CONNECTED TO: bridge.js → engine /chat/list, /chat/get, /chat/new,
  *        /chat/rename, /chat/delete, /chat/send, /chat/status, /chat/stop,
+ *        /chat/personas, /chat/persona/save, /chat/persona/delete,
  *        /models/choices, /models/select (server.py → chat.py,
  *        modelpick.py); Formatted.jsx (Markdown, Formatted); SourceChip.jsx;
  *        App.jsx (onOpenTopic, onOpenSetup).
@@ -36,6 +45,19 @@ import { kb, usePoll } from "./bridge.js";
 
 /** The line chat.py puts in front of everything that is NOT from the files. */
 const GENERAL_MARK = "From general knowledge (not from your files):";
+
+/** The three ways a chat can answer (saved per chat; the names match chat.py). */
+const MODES = [
+  { id: "library", label: "My files", hint: "Answers only from your PDFs, with every source cited and fact-checked." },
+  { id: "both", label: "Files + general", hint: "Your files first; anything from the model's own knowledge is added in a labelled box." },
+  { id: "free", label: "Free chat", hint: "No files. Talk to the model about anything, like any AI chat. Not cited, not fact-checked." },
+];
+
+const FREE_STARTERS = [
+  "Explain how a heat pump works in simple words.",
+  "Write a polite follow-up email to a customer who hasn't replied for a week.",
+  "Help me plan my week as a small-business owner.",
+];
 
 const STARTERS = [
   "How do I detect and contain an RDP brute force that ended in a successful login?",
@@ -55,7 +77,10 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
   const [chat, setChat] = useState(null); // the open chat's messages
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
-  const [general, setGeneral] = useState(false); // "Also use general knowledge" for the next message
+  const [mode, setMode] = useState("library"); // how the next message is answered: library | both | free
+  const [personaId, setPersonaId] = useState(null); // who answers in Free chat (null = the Assistant)
+  const [editing, setEditing] = useState(null); // the persona being written: { id, name, prompt, builtin }
+  const [showPersonas, setShowPersonas] = useState(false);
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(null); // { id, value }
   const [confirmDelete, setConfirmDelete] = useState(null); // chat id waiting for a second click
@@ -65,6 +90,8 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
   const [job] = usePoll("/chat/status", 700);
   const [list, reloadList] = usePoll("/chat/list", 0, { q: search });
   const [models, reloadModels] = usePoll("/models/choices", 0);
+  const [personaData, reloadPersonas] = usePoll("/chat/personas", 0);
+  const personas = personaData?.personas ?? [];
   const awaiting = useRef(null); // chat id we are waiting on a reply for
   const sentAt = useRef(0); // when we pressed Send (seconds); ignores a stale "done" from the previous reply
   const threadRef = useRef(null);
@@ -76,7 +103,11 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
       return;
     }
     const r = await kb.get("/chat/get", { id });
-    if (!r.error) setChat(r);
+    if (!r.error) {
+      setChat(r);
+      setMode(r.mode || "library"); // a chat opens the way it was last used
+      setPersonaId(r.persona_id ?? null);
+    }
   }, []);
 
   useEffect(() => {
@@ -120,7 +151,12 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
     if (body.length < 2 || running) return;
     setNotice("");
     sentAt.current = Date.now() / 1000;
-    const r = await kb.post("/chat/send", { chat_id: activeId, text: body, general });
+    const r = await kb.post("/chat/send", {
+      chat_id: activeId,
+      text: body,
+      mode,
+      persona_id: mode === "free" ? personaId : null,
+    });
     if (r.error || r.ok === false) {
       setNotice(r.error || r.message);
       return;
@@ -169,6 +205,31 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
     reloadModels();
   }
 
+  /** Save the persona being edited (new, or one of the owner's own). */
+  async function savePersona() {
+    if (!editing) return;
+    const r = await kb.post("/chat/persona/save", {
+      id: editing.builtin ? null : editing.id,
+      name: editing.name,
+      prompt: editing.prompt,
+    });
+    if (r.ok === false || r.error) {
+      setNotice(r.message || r.error);
+      return;
+    }
+    setNotice("");
+    setPersonaId(r.id);
+    setEditing(null);
+    reloadPersonas();
+  }
+
+  async function removePersona(id) {
+    await kb.post("/chat/persona/delete", { id });
+    if (personaId === id) setPersonaId(null);
+    setEditing(null);
+    reloadPersonas();
+  }
+
   function toggleSources(id) {
     setOpenSources((cur) => {
       const next = new Set(cur);
@@ -188,14 +249,16 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
   const messages = chat?.messages ?? [];
   const installed = models?.installed ?? [];
   const empty = !messages.length && !pendingUser && !liveHere;
+  const free = mode === "free";
+  const persona = personas.find((p) => p.id === personaId) ?? personas[0];
 
   return (
     <div className="chat">
       <header className="page-head">
         <h1>Chat</h1>
         <p className="lede">
-          Talk to your library. Answers come from your own files with every source cited and checked; follow-up
-          questions remember the conversation. Everything stays on this laptop.
+          Talk to your library, or switch to Free chat and talk to the model about anything. In “My files” every
+          answer is cited and fact-checked; follow-ups remember the conversation. Everything stays on this laptop.
         </p>
       </header>
 
@@ -274,19 +337,116 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
                 ))}
               </select>
             </label>
+            {free && (
+              <label className="chat-model">
+                <span className="muted small">Persona</span>
+                <select
+                  value={persona?.id ?? ""}
+                  onChange={(e) => setPersonaId(Number(e.target.value))}
+                  disabled={running}
+                  aria-label="Who answers in Free chat"
+                >
+                  {personas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <button className="link small" onClick={() => setShowPersonas(!showPersonas)} aria-expanded={showPersonas}>
+                  {showPersonas ? "Close personas" : "Edit personas"}
+                </button>
+              </label>
+            )}
             <button className="link small" onClick={onOpenSetup}>
               Download and compare models
             </button>
           </div>
+
+          {free && showPersonas && (
+            <section className="card persona-editor" aria-label="Personas">
+              <p className="muted small">
+                A persona is a set of instructions the model follows in Free chat — who it is, how it writes, what it
+                avoids. Built-in ones are read-only; copy one to make it your own.
+              </p>
+              <ul className="persona-list">
+                {personas.map((p) => (
+                  <li key={p.id} className={p.id === persona?.id ? "on" : ""}>
+                    <button className="recent-q" onClick={() => setPersonaId(p.id)}>
+                      {p.name}
+                      {p.builtin && <span className="muted small"> · built in</span>}
+                    </button>
+                    <button className="link small" onClick={() => setEditing({ ...p })}>
+                      {p.builtin ? "View / copy" : "Edit"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button className="small-btn" onClick={() => setEditing({ id: null, name: "", prompt: "", builtin: false })}>
+                New persona
+              </button>
+              {editing && (
+                <form
+                  className="persona-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    savePersona();
+                  }}
+                >
+                  <label>
+                    <span className="small">Name</span>
+                    <input
+                      value={editing.name}
+                      onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                      readOnly={editing.builtin}
+                      maxLength={60}
+                    />
+                  </label>
+                  <label>
+                    <span className="small">Instructions the model follows</span>
+                    <textarea
+                      rows={7}
+                      value={editing.prompt}
+                      onChange={(e) => setEditing({ ...editing, prompt: e.target.value })}
+                      readOnly={editing.builtin}
+                      maxLength={4000}
+                    />
+                  </label>
+                  <div className="persona-actions">
+                    {editing.builtin ? (
+                      <button
+                        key="copy"
+                        type="button"
+                        onClick={() => setEditing({ id: null, name: `${editing.name} (mine)`, prompt: editing.prompt, builtin: false })}
+                      >
+                        Copy and edit
+                      </button>
+                    ) : (
+                      // Separate keys: without them React would reuse this very button, flip it from
+                      // type="button" to "submit" mid-click, and the click would save the copy at once.
+                      <button key="save" type="submit">Save persona</button>
+                    )}
+                    <button type="button" className="secondary" onClick={() => setEditing(null)}>
+                      Close
+                    </button>
+                    {!editing.builtin && editing.id && (
+                      <button type="button" className="link small" onClick={() => removePersona(editing.id)}>
+                        Delete this persona
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
+            </section>
+          )}
 
           {notice && <p className="notice error">{notice}</p>}
 
           <div className="chat-thread" ref={threadRef} aria-live="polite">
             {empty && (
               <section className="card chat-empty">
-                <p>Ask anything about what is in your files. For example:</p>
+                <p>{free ? "Ask me anything. For example:" : "Ask anything about what is in your files. For example:"}</p>
                 <ul>
-                  {STARTERS.map((s) => (
+                  {(free ? FREE_STARTERS : STARTERS).map((s) => (
                     <li key={s}>
                       <button className="link" onClick={() => send(s)} disabled={running}>
                         {s}
@@ -335,7 +495,11 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
                 )}
                 <p className="muted small">
                   {job.stage}
-                  {job.live ? " Facts are checked when it finishes." : " A local model on a 4 GB card takes about 20–60 seconds."}
+                  {job.live
+                    ? free
+                      ? ""
+                      : " Facts are checked when it finishes."
+                    : " A local model on a 4 GB card takes about 20–60 seconds."}
                 </p>
               </section>
             )}
@@ -359,14 +523,29 @@ export default function Chat({ onOpenTopic, onOpenSetup }) {
                 }
               }}
               rows={2}
-              placeholder="Ask about your files… (Enter to send, Shift+Enter for a new line)"
+              placeholder={
+                free
+                  ? `Message the model as “${persona?.name ?? "Assistant"}”… (Enter to send, Shift+Enter for a new line)`
+                  : "Ask about your files… (Enter to send, Shift+Enter for a new line)"
+              }
               aria-label="Your message"
             />
             <div className="chat-composer-foot">
-              <label className="chat-general-switch" title="When your files don't cover the question, let the model use what it knows. That part is labelled and is not fact-checked.">
-                <input type="checkbox" checked={general} onChange={(e) => setGeneral(e.target.checked)} />
-                Also use general knowledge
-              </label>
+              <div className="chat-modes" role="group" aria-label="How this chat answers">
+                {MODES.map((m) => (
+                  <button
+                    type="button"
+                    key={m.id}
+                    className={`seg ${mode === m.id ? "on" : ""}`}
+                    aria-pressed={mode === m.id}
+                    title={m.hint}
+                    onClick={() => setMode(m.id)}
+                    disabled={running}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
               {running ? (
                 <button type="button" className="secondary" onClick={() => kb.post("/chat/stop", {})}>
                   Stop
@@ -396,6 +575,11 @@ function AnswerCard({ m, open, lit, onToggle, onCite, onOpenTopic }) {
         <div className="answer-body">
           <Markdown text={fromFiles} onCite={onCite} />
         </div>
+      )}
+      {m.mode === "free" && (
+        <p className="chat-free-label">
+          <Icon name="globe" size={14} /> Free chat — written by the model, not from your files, not fact-checked
+        </p>
       )}
       {fromGeneral && (
         <div className="chat-general">

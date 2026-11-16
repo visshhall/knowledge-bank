@@ -33,7 +33,9 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          POST /answer/ask {question}   — write a cited answer (v0.7, background)
          GET  /answer/status · /answers · /answer?id · POST /answer/delete
          GET  /chat/list[?q] · /chat/get?id · /chat/status · POST /chat/new · /chat/rename
-              · /chat/delete · /chat/send {chat_id, text, general} · /chat/stop   (v0.11 Chat)
+              · /chat/delete · /chat/send {chat_id, text, general, mode, persona_id} · /chat/stop   (v0.11 Chat;
+              mode = library | both | free is v0.12)
+         GET  /chat/personas · POST /chat/persona/save {id?, name, prompt} · /chat/persona/delete {id}   (v0.12 personas)
          GET  /models/choices · /models/compare/status · POST /models/select · /models/download
               · /models/compare/start · /models/compare/cancel           (v0.11 model picker)
          POST /backup/create · /backup/restore {path, password} · GET /backup/status
@@ -71,7 +73,7 @@ SECURITY:
 
 CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
        importer.py, search.py, distill.py, writer.py, lessons.py, updates.py,
-       chat.py, modelpick.py;
+       chat.py, modelpick.py, personas.py;
        called by
        app/electron/main.js (which relays requests from the window).
 """
@@ -86,7 +88,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, modelpick, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, chat, config, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, modelpick, personas, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -497,7 +499,16 @@ class ChatSendRequest(BaseModel):
     """Body of POST /chat/send. chat_id None starts a new chat."""
     chat_id: int | None = None
     text: str
-    general: bool = False
+    general: bool = False          # v0.11 way of asking for mode "both"
+    mode: str | None = None        # v0.12: "library" | "both" | "free"
+    persona_id: int | None = None  # v0.12: who answers in Free mode (None = the Assistant)
+
+
+class PersonaSaveRequest(BaseModel):
+    """Body of POST /chat/persona/save. id None creates a new persona of the owner's own."""
+    id: int | None = None
+    name: str
+    prompt: str
 
 
 class ChatNewRequest(BaseModel):
@@ -549,7 +560,22 @@ def chat_delete(body: IdRequest) -> dict:
 
 @app.post("/chat/send", dependencies=[Depends(require_token)])
 def chat_send(body: ChatSendRequest) -> dict:
-    return chat.send(body.chat_id, body.text, body.general)
+    return chat.send(body.chat_id, body.text, body.general, body.mode, body.persona_id)
+
+
+@app.get("/chat/personas", dependencies=[Depends(require_token)])
+def chat_personas() -> dict:
+    return personas.list_all()
+
+
+@app.post("/chat/persona/save", dependencies=[Depends(require_token)])
+def chat_persona_save(body: PersonaSaveRequest) -> dict:
+    return personas.save(body.id, body.name, body.prompt)
+
+
+@app.post("/chat/persona/delete", dependencies=[Depends(require_token)])
+def chat_persona_delete(body: IdRequest) -> dict:
+    return personas.delete(body.id)
 
 
 @app.get("/chat/status", dependencies=[Depends(require_token)])

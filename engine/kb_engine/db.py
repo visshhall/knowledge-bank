@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -696,6 +696,48 @@ def _migrate_v14() -> None:
         )
 
 
+def _migrate_v15() -> None:
+    """
+    Schema v15 (KB v0.12). Free Chat and personas (idempotent, every start):
+      chats.mode             'library' | 'both' | 'free' — how this chat answers
+                             (library = only from the owner's files; both = files
+                             first, then clearly marked general knowledge;
+                             free = no files at all, like any general AI chat).
+      chats.persona_id       which persona writes in Free mode (NULL = the first
+                             built-in, "Assistant").
+      chat_messages.mode     the mode a reply was written in, so the window can
+                             label a Free reply "not from your files".
+      personas               key, name, the instructions the model is given
+                             (`prompt`), `builtin` 1 = shipped with the app
+                             (read-only, cannot be deleted), 0 = the owner's own.
+    The built-in personas are inserted once, by `key`; the owner's edits of his
+    own personas are never overwritten. Used only by chat.py.
+    """
+    with connect() as conn:
+        def add_column(table: str, ddl: str, name: str) -> None:
+            have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+        add_column("chats", "mode TEXT NOT NULL DEFAULT 'library'", "mode")
+        add_column("chats", "persona_id INTEGER", "persona_id")
+        add_column("chat_messages", "mode TEXT", "mode")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS personas ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE, name TEXT NOT NULL, "
+            "prompt TEXT NOT NULL, builtin INTEGER NOT NULL DEFAULT 0, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        from .personas import BUILT_IN  # late import: personas.py has no database code of its own
+        for key, name, prompt in BUILT_IN:
+            conn.execute("INSERT INTO personas(key, name, prompt, builtin) VALUES (?, ?, ?, 1) "
+                         "ON CONFLICT(key) DO UPDATE SET name = excluded.name, prompt = excluded.prompt "
+                         "WHERE personas.builtin = 1", (key, name, prompt))
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '15') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -773,7 +815,8 @@ def init_db() -> int:
     _migrate_v12()  # idempotent (v0.9.1: AI answers for repeated-statement pairs)
     _migrate_v13()  # idempotent (v0.10: AI roles of points)
     _migrate_v14()  # idempotent (v0.11: saved chats)
-    return 14
+    _migrate_v15()  # idempotent (v0.12: chat modes and personas)
+    return 15
 
 
 def stats() -> dict:
