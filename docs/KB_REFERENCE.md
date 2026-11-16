@@ -5,7 +5,7 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Current version | KB v0.15.0 — the app is chat-first: it opens on a new chat, with a ChatGPT/Claude-style sidebar, attach files / add a web page from the message box, Regenerate and Edit; v0.14.0 — memory about you: short facts you control, used by Free chat; v0.13.0 — read a web address (page, section or whole site) and paste text into the bank; v0.12.0 — Free Chat and personas: a three-way switch (My files / Files + general / Free chat) and editable personas; v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
 | Document version | 3.6 |
 | Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
@@ -701,6 +701,26 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9w. v0.15.0 — Chat-first app (16 Nov 2026)
+
+*Why:* the owner asked to turn the whole Knowledge Bank into a chat app "with all the UI/UX like that, not just models". Before, Chat was one of eight screens in a side rail. Now the app opens on Chat and the library is what the chat draws on.
+
+*What changed (all in the window; one small engine addition):*
+- **Opens on a new, empty chat** with a greeting and three suggestion cards that depend on the chosen mode.
+- **Sidebar** (`Sidebar.jsx`): New chat (Ctrl+Shift+O), search your chats, chats grouped Today / Yesterday / Previous 7 days / Older, rename (pencil) and delete (bin, asks "Delete?" first). A collapsible **Knowledge** section (closed by default, remembered) holds Overview, Library, Topics, Answers, Learn, Tools; Setup, "Search everything" (Ctrl+K) and the engine status sit at the foot. Ctrl+B collapses the sidebar to an icon strip (remembered).
+- **Chat screen** (`Chat.jsx`): full-window stage with a slim top bar (chat title, model picker, More models, Memory, Personas in Free chat), a centred conversation, and a rounded message box: paperclip (add files to the library; or drop files anywhere on the chat), globe (read a web page, section or site into the library, with progress and Stop), answer-mode picker (My files / Files + general / Free chat), persona picker in Free chat, round Send / Stop. The box grows as you type.
+- **Under messages:** Copy; **Regenerate** on the last answer; **Edit** on your last message (puts it back in the box); Remember (memory). Regenerate and Edit take back the last exchange through the new engine call `POST /chat/undo` (`chat.undo_last`), refused while a reply is being written.
+- **Engine:** `chat.undo_last(chat_id)` deletes the newest answer (if the chat ends with one) and the message of the owner's that it answered, returns his text. No schema change (still v17).
+- Library, Topics, Answers, Learn, Tools and Setup are unchanged; they open from the Knowledge section.
+
+*Connected to:* `App.jsx` (owns the open chat, list refresh counter, sidebar state, shortcuts), `Sidebar.jsx`, `Chat.jsx`, `styles.css` (`.side-*`, `.cx-*`), `server.py` (`/chat/undo`), `main.cjs` (allowlist).
+
+*Limits:* files added from the message box are read in the background like any import; ask about them in "My files" once they are done (Library shows progress). Pages that need JavaScript cannot be read. A reply that is being written blocks Regenerate / Edit and mode changes.
+
+*Training (answer given to the owner, build agreed separately):* see KB_PENDING "How to train this app".
+
+*Planned next:* v0.16 training kit (rate answers, export a dataset, cloud-notebook recipe, import the result).
+
 ## 9v. v0.14.0 — Memory about you (16 Nov 2026)
 
 *Why:* the owner wants an assistant that knows him (his business, preferences, projects) without repeating himself in every chat, and wants to be able to see and control everything it knows. For a small local model this is the cheapest and safest form of "training": no training at all, only context. Agreed roadmap step after Free chat and web reading.
@@ -792,3 +812,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.4 / KB v0.12.0 | Free Chat: three modes per chat (My files / Files + general / Free chat), personas (5 built in, owner's own editable), schema v15. Fixed a Copy-and-edit button bug found in testing. Added section 9t. |
 | 16 Nov 2026 | Doc 3.5 / KB v0.13.0 | Read a web address (page, section, whole site; sitemap, robots.txt, polite, local addresses refused) and paste text into the bank. Schema v16 (sources.url). Added section 9u. |
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
+| 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |

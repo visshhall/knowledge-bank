@@ -39,6 +39,7 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /chat/list[?q] · /chat/get?id · /chat/status · POST /chat/new · /chat/rename
               · /chat/delete · /chat/send {chat_id, text, general, mode, persona_id} · /chat/stop   (v0.11 Chat;
               mode = library | both | free is v0.12)
+         POST /chat/undo {chat_id} (v0.15 Regenerate / Edit)
          GET  /chat/personas · POST /chat/persona/save {id?, name, prompt} · /chat/persona/delete {id}   (v0.12 personas)
          GET  /models/choices · /models/compare/status · POST /models/select · /models/download
               · /models/compare/start · /models/compare/cancel           (v0.11 model picker)
@@ -605,6 +606,11 @@ class ChatSendRequest(BaseModel):
     persona_id: int | None = None  # v0.12: who answers in Free mode (None = the Assistant)
 
 
+class ChatUndoRequest(BaseModel):
+    """Body of POST /chat/undo: take back the last question and answer (Regenerate / Edit)."""
+    chat_id: int
+
+
 class PersonaSaveRequest(BaseModel):
     """Body of POST /chat/persona/save. id None creates a new persona of the owner's own."""
     id: int | None = None
@@ -662,6 +668,11 @@ def chat_delete(body: IdRequest) -> dict:
 @app.post("/chat/send", dependencies=[Depends(require_token)])
 def chat_send(body: ChatSendRequest) -> dict:
     return chat.send(body.chat_id, body.text, body.general, body.mode, body.persona_id)
+
+
+@app.post("/chat/undo", dependencies=[Depends(require_token)])
+def chat_undo(body: ChatUndoRequest) -> dict:
+    return chat.undo_last(body.chat_id)
 
 
 @app.get("/chat/personas", dependencies=[Depends(require_token)])

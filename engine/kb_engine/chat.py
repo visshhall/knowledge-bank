@@ -303,6 +303,31 @@ def send(chat_id: int | None, text: str, general: bool = False, mode: str | None
     return {"ok": True, "chat_id": chat_id}
 
 
+def undo_last(chat_id: int) -> dict:
+    """
+    Take back the last exchange of a chat: the newest answer (if the chat ends with one) and the
+    message of his that it answered. RETURNS {"ok": True, "text": <his message>}.
+    Used by the window's "Regenerate" (the text is sent again) and "Edit" (the text goes back into the
+    message box). Refused while a reply is being written, so a half-finished reply is never mixed up.
+    """
+    with _lock:
+        if _state.get("state") == "running":
+            return {"ok": False, "message": "Wait for the reply to finish, or press Stop."}
+    with db.connect() as conn:
+        last = conn.execute("SELECT id, role FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+                            (chat_id,)).fetchone()
+        if last and last["role"] == "assistant":
+            conn.execute("DELETE FROM chat_messages WHERE id = ?", (last["id"],))
+            last = conn.execute("SELECT id, role FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+                                (chat_id,)).fetchone()
+        if not last or last["role"] != "user":
+            return {"ok": False, "message": "There is nothing to redo in this chat."}
+        text = conn.execute("SELECT content FROM chat_messages WHERE id = ?", (last["id"],)).fetchone()["content"]
+        conn.execute("DELETE FROM chat_messages WHERE id = ?", (last["id"],))
+        conn.execute("UPDATE chats SET updated_at = datetime('now') WHERE id = ?", (chat_id,))
+    return {"ok": True, "text": text}
+
+
 def stop() -> dict:
     """Stop writing now; the part already written is kept and checked."""
     _stop.set()

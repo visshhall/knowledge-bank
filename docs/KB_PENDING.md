@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.14.0 (memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.15.0 (chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -110,6 +110,25 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
 
+## v0.15.0 — Chat-first app ✅ delivered
+- [x] App opens on a new chat; sidebar with chat history (Today / Yesterday / Previous 7 days / Older), rename, delete, search
+- [x] Library screens moved under a collapsible "Knowledge" section; Setup and Search everything at the foot
+- [x] Message box: attach files, add a web page, answer-mode picker, persona picker, round Send / Stop
+- [x] Copy, Regenerate, Edit under messages; drop files onto the chat; Ctrl+Shift+O, Ctrl+B, Ctrl+K
+- [ ] Owner check: open the app — it should land on a new chat. Ask something in each mode and confirm it feels like a chat app
+- [ ] Owner check: press the paperclip, add one PDF, wait for Library to finish it, then ask about it in "My files"
+- [ ] Owner check: press the globe, read one page of a site you own, ask about it in "My files"
+- [ ] Owner check: Regenerate on an answer; Edit on your last message; both should replace the old exchange
+- [ ] Owner check: Ctrl+B collapses the sidebar to icons and back; it stays that way after restarting
+- [ ] Known: a very long chat list is capped at the newest 200 chats
+
+## How to train this app going forward (explained to the owner on 16 Nov 2026)
+"Training" means three different things; the first two already work, the third is planned (v0.16) and will be agreed before it is built.
+1. **Teach it by giving it data (works now, no training).** Add files, whole folders, web addresses and pasted text (Library, or the paperclip / globe in Chat). Everything is read, searched and cited in "My files". This is the biggest lever and costs nothing.
+2. **Teach it about you and how to behave (works now).** Memory = short facts about you; Personas = instructions for tone and role (Ākāra copywriter etc.). Both are applied in Free chat on every message.
+3. **Change the model itself (fine-tuning, planned v0.16).** A small model (about 3–4 billion parameters) is adjusted on examples of questions and the answers you approved (LoRA). The 4 GB laptop graphics card cannot do this, so the plan is: the app exports a dataset file (thumbs-up answers, your own corrected answers, product copy you wrote), you run a ready-made notebook on a free cloud GPU for about an hour, then import the result back into Ollama and pick it in the model list. Good for a fixed writing style or format; not good for adding facts (that is what the library is for). Needs about 200–1000 good examples to be worth doing.
+*Order of effort:* add data first, then memory/personas, then rate answers for a few weeks, then fine-tune once enough approved examples exist.
+
 ## v0.14.0 — Memory about you ✅ delivered
 - [x] Chat → Memory: add, edit, pin, delete, forget everything, on/off switch
 - [x] "Remember" under your messages; "Suggest from this chat" (you approve each fact)
@@ -139,7 +158,8 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 ### Agreed roadmap after v0.12 (not started)
 - v0.13 ✅ delivered: web reading and pasted text (other file types already worked)
 - v0.14 ✅ delivered: memory about you
-- v0.15 Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
+- v0.15 ✅ delivered: chat-first app shell
+- v0.16 Training kit: thumbs up/down on answers, dataset export from chats and files, a cloud-notebook recipe to fine-tune a small model (about an hour on a free GPU), import the result back
 - Later ideas: voice in/out, optional web search when online, phone access (needs a security decision)
 
 ## v0.11.0 — Chat and model picker ✅ delivered

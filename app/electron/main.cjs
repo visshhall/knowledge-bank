@@ -88,6 +88,7 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "GET /crawl/status",
   "POST /crawl/stop",
   "POST /library/add-text",
+  "POST /chat/undo",
   "GET /chat/personas",
   "POST /chat/persona/save",
   "POST /chat/persona/delete",

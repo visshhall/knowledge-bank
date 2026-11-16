@@ -5,7 +5,7 @@
  *        stroke icons: overview, library, topics, setup, search, upload,
  *        folder, eye, sparkle, arrow-left, file, check, alert, refresh,
  *        and (v0.7) answer, learn, tools, map, grid, open, lock, globe, copy,
- *        and (v0.11) chat.
+ *        and (v0.11) chat, and (v0.15) plus, send, clip, panel, edit, trash, stop, down.
  * WHY:   Icons make the side rail and buttons quicker to scan. Drawing them
  *        inline (instead of an icon font or image files) keeps them crisp at
  *        any size, lets them take the text colour (currentColor), and works
@@ -43,6 +43,15 @@ const PATHS = {
   check: ["M5 12.5l4.5 4.5L19 7.5"],
   alert: ["M12 3l9.5 17h-19z", "M12 10v4", "M12 17.5v.5"],
   refresh: ["M20 11a8 8 0 0 0-14.6-4.5L4 8", "M4 4v4h4", "M4 13a8 8 0 0 0 14.6 4.5L20 16", "M20 20v-4h-4"],
+  // v0.15 chat-first shell
+  plus: ["M12 5v14", "M5 12h14"],
+  send: ["M12 19V5", "M6 11l6-6 6 6"],
+  clip: ["M20 11.5l-7.8 7.8a5 5 0 0 1-7-7L13.6 4.9a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4"],
+  panel: ["M4 5h16v14H4z", "M9 5v14"],
+  edit: ["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
+  trash: ["M4 7h16", "M9 7V4h6v3", "M6 7l1 13h10l1-13", "M10 11v6", "M14 11v6"],
+  stop: ["M7 7h10v10H7z"],
+  down: ["M6 9l6 6 6-6"],
 };
 
 /**

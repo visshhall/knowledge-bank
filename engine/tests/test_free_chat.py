@@ -177,4 +177,17 @@ finally:
 assert chat.get_chat(cid)["messages"][0]["mode"] is None          # a user message has no answering mode
 assert chat.get_chat(cid)["messages"][1]["mode"] == "library"
 
+# --- v0.15 undo_last: Regenerate / Edit take back the last exchange ---------------------------------------
+reply_text[0] = "first answer"
+u = run("question one", mode="free")
+reply_text[0] = "second answer"
+run("question two", u, mode="free")
+n_before = len(chat.get_chat(u)["messages"])
+r = chat.undo_last(u)
+assert r == {"ok": True, "text": "question two"} and len(chat.get_chat(u)["messages"]) == n_before - 2
+assert chat.get_chat(u)["messages"][-1]["content"] == "first answer"
+assert chat.undo_last(u)["text"] == "question one" and chat.get_chat(u)["messages"] == []
+assert chat.undo_last(u)["ok"] is False                                  # nothing left to take back
+assert chat.undo_last(999999)["ok"] is False
+
 print("test_free_chat: all checks passed")
