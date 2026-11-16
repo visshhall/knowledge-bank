@@ -1362,3 +1362,46 @@ button.danger:hover { background: #983526; }
 .cat-subs { margin: 4px 0 4px 32px; }
 .cat-subs li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 10px; border-left: 2px solid var(--line); }
 .cat-chip.sub { opacity: .8; }
+
+/* v0.20 Insights screen (Insights.jsx) */
+.ins-map { width: 100%; height: auto; background: var(--surface-2); border-radius: 14px; }
+.ins-node { cursor: pointer; transition: transform .9s cubic-bezier(.2,.8,.2,1); outline: none; }
+.ins-node:hover circle, .ins-node:focus-visible circle, .ins-node.on circle { stroke-width: 4; }
+.ins-link { stroke: var(--forest); transition: opacity .9s ease .4s; }
+.ins-label { font: 600 11px var(--sans); fill: var(--ink); pointer-events: none; }
+.ins-count { font: 700 12px var(--sans); fill: var(--ink); pointer-events: none; }
+.ins-detail { display: grid; gap: 2px; padding: 10px 14px; background: var(--surface-2); border-radius: 12px; }
+.ins-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.ins-switch button { border: 0; background: none; padding: 6px 14px; font: 600 13px var(--sans); color: var(--ink); cursor: pointer; }
+.ins-switch button.on { background: var(--forest); color: var(--on-forest); }
+.ins-heat { display: grid; gap: 4px; }
+.ins-heat-row { display: contents; }
+.ins-heat-name { font: 600 13px var(--sans); align-self: center; overflow-wrap: anywhere; }
+.ins-cell { height: 22px; border-radius: 5px; animation: ins-fade .5s ease both; }
+.ins-heat-axis { display: contents; }
+.ins-heat-axis span { font: 500 11px var(--sans); color: var(--muted); white-space: nowrap; }
+.ins-heat-axis span:last-child { grid-column: -2; text-align: right; }
+.ins-chart, .ins-strip { width: 100%; height: auto; }
+.ins-grid { stroke: var(--line); stroke-dasharray: 3 4; }
+.ins-axis { font: 500 11px var(--sans); fill: var(--muted); }
+.ins-bar { transform-box: fill-box; transform-origin: bottom; animation: ins-grow .6s cubic-bezier(.2,.8,.2,1) both; }
+.ins-line { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; animation: ins-draw 1.2s ease .3s forwards; }
+.ins-dot { fill: var(--ink); }
+.ins-lesson { fill: var(--mustard); stroke: var(--ink); stroke-width: 1; }
+.ins-lesson.off { fill: var(--line); }
+.ins-legend { display: flex; gap: 16px; flex-wrap: wrap; font: 500 13px var(--sans); color: var(--muted); }
+.ins-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.ins-legend i.ln { height: 2px; background: var(--ink); vertical-align: 3px; }
+.ins-legend i.dia { background: var(--mustard); transform: rotate(45deg) scale(.8); border: 1px solid var(--ink); }
+.ins-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ins-events li { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; background: var(--surface-2); border-radius: 10px; animation: ins-fade .5s ease both; }
+.ins-events li > i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.ins-events li > span:first-of-type { flex: 1; overflow-wrap: anywhere; }
+@keyframes ins-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes ins-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes ins-draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ins-node, .ins-link { transition: none; }
+  .ins-cell, .ins-bar, .ins-events li { animation: none; }
+  .ins-line { animation: none; stroke-dashoffset: 0; }
+}

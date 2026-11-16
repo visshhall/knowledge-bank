@@ -95,6 +95,7 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "GET /training/examples",
   "POST /training/example/status",
   "POST /training/export",
+  "GET /insights/all",
   "GET /taxonomy/status",
   "POST /taxonomy/run",
   "POST /taxonomy/auto",

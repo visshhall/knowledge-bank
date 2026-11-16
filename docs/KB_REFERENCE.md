@@ -701,6 +701,20 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9ab. v0.20.0 — Insights: the patterns, drawn and animated (16 Nov 2026)
+
+*Why:* the owner asked for "visualization animations everything" so that the patterns the app finds can be seen, not only listed. This completes the agreed list from the v0.17 request.
+
+*How (`insights.py`, no schema change; `Insights.jsx`):* a new **Insights** screen in the Knowledge section, fed by one read-only call (`GET /insights/all`, refreshed every 15 s). No chart library; plain SVG, so it works offline.
+1. **Knowledge map.** One circle per category (size = files; green = well covered, amber = thin from the v0.18 score; dashed ring = added by the app). Lines join categories that share files. A small spring layout places them once; circles glide from the middle on opening. Click a circle for files, passages, learned pages, score and sub-categories.
+2. **Coverage heatmap.** Categories down, the last 12 weeks across (rolling 7-day blocks, latest on the right). Switch: files *Added* or *Used in answers* (how often saved answers cited the category). Cells fade in row by row.
+3. **Mistake trends.** Stacked bars per week by kind (thumbs-down, Regenerate, corrected by you, facts removed), a line for the share of that week's answers that went wrong, and diamonds on the weeks a lesson was added (grey when the lesson was switched off), so you can see whether lessons help.
+4. **Timeline.** A 30-day strip (files added, web pages learned, mistakes) and a newest-first list of what the app did itself: pages read per topic, categories and sub-categories added, lessons learned, topics queued for gaps or unanswered questions, sites it stopped reading.
+
+*Limits:* "Used" counts only answers saved with sources, so it fills in with use. The map is clearest with up to about 25 categories. Animations play once when data appears and are switched off when the computer asks for reduced motion. Nothing here changes any data.
+
+*Tests:* `test_insights.py`.
+
 ## 9aa. v0.19.0 — Categories that grow from the data (16 Nov 2026)
 
 *Why:* the owner: "categories need to be expanded automatically as per new data, not anything fixed". Until now a file got one of 11 built-in cybersecurity categories or none.
@@ -892,6 +906,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 4.2 / KB v0.20.0 | Insights screen: knowledge map, coverage heatmap, mistake trends, timeline with animations; /insights/all. No schema change (v21). Added section 9ab. |
 | 16 Nov 2026 | Doc 4.1 / KB v0.19.0 | Categories and sub-categories grow from the data (AI or plain word groups), owner Rename/Merge/Delete, Library sub-category chips, coverage includes grown categories. Schema v21. Added section 9aa. |
 | 16 Nov 2026 | Doc 4.0 / KB v0.18.0 | Coverage per category, automatic topics for thin areas, usefulness of learned pages, junk-site blocking and owner Block/Allow. Schema v20. Added section 9z. |
 | 16 Nov 2026 | Doc 3.9 / KB v0.17.0 | Learning from mistakes: mistake log, counted and AI-found patterns, automatic lessons added to replies, effectiveness check with auto switch-off. Schema v19. Added section 9y. |

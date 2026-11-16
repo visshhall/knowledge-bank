@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.19.0 (categories and sub-categories grow from the data; v0.18.0 finds gaps per category and fetches what is missing, scores learned pages, blocks junk sites; v0.17.0 learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.20.0 (Insights screen with knowledge map, heatmap, mistake trends and timeline; v0.19.0 categories and sub-categories grow from the data; v0.18.0 finds gaps per category and fetches what is missing, scores learned pages, blocks junk sites; v0.17.0 learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -109,6 +109,13 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.20.0 — Insights ✅ delivered
+- [x] Knowledge → Insights: knowledge map, coverage heatmap (Added / Used), mistake trends with lesson markers, 30-day timeline and activity list
+- [ ] Owner check: open Insights; the map should show your categories, the heatmap your last weeks of imports
+- [ ] Owner check: after a few days of use, look at Mistake trends: does the line fall after the lesson diamonds?
+- [ ] Known: "Used" and mistake lines need real use before they show anything; the map is clearest with up to about 25 categories
+- [ ] Not built yet: import the fine-tuned model from inside the app; automatic memory suggestions at the end of a chat; separate ratings for library answers
 
 ## v0.19.0 — Categories that grow ✅ delivered
 - [x] New categories from files that fit none (AI names, or shared words when the AI is busy); sub-categories for categories with 12+ files

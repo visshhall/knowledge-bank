@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, insights, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -789,6 +789,13 @@ def coverage_site(body: SiteRequest) -> dict:
 @app.post("/coverage/prune-unused", dependencies=[Depends(require_token)])
 def coverage_prune(body: PruneRequest) -> dict:
     return coverage.prune_unused(body.days)
+
+
+# --- v0.20: insights (insights.py) ---------------------------------------------------------------
+
+@app.get("/insights/all", dependencies=[Depends(require_token)])
+def insights_all(weeks: int = 12) -> dict:
+    return insights.all_insights(weeks)
 
 
 # --- v0.19: categories that grow (taxonomy.py) -------------------------------------------------

@@ -6,7 +6,7 @@
  *        - Your chats, newest first, grouped Today / Yesterday / Previous 7 days / Older. Hover a chat
  *          to rename it (pencil) or delete it (bin; the first click asks "Delete?", the second deletes).
  *        - A "Knowledge" section (closed by default so the chat list gets the room; remembers if you open it) with the screens that
- *          hold the library: Overview, Library, Topics, Learning (v0.16), Answers, Learn, Tools.
+ *          hold the library: Overview, Library, Topics, Learning (v0.16), Insights (v0.20), Answers, Learn, Tools.
  *        - At the foot: Setup, quick search (Ctrl+K) and the engine status.
  *        When collapsed, only a thin strip with the toggle, New chat and the screen icons remains.
  * WHY:   The owner asked for the whole app to feel like a chat app, not a library with a chat tab.
@@ -26,6 +26,7 @@ const KNOWLEDGE = [
   { id: "library", label: "Library", icon: "library", tone: "coral" },
   { id: "topics", label: "Topics", icon: "topics", tone: "violet" },
   { id: "learning", label: "Learning", icon: "sparkle", tone: "mustard" },
+  { id: "insights", label: "Insights", icon: "map", tone: "teal" },
   { id: "answers", label: "Answers", icon: "answer", tone: "teal" },
   { id: "learn", label: "Learn", icon: "learn", tone: "coral" },
   { id: "tools", label: "Tools", icon: "tools", tone: "violet" },
