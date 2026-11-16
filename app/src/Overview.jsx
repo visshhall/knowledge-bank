@@ -10,16 +10,18 @@
  *          and totals that count up on first show,
  *          plus pages read, scanned pages read by OCR, pictures read and
  *          duplicate files skipped
+ *        - (v0.22) "Your library at a glance": file kinds, subjects treemap, last 30 days, health rings (Glance.jsx)
  *        - Live import progress while an import is running
  * WHY:   With no search typed, the bank should still explain itself: what it
  *        holds and how far along it is (owner requirement).
  * WHEN:  Default screen when the app opens. Refreshes totals every 3 s and
  *        import progress every 1.5 s while visible.
  * CONNECTED TO: bridge.js (GET /stats, /import/status, /setup/status),
- *        FlowMap.jsx, ImportProgress (from Library.jsx), icons.jsx,
+ *        FlowMap.jsx, Glance.jsx, ImportProgress (from Library.jsx), icons.jsx,
  *        App.jsx (onNavigate switches screens).
  */
 import FlowMap from "./FlowMap.jsx";
+import { LibraryGlance } from "./Glance.jsx";
 import { useEffect, useRef, useState } from "react";
 import { ImportProgress } from "./Library.jsx";
 import Icon from "./icons.jsx";
@@ -110,6 +112,8 @@ export default function Overview({ onNavigate }) {
       </section>
 
       {importing && <ImportProgress status={imp} />}
+
+      <LibraryGlance />
 
       <section className="card flow-card" aria-label="Where your knowledge goes">
         <h2>Where your knowledge goes</h2>

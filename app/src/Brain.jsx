@@ -20,7 +20,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { kb } from "./bridge.js";
 
-const PALETTE = ["#23705f", "#f08a68", "#6a4ba8", "#e8b840", "#2c5a43", "#3b7ea1", "#c4567a", "#8a9a2b", "#b5651d", "#5aa6a0", "#7d7d7d", "#d9a0c8"];
 const REDUCED = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 const ease = (t) => 1 + 2.7 * Math.pow(t - 1, 3) + 1.7 * Math.pow(t - 1, 2); // easeOutBack: a small pop
 
@@ -45,7 +44,7 @@ export default function Brain() {
   const [replaying, setReplaying] = useState(false);
 
   const colorOf = useCallback((cat) => {
-    if (!colors.current.has(cat)) colors.current.set(cat, PALETTE[colors.current.size % PALETTE.length]);
+    if (!colors.current.has(cat)) colors.current.set(cat, catColor(cat)); // v0.22: same colour as every other screen
     return colors.current.get(cat);
   }, []);
 

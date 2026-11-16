@@ -701,6 +701,20 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9ad. v0.22.0 — Pictures on every main screen (16 Nov 2026)
+
+**What:** The same picture-first treatment as Insights/Live learning, now on the screens used every day, each with a one-line text caption beside it.
+- **Overview → "Your library at a glance":** donut of file kinds (and yours vs web pages), treemap of subjects, bars for the last 30 days (files added / web pages read), three rings (linked to related files, in topics, subjects well covered).
+- **Library:** clickable treemap by subject and donut by status above the file list; clicking sets the existing filters, clicking again clears.
+- **Topics:** "Biggest topics" bars (top 10 by passages).
+- **Learning:** "Learning at a glance": today's pages vs the daily limit (ring), web pages per day (bars), topic queue (stacked bar), lessons working (donut), sites trusted/skipped/blocked (donut).
+- Brain now uses the same stable category colours as every other screen (built-in categories have fixed colours).
+
+**Why:** Owner wants pictures first because they are quicker to understand than text; text stays for anyone who prefers reading.
+**How:** `engine/kb_engine/glance.py` (GET /glance/all: file kinds, categories, 30-day series, health percentages; no new tables, schema stays v22). UI: `app/src/viz.jsx` (Donut, Ring, Bars, StackBar, Treemap, Legend, catColor; plain SVG, no chart library, animates once, off with reduced motion) and `Glance.jsx` (LibraryGlance, LearningGlance, LibraryStrip, TopicSizes).
+**When:** refreshes every 15 s on Overview/Learning; Library and Topics use the data already on screen.
+**Connected to:** insights.py (daily series; replaced files are no longer counted), coverage.py, learner.py, mistakes.py, taxonomy.py.
+
 ## 9ac. v0.21.0 — Live learning: watch the app learn (16 Nov 2026)
 
 *Why:* the owner asked for a real visual of the AI being trained: a new dot appearing when it finds something new, related to the data already there, correlated with incoming data, and "more and more visual presentation" with text kept only as a companion. Agreed choices: every file and web page is a dot; relations by the embedding model; this live view first, then a visual pass on the other screens.
@@ -923,6 +937,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 4.4 / KB v0.22.0 | Pictures on Overview, Library, Topics and Learning (donuts, treemaps, rings, bars) with captions; shared viz.jsx; glance.py. Added section 9ad. |
 | 16 Nov 2026 | Doc 4.3 / KB v0.21.0 | Live learning screen: dot per file/page, embedding-based relations, arrival animation, replay, text feed. brain.py, schema v22. Added section 9ac. |
 | 16 Nov 2026 | Doc 4.2 / KB v0.20.0 | Insights screen: knowledge map, coverage heatmap, mistake trends, timeline with animations; /insights/all. No schema change (v21). Added section 9ab. |
 | 16 Nov 2026 | Doc 4.1 / KB v0.19.0 | Categories and sub-categories grow from the data (AI or plain word groups), owner Rename/Merge/Delete, Library sub-category chips, coverage includes grown categories. Schema v21. Added section 9aa. |

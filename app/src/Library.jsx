@@ -23,6 +23,7 @@
 import { useEffect, useState } from "react";
 import Icon from "./icons.jsx";
 import WebAdd from "./WebAdd.jsx";
+import { LibraryStrip } from "./Glance.jsx";
 import { formatBytes, formatCount, kb, percent, usePoll } from "./bridge.js";
 
 /** Human wording for each source status (matches db.py's allowed values). */
@@ -194,6 +195,8 @@ export default function Library() {
       <SearchPanel categories={categories} hasData={allSources.some((s) => s.passages > 0)} />
 
       <WatchedFolders />
+
+      <LibraryStrip sources={allSources} cat={cat} setCat={setCat} state={state} setState={setState} />
 
       <section className="card file-list" aria-label="Files in the bank">
         <div className="section-head">

@@ -31,6 +31,7 @@
  */
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
+import { TopicSizes } from "./Glance.jsx";
 import SourceChip from "./SourceChip.jsx";
 import { Formatted, Markdown } from "./Formatted.jsx";
 // The lesson view carries the diagram layout engine (~1.4 MB), so it loads
@@ -153,6 +154,8 @@ export default function Topics({ focus }) {
           Every line links back to the file and page it came from.
         </p>
       </header>
+
+      <TopicSizes topics={topics} />
 
       <div className="job-row">
         <section className="card job" aria-label="Build topics">

@@ -154,8 +154,8 @@ def timeline(now: _dt.datetime) -> dict:
             events.append({"at": r["updated_at"], "kind": "site", "text": f"Stopped reading {r['host']} (mostly thin pages)"})
         daily = {}
         since = (now - _dt.timedelta(days=29)).strftime("%Y-%m-%d")
-        for table, col, key, where in (("sources", "added_at", "files", "(origin IS NULL OR origin != 'learned')"),
-                                       ("sources", "added_at", "learned", "origin = 'learned'"),
+        for table, col, key, where in (("sources", "added_at", "files", "(origin IS NULL OR origin != 'learned') AND replaced_by IS NULL"),
+                                       ("sources", "added_at", "learned", "origin = 'learned' AND replaced_by IS NULL"),
                                        ("mistake_log", "created_at", "mistakes", "1 = 1")):
             for r in conn.execute(f"SELECT date({col}) AS d, COUNT(*) AS n FROM {table} WHERE {where} AND date({col}) >= ? GROUP BY d", (since,)):
                 daily.setdefault(r["d"], {})[key] = r["n"]

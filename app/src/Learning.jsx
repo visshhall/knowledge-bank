@@ -19,6 +19,7 @@
  *           turns them into short lessons it follows in every reply. Lessons apply automatically; each shows its
  *           evidence, whether it is working ("working" / "not helping — switched off") and can be turned off or
  *           deleted. "Find patterns now" runs the search at once.
+ *        0. (v0.22) "Learning at a glance" pictures at the top: today's reading, pages per day, topic queue, lessons, sites (Glance.jsx)
  *        4. (v0.18) WHAT IT KNOWS AND WHAT'S MISSING — a bar per category (how well the library covers it, with a flag
  *           on weak ones and how often answers cited it), "Fill the gaps now" (adds web topics for the weakest
  *           categories), a switch for doing that automatically, counts of learned pages (useful / not used yet /
@@ -35,6 +36,7 @@
  */
 import { useState } from "react";
 import Icon from "./icons.jsx";
+import { LearningGlance } from "./Glance.jsx";
 import { kb, usePoll } from "./bridge.js";
 
 export default function Learning() {
@@ -47,6 +49,7 @@ export default function Learning() {
           you like or correct into training examples. Everything it does is listed here and can be switched off or undone.
         </p>
       </header>
+      <LearningGlance />
       <WebLearning />
       <Lessons />
       <Coverage />
