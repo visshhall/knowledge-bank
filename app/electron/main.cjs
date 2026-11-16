@@ -67,6 +67,21 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "POST /library/add",
   "POST /library/remove",
   "POST /library/remove-many",
+  // v0.11 — Chat and the model picker
+  "GET /chat/list",
+  "GET /chat/get",
+  "GET /chat/status",
+  "POST /chat/new",
+  "POST /chat/rename",
+  "POST /chat/delete",
+  "POST /chat/send",
+  "POST /chat/stop",
+  "GET /models/choices",
+  "GET /models/compare/status",
+  "POST /models/select",
+  "POST /models/download",
+  "POST /models/compare/start",
+  "POST /models/compare/cancel",
   "POST /library/retry",
   "POST /library/keep", // v0.8.2: import a set-aside file anyway
   "GET /gpu/status", // v0.8.2: graphics card report (Setup)

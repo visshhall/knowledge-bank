@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -665,6 +665,37 @@ def _migrate_v13() -> None:
         )
 
 
+def _migrate_v14() -> None:
+    """
+    Schema v14 (KB v0.11). Two new tables for the Chat screen (idempotent,
+    every start):
+      chats          one row per saved conversation (title, timestamps)
+      chat_messages  every turn: role ('user' | 'assistant'), the text, the
+                     sources an answer cited (JSON, same shape as `answers`),
+                     whether part of it came from general knowledge rather
+                     than the owner's files, the model and the seconds taken.
+    Messages are deleted with their chat. Used only by chat.py.
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chats ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+            "updated_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chat_messages ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE, "
+            "role TEXT NOT NULL, content TEXT NOT NULL, sources_json TEXT, checks_json TEXT, "
+            "general INTEGER NOT NULL DEFAULT 0, model_used TEXT, seconds REAL, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_chat ON chat_messages(chat_id, id)")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '14') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -741,7 +772,8 @@ def init_db() -> int:
     _migrate_v11()  # idempotent (v0.9: titles, categories, replaced versions)
     _migrate_v12()  # idempotent (v0.9.1: AI answers for repeated-statement pairs)
     _migrate_v13()  # idempotent (v0.10: AI roles of points)
-    return 13
+    _migrate_v14()  # idempotent (v0.11: saved chats)
+    return 14
 
 
 def stats() -> dict:

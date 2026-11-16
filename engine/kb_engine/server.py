@@ -32,6 +32,10 @@ WHAT:  A small FastAPI server on 127.0.0.1:8765 (this computer only).
          GET  /passage/context?id=...  — a passage with its neighbours (v0.6.1)
          POST /answer/ask {question}   — write a cited answer (v0.7, background)
          GET  /answer/status · /answers · /answer?id · POST /answer/delete
+         GET  /chat/list[?q] · /chat/get?id · /chat/status · POST /chat/new · /chat/rename
+              · /chat/delete · /chat/send {chat_id, text, general} · /chat/stop   (v0.11 Chat)
+         GET  /models/choices · /models/compare/status · POST /models/select · /models/download
+              · /models/compare/start · /models/compare/cancel           (v0.11 model picker)
          POST /backup/create · /backup/restore {path, password} · GET /backup/status
          POST /distill/update          — add new passages to existing topics (Phase 7)
          POST /tools/iocs {text} · GET /tools/bank-iocs · /tools/mitre · /tools/queries
@@ -66,7 +70,8 @@ SECURITY:
          and a warning is printed.
 
 CONNECTED TO: config.py, db.py, system_check.py, setup_manager.py,
-       importer.py, search.py, distill.py, writer.py, lessons.py, updates.py;
+       importer.py, search.py, distill.py, writer.py, lessons.py, updates.py,
+       chat.py, modelpick.py;
        called by
        app/electron/main.js (which relays requests from the window).
 """
@@ -81,7 +86,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, config, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, search, setup_manager, system_check, tools, updates, writer)
+from . import (__version__, answers, backup, chat, config, datapages, db, distill, gpu, storage, topicedit, importer, learn, lessons, meaning, modelpick, search, setup_manager, system_check, tools, updates, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -484,6 +489,107 @@ def answer_get(id: int) -> dict:
 @app.post("/answer/delete", dependencies=[Depends(require_token)])
 def answer_delete(body: IdRequest) -> dict:
     return answers.delete(body.id)
+
+
+# --- v0.11: Chat (saved conversations with the library) and the model picker --
+
+class ChatSendRequest(BaseModel):
+    """Body of POST /chat/send. chat_id None starts a new chat."""
+    chat_id: int | None = None
+    text: str
+    general: bool = False
+
+
+class ChatNewRequest(BaseModel):
+    title: str | None = None
+
+
+class ChatRenameRequest(BaseModel):
+    id: int
+    title: str
+
+
+class ModelRequest(BaseModel):
+    model: str
+
+
+class CompareRequest(BaseModel):
+    """Body of POST /models/compare/start: 2–3 installed models, optional own questions."""
+    models: list[str]
+    questions: list[str] | None = None
+
+
+@app.get("/chat/list", dependencies=[Depends(require_token)])
+def chat_list(q: str = "") -> dict:
+    return chat.list_chats(q)
+
+
+@app.post("/chat/new", dependencies=[Depends(require_token)])
+def chat_new(body: ChatNewRequest) -> dict:
+    return chat.new_chat(body.title)
+
+
+@app.get("/chat/get", dependencies=[Depends(require_token)])
+def chat_get(id: int) -> dict:
+    data = chat.get_chat(id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return data
+
+
+@app.post("/chat/rename", dependencies=[Depends(require_token)])
+def chat_rename(body: ChatRenameRequest) -> dict:
+    return chat.rename_chat(body.id, body.title)
+
+
+@app.post("/chat/delete", dependencies=[Depends(require_token)])
+def chat_delete(body: IdRequest) -> dict:
+    return chat.delete_chat(body.id)
+
+
+@app.post("/chat/send", dependencies=[Depends(require_token)])
+def chat_send(body: ChatSendRequest) -> dict:
+    return chat.send(body.chat_id, body.text, body.general)
+
+
+@app.get("/chat/status", dependencies=[Depends(require_token)])
+def chat_status() -> dict:
+    return chat.status()
+
+
+@app.post("/chat/stop", dependencies=[Depends(require_token)])
+def chat_stop() -> dict:
+    return chat.stop()
+
+
+@app.get("/models/choices", dependencies=[Depends(require_token)])
+def models_choices() -> dict:
+    return modelpick.choices()
+
+
+@app.post("/models/select", dependencies=[Depends(require_token)])
+def models_select(body: ModelRequest) -> dict:
+    return modelpick.select(body.model)
+
+
+@app.post("/models/download", dependencies=[Depends(require_token)])
+def models_download(body: ModelRequest) -> dict:
+    return modelpick.download(body.model)
+
+
+@app.post("/models/compare/start", dependencies=[Depends(require_token)])
+def models_compare_start(body: CompareRequest) -> dict:
+    return modelpick.start_compare(body.models, body.questions)
+
+
+@app.get("/models/compare/status", dependencies=[Depends(require_token)])
+def models_compare_status() -> dict:
+    return modelpick.compare_status()
+
+
+@app.post("/models/compare/cancel", dependencies=[Depends(require_token)])
+def models_compare_cancel() -> dict:
+    return modelpick.cancel_compare()
 
 
 @app.get("/source", dependencies=[Depends(require_token)])

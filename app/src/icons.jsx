@@ -4,7 +4,8 @@
  * WHAT:  One <Icon name="..." /> component with a fixed set of 24×24
  *        stroke icons: overview, library, topics, setup, search, upload,
  *        folder, eye, sparkle, arrow-left, file, check, alert, refresh,
- *        and (v0.7) answer, learn, tools, map, grid, open, lock, globe, copy.
+ *        and (v0.7) answer, learn, tools, map, grid, open, lock, globe, copy,
+ *        and (v0.11) chat.
  * WHY:   Icons make the side rail and buttons quicker to scan. Drawing them
  *        inline (instead of an icon font or image files) keeps them crisp at
  *        any size, lets them take the text colour (currentColor), and works
@@ -28,6 +29,7 @@ const PATHS = {
   sparkle: ["M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z", "M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"],
   "arrow-left": ["M19 12H5", "M11 6l-6 6 6 6"],
   // v0.7
+  chat: ["M4 4h12v9H9.5L6 16v-3H4z", "M19.5 9H20v8h-2v3l-3.5-3H10v-1.5"],
   answer: ["M4 5h16v11H9l-5 4z", "M8 9h8", "M8 12.5h5"],
   learn: ["M3 7l9-4 9 4-9 4z", "M7 9.5v5c0 1.5 2.2 3 5 3s5-1.5 5-3v-5", "M21 7v6"],
   tools: ["M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z", "M9 12l2 2 4-4"],

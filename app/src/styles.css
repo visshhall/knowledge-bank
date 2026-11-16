@@ -1052,3 +1052,45 @@ button.danger:hover { background: #983526; }
 .insight-gap { border-color: #7fb7a4; }
 .insight-pending { border-color: #8a9ba0; opacity: 0.85; }
 .clash { display: grid; gap: 4px; margin-top: 6px; font-size: 0.92em; }
+
+/* v0.11 Chat (Chat.jsx): saved chats, conversation, composer; model picker (ModelCard.jsx) */
+.chat-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.chat-list { display: grid; gap: 10px; max-height: calc(100vh - 210px); overflow: auto; }
+.chat-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.chat-list li { display: flex; align-items: center; gap: 4px; border-radius: var(--radius-sm); flex-wrap: wrap; }
+.chat-list li.on { background: var(--teal-soft); }
+.chat-new { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.chat-search, .chat-rename input { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font: 500 14px var(--sans); background: var(--surface); color: var(--ink); }
+.chat-rename { display: flex; gap: 6px; width: 100%; padding: 4px; }
+.chat-main { display: grid; gap: 12px; min-width: 0; }
+.chat-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 16px; }
+.chat-model { display: inline-flex; align-items: center; gap: 8px; }
+.chat-model select { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; font: 600 14px var(--sans); background: var(--surface); color: var(--ink); }
+.chat-thread { display: grid; gap: 12px; align-content: start; min-height: 260px; max-height: calc(100vh - 400px); overflow: auto; padding: 2px 4px 2px 0; }
+.msg-user { justify-self: end; max-width: min(80%, 640px); background: var(--teal-soft); border-radius: var(--radius) var(--radius) 4px var(--radius); padding: 10px 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-ai { padding: 20px 24px; animation: rise 0.3s ease-out both; }
+.chat-general { margin-top: 14px; padding: 12px 16px; border-left: 4px solid var(--coral); background: var(--coral-soft); border-radius: var(--radius-sm); }
+.chat-general-label { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.chat-foot-actions { display: inline-flex; gap: 12px; }
+.chat-sources { margin-top: 12px; }
+.chat-empty ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.chat-empty .link { text-align: left; }
+.chat-composer { display: grid; gap: 8px; padding: 12px 14px; }
+.chat-composer textarea { width: 100%; resize: vertical; min-height: 56px; max-height: 220px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font: 500 15px var(--sans); background: var(--surface); color: var(--ink); }
+.chat-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.chat-general-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+@media (max-width: 900px) { .chat-layout { grid-template-columns: 1fr; } .chat-list { max-height: 220px; } }
+
+.model-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; }
+.model-list li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.model-list li > .muted { flex: 1; min-width: 160px; }
+.model-pick { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.model-sub { font-size: 16px; margin: 16px 0 6px; }
+.model-questions { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font: 500 14px var(--sans); background: var(--surface); color: var(--ink); margin: 8px 0; }
+.model-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.model-table { width: 100%; border-collapse: collapse; margin: 14px 0 6px; font-size: 14px; }
+.model-table th, .model-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.model-qa { margin-top: 14px; }
+.model-q { font-weight: 700; margin-bottom: 6px; }
+.model-cols { display: grid; gap: 12px; }
+.model-col { background: var(--surface-2); border-radius: var(--radius-sm); padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; }

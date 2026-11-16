@@ -5,9 +5,9 @@
 |---|---|
 | Project code | **KB** |
 | Sister project | **SKT** — Sanatan Sanskrit Learning App (separate chat, separate repo, never mixed) |
-| Current version | KB v0.9.0 — cleaner imports (junk, garbled text, titles, categories, Word/PowerPoint/web/text), old versions replaced, better search, hand-edited topics, weak articles rewritten, big-library tuning, self-updating app · v0.8.3 — content already in the bank is never added twice · v0.8.2 — non-cybersecurity files set aside automatically, removed files stay removed, AI kept on the graphics card · v0.8.1 — faster import (files usable first, pictures after; parallel OCR; graphics-card OCR on Windows) · v0.8.0 — spreadsheets become calculated topics (charts, checks, Subnet Lab), animated walk-through diagrams, 3× faster live article writing with fact checks |
-| Document version | 2.9 |
-| Last updated | 15 November 2026 |
+| Current version | KB v0.11.0 — Chat: saved, multi-turn conversations with your library (cited, fact-checked, general knowledge only on request), model picker with a compare-on-my-files test; v0.10.0 — the AI works out what each point is for; v0.9.2 — removing files removes everything built from them; v0.9.1 — repeated statements folded; v0.9.0 — cleaner imports, search, self-updating app |
+| Document version | 3.3 |
+| Last updated | 16 November 2026 |
 | Owner | Vishal Singh |
 
 > **How to use this document in a new chat:** Upload this file (and KB_PENDING.md) at the start and say: *"This is the KB reference document. Read it fully and continue from the current phase."*
@@ -634,6 +634,30 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Limits:* a 4B model's role labels are a judgement, not proof — a point can sit in a neighbouring section; subjects are grouped by shared words, so unrelated labels using different words stay separate; the first run is slower because every point is analysed once. `python engine/tests/test_understand.py` covers the rules.
 
+## 9s. v0.11.0 — Chat and the model picker (16 Nov 2026)
+
+*Why:* the owner asked whether the Knowledge Bank itself could become the "ChatGPT-style" private app, because it already holds the enriched data of about 200 PDFs. It can: the bank already has the library, search, citations, the local engine and the installer, so only a conversation layer was missing. Choices made with the owner: answers come from the library first and from general knowledge only when asked; chats are saved and searchable; a model picker comes now.
+
+*What — Chat (`engine/kb_engine/chat.py`, window `app/src/Chat.jsx`):*
+- **Saved chats** (tables `chats`, `chat_messages`, schema v14): new, rename, delete (with a second click), search by title or by any message text. A new chat is named after its first question. Chats are inside the one database file, so backups include them.
+- **Each question** is answered from the best passages of the bank (the same retrieval as Answers: meaning plus exact words, 6 passages), numbered [1]…[n] and cited. The same fact check as Answers (`answers.finalize`, now shared) removes any sentence whose number, technique ID, IP, event ID or command is not in the cited sources; the count and the removed sentences are shown.
+- **Follow-ups work**: the last four messages travel with the question, and a short follow-up ("and on Linux?") borrows the words of the previous question when searching.
+- **General knowledge is a switch under the message box, off by default, per message.** Off: if the files don't cover the question the reply says so (the model is not called). On: the model may add what it knows, but only in a separate box that begins "From general knowledge (not from your files):" — no source markers, not fact-checked, and the message is flagged `general` so the window labels it. If nothing in the files matches and the switch is on, the whole reply is marked that way.
+- **Streaming and Stop**: the answer appears as it is written (the window polls `GET /chat/status` every 0.7 s); Stop ends it at once and keeps and checks what was written (`should_stop` in `ollama_client`).
+- **Sources** under each answer open like in Answers: passage text, "Open page" (the original PDF at that page), "Open topic". Clicking a [n] chip opens and highlights that source.
+- **Removing a file** now also clears every chat answer that quoted it (the conversation stays; the answer is replaced by a short note). While doing this I found and fixed a v0.9.2 bug: the clean-up read a saved answer's sources as a list, but they are stored as a numbered dictionary, so no saved *answer* was ever deleted when its file was removed. Fixed in `importer._cited_source_ids`; `test_chat.py` covers it.
+
+*What — model picker (`engine/kb_engine/modelpick.py`, window `app/src/ModelCard.jsx` on Setup, model box in Chat):*
+- Lists the installed models (size, last measured speed), marks the one Chat uses, and saves the owner's pick (setting `chat_model`; default is the article model). Articles and Answers keep their own model, so trying a model cannot disturb the library.
+- Suggests other small models for a 4 GB card (Phi-4-mini, Gemma 3 4B, Llama 3.2 3B, Qwen 3.5 2B) with a **Download** button; nothing is downloaded unless it is pressed (this is the one step that needs the internet, through the Setup wizard's download job).
+- **Compare on my files**: tick 2 or 3 installed models; the same questions (three made from the owner's biggest topics, or up to five typed by him) are asked of each with the same passages and exactly the prompt Chat uses. The table shows speed, seconds per answer, sources cited and sentences removed by the fact check; the answers are shown side by side. One model at a time is loaded and unloaded, as the 4 GB card requires.
+
+*Privacy and security (unchanged):* everything runs on this laptop; the new engine routes sit behind the same per-launch token and the window's allowlist; no chat text is sent anywhere. Chat text is stored only in the local database.
+
+*Tested:* `engine/tests/test_chat.py` (chats, search, citations, fact check, the general-knowledge switch, follow-up history, Stop, one reply at a time, removal clean-up) and `test_modelpick.py` (what can be selected, identical prompts in a comparison, cancel) with the AI replaced by stand-ins; both Chat and the model card were rendered in a headless browser with a stand-in engine; the real model was run once on a small test bank (see KB_PENDING).
+
+*Limits:* a 4B model can still misread a follow-up; only the last four messages are remembered, so a long chat forgets its start; the general-knowledge part is not checked and can be wrong; fact checking only catches numbers, IDs and commands, not a wrong explanation; the model sizes shown for suggestions are approximate; a comparison on three questions says little about quality, so the answers must be read, not just the numbers.
+
 ## 10. Known limits (stated upfront)
 
 - **First distillation** of 100+ PDFs is a one-time background job taking several hours (likely overnight) on the RTX 3050. New files afterwards take minutes.
@@ -705,3 +729,4 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 15 Nov 2026 | Doc 3.0 / KB v0.9.1 | Repeated statements folded inside topics (facts.py, schema v12, AI judge for borderline pairs, articles rewritten once). Added section 9p. |
 | 15 Nov 2026 | Doc 3.1 / KB v0.9.2 | Removing files (one or many) now removes everything built from them: topics, articles, lessons, flashcards, saved answers. Library multi-select. Added section 9q. |
 | 15 Nov 2026 | Doc 3.2 / KB v0.10.0 | AI understands each point (role + subject); topics shown and articles written by logical outline; contradictions and gaps surfaced. Schema v13. Added section 9r. |
+| 16 Nov 2026 | Doc 3.3 / KB v0.11.0 | Chat: saved multi-turn conversations with the library (cited, fact-checked, general knowledge only on request, streaming + Stop), model picker with downloads and a compare-on-my-files test. Schema v14. Fixed v0.9.2 bug: removing a file never deleted saved answers. Added section 9s. |

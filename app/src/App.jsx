@@ -13,12 +13,15 @@
  *        and leaves the full width for content like tables and search.
  * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
  * CONNECTED TO: Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
- *        Updates.jsx, GpuCard.jsx (v0.8.2), StorageCard.jsx, AppUpdate.jsx (v0.9), icons.jsx, bridge.js (engine status, /system), styles.css.
+ *        Updates.jsx, GpuCard.jsx (v0.8.2), StorageCard.jsx, AppUpdate.jsx (v0.9),
+ *        Chat.jsx and ModelCard.jsx (v0.11), icons.jsx, bridge.js (engine status, /system), styles.css.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
 import QuickSearch from "./QuickSearch.jsx";
 import Answers from "./Answers.jsx";
+import Chat from "./Chat.jsx";
+import ModelCard from "./ModelCard.jsx";
 import Learn from "./Learn.jsx";
 import Tools from "./Tools.jsx";
 import Backup from "./Backup.jsx";
@@ -40,6 +43,7 @@ const SCREENS = [
   { id: "overview", label: "Overview", icon: "overview", tone: "forest" },
   { id: "library", label: "Library", icon: "library", tone: "coral" },
   { id: "topics", label: "Topics", icon: "topics", tone: "violet" },
+  { id: "chat", label: "Chat", icon: "chat", tone: "forest" },
   { id: "answers", label: "Answers", icon: "answer", tone: "teal" },
   { id: "learn", label: "Learn", icon: "learn", tone: "coral" },
   { id: "tools", label: "Tools", icon: "tools", tone: "violet" },
@@ -155,6 +159,12 @@ export default function App() {
             {screen === "overview" && <Overview onNavigate={navigate} />}
             {screen === "library" && <Library />}
             {screen === "topics" && <Topics focus={focus} />}
+            {screen === "chat" && (
+              <Chat
+                onOpenTopic={(id, pointId) => navigate("topics", { topicId: id, pointId })}
+                onOpenSetup={() => setScreen("setup")}
+              />
+            )}
             {screen === "answers" && (
               <Answers
                 initial={focus?.question ? focus : null}
@@ -214,6 +224,8 @@ function SetupScreen() {
       </header>
 
       <SetupWizard onStatus={handleSetupStatus} />
+
+      <ModelCard />
 
       <GpuCard />
 

@@ -2,7 +2,7 @@
 
 An offline Windows desktop app that turns a collection of cybersecurity PDFs and images into one interactive, animated, de-duplicated knowledge bank: merged topic articles with sources on every line, an animated Knowledge Map, generated answer pages, and Learn mode.
 
-**Status:** v0.10.0 — the AI works out what each point is for (what it is, how it works, steps, detection, response, examples) and what it is about; topics are shown and articles written by that logic, with contradictions and gaps called out; v0.9.2 — remove one or many files and everything built from them (topics, articles, flashcards, saved answers) goes too; v0.9.1 — repeated statements are folded inside topics (same sentence from other files/pages shown once, every source kept, AI judges borderline cases); v0.9.0 — cleaner imports (junk lines, garbled text, real titles, categories; Word, PowerPoint, web, text), older versions replaced, better search, hand-edited topics, weak articles rewritten, big-library tuning, self-updating app; v0.8.3 — content already in the bank is never added twice (copies set aside, only new paragraphs added); v0.8.2 — unrelated (non-cybersecurity) files set aside automatically, removed files stay removed, AI tuned to stay on the graphics card; v0.8.1 — faster import (files searchable first, pictures after, parallel and graphics-card OCR); v0.8.0 — spreadsheets become calculated topics (charts, sheet checks, Subnet Lab), animated walk-through diagrams with Play lesson, 3× faster live article writing with line-by-line fact checks — on top of all planned phases (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup); Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
+**Status:** v0.11.0 — Chat: talk to your library in saved conversations (cited and fact-checked, general knowledge only when you ask), plus a model picker that can download other small models and compare them on your own files; v0.10.0 — the AI works out what each point is for (what it is, how it works, steps, detection, response, examples) and what it is about; topics are shown and articles written by that logic, with contradictions and gaps called out; v0.9.2 — remove one or many files and everything built from them (topics, articles, flashcards, saved answers) goes too; v0.9.1 — repeated statements are folded inside topics (same sentence from other files/pages shown once, every source kept, AI judges borderline cases); v0.9.0 — cleaner imports (junk lines, garbled text, real titles, categories; Word, PowerPoint, web, text), older versions replaced, better search, hand-edited topics, weak articles rewritten, big-library tuning, self-updating app; v0.8.3 — content already in the bank is never added twice (copies set aside, only new paragraphs added); v0.8.2 — unrelated (non-cybersecurity) files set aside automatically, removed files stay removed, AI tuned to stay on the graphics card; v0.8.1 — faster import (files searchable first, pictures after, parallel and graphics-card OCR); v0.8.0 — spreadsheets become calculated topics (charts, sheet checks, Subnet Lab), animated walk-through diagrams with Play lesson, 3× faster live article writing with line-by-line fact checks — on top of all planned phases (answers, topic map, Learn mode, analyst tools, incremental updates, encrypted backup); Windows installer. See [docs/KB_PENDING.md](docs/KB_PENDING.md).
 **Full explanation of what, why and how:** [docs/KB_REFERENCE.md](docs/KB_REFERENCE.md)
 
 ---
@@ -49,6 +49,8 @@ knowledge-bank/
 │   ├── src/FlowMap.jsx       Overview map: files → topics (interactive, animated)
 │   ├── src/QuickSearch.jsx   Ctrl+K search by meaning + words
 │   ├── src/Answers.jsx       Cited answer pages
+│   ├── src/Chat.jsx          v0.11: saved chats with the library
+│   ├── src/ModelCard.jsx     v0.11: model picker + compare on my files (Setup)
 │   ├── src/TopicMap.jsx      Animated topic network
 │   ├── src/Learn.jsx         Flashcards, spaced repetition, progress
 │   ├── src/Tools.jsx         IOC extractor, ATT&CK coverage, query library
@@ -78,6 +80,8 @@ knowledge-bank/
 │       ├── chunking.py       Cuts page text into citable passages
 │       ├── facts.py          Folds repeated statements inside a topic (rules + AI judge)
 │       ├── understand.py     AI roles + subjects per point, topic outline, article material
+│       ├── chat.py           v0.11: saved multi-turn chats over the library (cited, fact-checked)
+│       ├── modelpick.py      v0.11: choose/download models, compare them on your files
 │       ├── search.py         Instant exact-word search
 │       ├── meaning.py        Meaning search (vectors) blended with word search
 │       ├── answers.py        Cited, fact-checked answers

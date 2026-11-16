@@ -2,8 +2,8 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.9.0 (eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
-**Last updated:** 15 November 2026
+**Current version:** v0.11.0 (Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Last updated:** 16 November 2026
 
 ---
 
@@ -109,6 +109,17 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.11.0 — Chat and model picker ✅ delivered
+- [x] Chat screen: saved chats (new, rename, delete, search), cited and fact-checked answers, follow-ups, streaming + Stop
+- [x] "Also use general knowledge" switch (off by default; that part is labelled and not checked)
+- [x] Model picker (Setup → Models for Chat; model box in Chat), download buttons, compare-on-my-files test
+- [x] Fixed: removing a file now really deletes saved Answers that cited it (v0.9.2 bug), and clears chat answers that cited it
+- [ ] Owner check: ask 5–10 real questions in Chat, including a follow-up ("and how do I detect it?") and one your files can't answer; tell me if an answer cites the wrong source or forgets the earlier question
+- [ ] Owner check: turn on "Also use general knowledge" for one question and confirm the general part sits in its own labelled box
+- [ ] Owner check: Setup → Models for Chat → download Phi-4-mini (about 3 GB), tick it and qwen3.5:4b, press Compare; send me the table and tell me which answers you preferred
+- [ ] Owner check: remove a PDF that you used in a chat and confirm the chat answer that quoted it is cleared
+- [ ] Known: Chat and writing articles share the graphics card; do not run both at once
 
 ## v0.10.0 — Reasoning: roles, subjects, outline ✅ delivered
 - [x] AI labels each point's role and subject; saved per point (schema v13)

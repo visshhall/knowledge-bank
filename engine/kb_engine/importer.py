@@ -300,15 +300,43 @@ def _clean_up_after_removal(conn, source_ids: list[int], touched_topics: set[int
     cards = conn.execute(
         "DELETE FROM cards WHERE point_id IS NOT NULL AND point_id NOT IN (SELECT id FROM passages)").rowcount
     answers = 0
+    removed_ids = {int(x) for x in source_ids}
     for r in conn.execute("SELECT id, sources_json FROM answers").fetchall():
-        try:
-            cited = {int(x.get("source_id")) for x in json.loads(r["sources_json"]) if isinstance(x, dict) and x.get("source_id") is not None}
-        except Exception:
-            continue
-        if cited & set(source_ids):
+        # A saved answer keeps its sources as {"1": {..., "source_id": 7}, "2": {...}}
+        # (answers.py). v0.9.2 iterated that dict as if it were a list, so it never
+        # matched and no answer was ever deleted; v0.11 reads the values.
+        if removed_ids & _cited_source_ids(r["sources_json"]):
             conn.execute("DELETE FROM answers WHERE id = ?", (r["id"],))
             answers += 1
-    return {"topics_removed": gone_topics, "topics_cleared": changed_topics, "cards": cards, "answers": answers}
+    # v0.11: saved chats keep their conversation, but an answer that quoted a
+    # removed file is cleared so none of that file's text remains anywhere.
+    from . import chat
+    chats = chat.forget_sources(conn, removed_ids)
+    return {"topics_removed": gone_topics, "topics_cleared": changed_topics, "cards": cards,
+            "answers": answers, "chat_answers": chats}
+
+
+def _cited_source_ids(sources_json: str | None) -> set[int]:
+    """
+    Source-file ids named in a saved answer's or chat message's `sources_json`.
+
+    Accepts both shapes: a dict of numbered entries (what answers.py and
+    chat.py save) and a plain list of entries. Anything unreadable gives an
+    empty set, so a damaged row is never mistaken for a match.
+    """
+    try:
+        data = json.loads(sources_json or "{}")
+    except (TypeError, ValueError):
+        return set()
+    entries = data.values() if isinstance(data, dict) else data
+    found = set()
+    for x in entries:
+        if isinstance(x, dict) and x.get("source_id") is not None:
+            try:
+                found.add(int(x["source_id"]))
+            except (TypeError, ValueError):
+                pass
+    return found
 
 
 def remove_sources(source_ids: list[int]) -> dict:

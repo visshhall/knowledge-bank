@@ -84,16 +84,22 @@ def ask(question: str) -> dict:
     return {"ok": True, "message": "Answering."}
 
 
-def _sources(question: str) -> list[dict]:
-    """Best distinct passages for the question, with file/page/topic details."""
-    hits = meaning.quick_search(question, limit=MAX_SOURCES * 2)["results"]
+def _sources(question: str, limit: int = MAX_SOURCES) -> list[dict]:
+    """
+    Best distinct passages for the question, with file/page/topic details.
+
+    limit — how many passages to return. Answers use MAX_SOURCES (8); Chat
+            (chat.py) asks for fewer because the conversation so far also has
+            to fit in the model's 4,096-token window.
+    """
+    hits = meaning.quick_search(question, limit=limit * 2)["results"]
     seen, out = set(), []
     for h in hits:
         if h["point_id"] in seen:
             continue
         seen.add(h["point_id"])
         out.append(h)
-        if len(out) == MAX_SOURCES:
+        if len(out) == limit:
             break
     if not out:
         return []
@@ -107,6 +113,44 @@ def _sources(question: str) -> list[dict]:
         h["text"] = r["text"]
         h["source_id"] = r["source_id"]
     return out
+
+
+def finalize(body: str, sources: list[dict]) -> tuple[str, list[str]]:
+    """
+    Fact-check a written answer against the sources it may cite.
+
+    WHAT:  Drops source markers that don't exist, and removes every sentence
+           that holds a number, technique ID, IP, event ID or query line the
+           cited sources don't contain (lessons.Checker). Code fences are
+           kept balanced and blank runs are tidied.
+    WHY:   Shared by the one-shot Answers screen (_run below), the Chat
+           screen (chat.py) and the model comparison (modelpick.py), so every
+           place that writes from the owner's files is held to the same
+           standard.
+    RETURNS (clean answer, list of removed sentences) — the answer is "" if
+           nothing survived the check.
+    """
+    ck = Checker([s["text"] for s in sources])
+    valid = set(range(1, len(sources) + 1))
+    clean_lines = []
+    for line in body.split("\n"):
+        if line.strip().startswith("```") or not line.strip():
+            clean_lines.append(line)
+            continue
+        if re.fullmatch(r"\s*(\[\d+\]\s*)+", line):
+            continue  # a line of bare markers like "[1][2][3]" (a 4B model habit) says nothing
+        # Unknown markers are dropped; sentences with unsupported facts removed.
+        line = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if int(m.group(1)) in valid else "", line)
+        prefix = re.match(r"^\s*(?:[-*]|\d+[.)])\s+|^\s*#+\s+", line)
+        head = prefix.group(0) if prefix else ""
+        kept = ck.clean_text(line[len(head):], max_len=2000)
+        if kept:
+            clean_lines.append(head + kept)
+    answer = "\n".join(clean_lines).strip()
+    answer = re.sub(r"\n{3,}", "\n\n", answer)
+    if answer.count("```") % 2 == 1:
+        answer += "\n```"
+    return answer, list(ck.removed)
 
 
 def _run(question: str) -> None:
@@ -131,24 +175,7 @@ def _run(question: str) -> None:
         not_found = "NOT IN SOURCES" in body.upper()[:60]
 
         _set(stage="Checking every fact against the sources…")
-        ck = Checker([s["text"] for s in sources])
-        valid = set(range(1, len(sources) + 1))
-        clean_lines = []
-        for line in ([] if not_found else body.split("\n")):
-            if line.strip().startswith("```") or not line.strip():
-                clean_lines.append(line)
-                continue
-            # Unknown markers are dropped; sentences with unsupported facts removed.
-            line = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if int(m.group(1)) in valid else "", line)
-            prefix = re.match(r"^\s*(?:[-*]|\d+[.)])\s+|^\s*#+\s+", line)
-            head = prefix.group(0) if prefix else ""
-            kept = ck.clean_text(line[len(head):], max_len=2000)
-            if kept:
-                clean_lines.append(head + kept)
-        answer = "\n".join(clean_lines).strip()
-        answer = re.sub(r"\n{3,}", "\n\n", answer)
-        if answer.count("```") % 2 == 1:
-            answer += "\n```"
+        answer, removed = finalize("" if not_found else body, sources)
         if not answer:
             answer = ("Your files don't answer this directly. The closest passages are listed below — "
                       "open them to read more.")
@@ -157,7 +184,7 @@ def _run(question: str) -> None:
                                                 "page_number", "section", "topic_id", "topic_title")}
                | {"text": s["text"], "cited": i in cited}
                for i, s in enumerate(sources, start=1)}
-        checks = {"removed": ck.removed, "removed_count": len(ck.removed)}
+        checks = {"removed": removed, "removed_count": len(removed)}
         with db.connect() as conn:
             cur = conn.execute(
                 "INSERT INTO answers(question, body_markdown, sources_json, checks_json, model_used, seconds) "

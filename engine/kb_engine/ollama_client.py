@@ -96,6 +96,20 @@ def installed_models() -> list[str]:
         raise OllamaError(f"Could not list models — is Ollama running? ({exc})") from exc
 
 
+def installed_details() -> list[dict]:
+    """
+    Installed models with their download size in MB: [{"name", "size_mb"}].
+    CALLED BY: modelpick.py (the model picker lists what is on this laptop).
+    """
+    try:
+        r = httpx.get(f"{config.OLLAMA_URL}/api/tags", timeout=10)
+        r.raise_for_status()
+        return [{"name": m["name"], "size_mb": int(m.get("size") or 0) // 2**20}
+                for m in r.json().get("models", [])]
+    except httpx.HTTPError as exc:
+        raise OllamaError(f"Could not list models — is Ollama running? ({exc})") from exc
+
+
 def has_model(name: str, installed: list[str] | None = None) -> bool:
     """
     True if `name` is downloaded. Accepts 'nomic-embed-text' for
@@ -176,6 +190,7 @@ def generate(
     on_text=None,
     num_gpu: int | None = None,
     fallback: bool = True,
+    should_stop=None,
 ) -> GenerationResult:
     """
     Ask a model to write a response (non-streaming: waits for the full answer).
@@ -208,26 +223,31 @@ def generate(
                      Ollama's choice and the forced value is forgotten
                      (fallback=False turns that off — used while tuning).
 
+      should_stop  — optional callable returning True when the owner pressed
+                     Stop (v0.11, Chat). Only used with on_text (streaming):
+                     writing ends at once and the text written so far is
+                     returned as a normal result.
+
     RETURNS: GenerationResult with the text and timing figures.
     RAISES:  OllamaError with a readable message on any failure.
     """
     forced = num_gpu if num_gpu is not None else _layer_choice(model)
     try:
         result = _generate_once(model, prompt, system, temperature, num_ctx, think,
-                                num_predict, on_text, forced)
+                                num_predict, on_text, forced, should_stop)
     except OllamaError:
         if forced is None or not fallback:
             raise
         if _layers is not None:
             _layers.pop(model, None)  # forced placement failed: stop forcing
         result = _generate_once(model, prompt, system, temperature, num_ctx, think,
-                                num_predict, on_text, None)
+                                num_predict, on_text, None, should_stop)
     _record_speed(model, "tokens/s", result.tokens_per_second)
     return result
 
 
 def _generate_once(model, prompt, system, temperature, num_ctx, think, num_predict,
-                   on_text, num_gpu) -> GenerationResult:
+                   on_text, num_gpu, should_stop=None) -> GenerationResult:
     """One request to Ollama (see generate() for the parameters)."""
     payload: dict = {
         "model": model,
@@ -243,7 +263,7 @@ def _generate_once(model, prompt, system, temperature, num_ctx, think, num_predi
     if system:
         payload["system"] = system
     if on_text is not None:
-        return _generate_stream(model, payload, on_text)
+        return _generate_stream(model, payload, on_text, should_stop)
     try:
         r = httpx.post(
             f"{config.OLLAMA_URL}/api/generate",
@@ -277,7 +297,7 @@ def _generate_once(model, prompt, system, temperature, num_ctx, think, num_predi
     )
 
 
-def _generate_stream(model: str, payload: dict, on_text) -> GenerationResult:
+def _generate_stream(model: str, payload: dict, on_text, should_stop=None) -> GenerationResult:
     """Streamed version of generate(): same result, with live progress callbacks."""
     import json as _json
     import time as _time
@@ -290,7 +310,8 @@ def _generate_stream(model: str, payload: dict, on_text) -> GenerationResult:
             if r.status_code == 400:
                 r.read()
                 if "think" in r.text.lower() and "think" in payload:
-                    return _generate_stream(model, {k: v for k, v in payload.items() if k != "think"}, on_text)
+                    return _generate_stream(model, {k: v for k, v in payload.items() if k != "think"},
+                                            on_text, should_stop)
             if r.status_code != 200:
                 r.read()
                 raise OllamaError(f"Ollama error for model {model}: HTTP {r.status_code} {r.text[:300]}")
@@ -302,6 +323,8 @@ def _generate_stream(model: str, payload: dict, on_text) -> GenerationResult:
                 if chunk.get("done"):
                     final = chunk
                     break
+                if should_stop is not None and should_stop():
+                    break  # the owner pressed Stop: keep what was written so far
                 if _time.monotonic() - last > 0.25:
                     last = _time.monotonic()
                     try:
