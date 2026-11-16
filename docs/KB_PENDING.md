@@ -2,7 +2,7 @@
 
 Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_REFERENCE.md).
 
-**Current version:** v0.22.0 (Overview, Library, Topics and Learning now show pictures: donuts, treemaps, rings, bars; v0.21.0 Live learning screen: dots that connect to related files; v0.20.0 Insights screen with knowledge map, heatmap, mistake trends and timeline; v0.19.0 categories and sub-categories grow from the data; v0.18.0 finds gaps per category and fetches what is missing, scores learned pages, blocks junk sites; v0.17.0 learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
+**Current version:** v0.22.1 (fix: screens no longer freeze or go blank; v0.22.0 Overview, Library, Topics and Learning now show pictures: donuts, treemaps, rings, bars; v0.21.0 Live learning screen: dots that connect to related files; v0.20.0 Insights screen with knowledge map, heatmap, mistake trends and timeline; v0.19.0 categories and sub-categories grow from the data; v0.18.0 finds gaps per category and fetches what is missing, scores learned pages, blocks junk sites; v0.17.0 learns from its mistakes; v0.16.0 the app learns by itself: web learning + learning from use; v0.15.0 chat-first app: opens on Chat with a ChatGPT-style sidebar; v0.14.0 memory about you; v0.13.0 web reading and pasted text; v0.12.0 Free Chat and personas; v0.11.0 Chat and model picker; v0.10.0 reasoning; v0.9.2 remove files completely; v0.9.1 repeats folded; v0.9.0 eleven improvements; v0.8.3 same content never added twice; v0.8.2 relevance filter, removed files stay removed, graphics-card tuning; v0.8.1 faster import; v0.8.0 diagrams, writing speed, spreadsheet topics — in owner testing)
 **Last updated:** 16 November 2026
 
 ---
@@ -109,6 +109,12 @@ Living document. Updated after every change. Companion to [KB_REFERENCE.md](KB_R
 - [x] OCR row rebuilding, IP/date repair
 - [x] Distinct bullet markers; heading rule fixes
 - [ ] Owner check on the 45 scanned pages after re-read
+
+## v0.22.1 — Screen freeze fix ✅ delivered
+
+Owner checks:
+- [ ] Leave the app open on Live learning, Overview and Learning for 15+ minutes: pictures keep updating.
+- [ ] If any screen still shows "This screen hit a problem", note the short error line under it and which screen.
 
 ## v0.22.0 — Pictures on every main screen ✅ delivered
 

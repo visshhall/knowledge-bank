@@ -21,6 +21,7 @@
  *        Updates.jsx, GpuCard.jsx, StorageCard.jsx, AppUpdate.jsx, ModelCard.jsx, QuickSearch.jsx,
  *        icons.jsx, bridge.js (engine status, /system), styles.css.
  */
+import CrashGuard from "./CrashGuard.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Overview from "./Overview.jsx";
 import QuickSearch from "./QuickSearch.jsx";
@@ -167,6 +168,7 @@ export default function App() {
 
         {engine.status === "ready" && (
           <>
+            <CrashGuard key={screen}>
             {screen === "overview" && <Overview onNavigate={navigate} />}
             {screen === "library" && <Library />}
             {screen === "topics" && <Topics focus={focus} />}
@@ -192,6 +194,7 @@ export default function App() {
             {screen === "learn" && <Learn onOpenTopic={(id) => navigate("topics", { topicId: id })} />}
             {screen === "tools" && <Tools onOpenTopic={(id, pointId) => navigate("topics", { topicId: id, pointId })} />}
             {screen === "setup" && <SetupScreen />}
+            </CrashGuard>
           </>
         )}
       </main>

@@ -354,6 +354,9 @@ async function callEngine(method, enginePath, body) {
       method,
       headers: { "X-KB-Token": ENGINE_TOKEN, "Content-Type": "application/json" },
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+      // v0.22.1: a read that has not answered in 60 s is given up (the screen keeps its last data and asks again
+      // on its next refresh) instead of waiting forever. POSTs start jobs and may legitimately take longer.
+      signal: method === "GET" ? AbortSignal.timeout(60000) : undefined,
     });
     if (!res.ok) return { error: `Engine returned HTTP ${res.status}` };
     return await res.json();

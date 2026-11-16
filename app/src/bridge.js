@@ -40,23 +40,39 @@ export const kb =
  * blank the screen).
  */
 export function usePoll(path, intervalMs = 1500, params) {
+  // v0.22.1 (owner: "screen stopped loading after a few minutes"):
+  //  - a new request is not sent while the previous one for this screen part is still waiting, so a slow engine
+  //    never gets a growing queue of the same request;
+  //  - nothing is polled while the window is minimised or hidden; it refreshes at once when it is shown again.
   const [data, setData] = useState(null);
   const paramsKey = JSON.stringify(params ?? null);
   const latest = useRef(paramsKey);
+  const busy = useRef(false);
   latest.current = paramsKey;
 
   const reload = useCallback(async () => {
-    const result = await kb.get(path, params);
-    if (!result?.error && latest.current === paramsKey) setData(result);
-    return result;
+    busy.current = true;
+    try {
+      const result = await kb.get(path, params);
+      if (!result?.error && latest.current === paramsKey) setData(result);
+      return result;
+    } finally {
+      busy.current = false;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, paramsKey]);
 
   useEffect(() => {
     reload();
     if (!intervalMs) return undefined;
-    const id = setInterval(reload, intervalMs);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (busy.current || document.hidden) return;
+      reload();
+    };
+    const id = setInterval(tick, intervalMs);
+    const onShow = () => { if (!document.hidden) tick(); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onShow); };
   }, [reload, intervalMs]);
 
   return [data, reload];

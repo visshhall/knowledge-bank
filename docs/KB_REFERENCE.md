@@ -701,6 +701,15 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9ae. v0.22.1 — Screens no longer freeze or go blank (16 Nov 2026)
+
+**What / why:** Owner reported the screen "stopped loading after a few minutes".
+- **Cause found:** v0.22.0 used the shared category colours in Live learning (Brain.jsx) without importing them, so that screen crashed as soon as it drew a dot, and the single app-wide crash guard replaced the whole window. Fixed (import added).
+- **Crash guard per screen:** `CrashGuard.jsx` now wraps each screen separately (keyed by screen). A crash shows a short message with "Try again" in that screen only; the sidebar keeps working and moving to another screen clears it. The app-wide guard stays as a last resort.
+- **Polling hardened (bridge.js usePoll):** no new request while the previous one for the same panel is still waiting (a slow engine can no longer build a queue); nothing is polled while the window is minimised/hidden, with an immediate refresh when shown again.
+- **Timeout (main.cjs):** engine reads (GET) give up after 60 s instead of waiting forever; the screen keeps its last data and asks again next refresh.
+**Checked:** 200-file synthetic library (6,000 pages, 768-d vectors): engine polled like the app for 4.5 min, every reply under 0.11 s; every screen left open in a browser with no errors and flat memory. Slowest call is Tools → bank IOCs (≈9 s on 200 files, only when opened).
+
 ## 9ad. v0.22.0 — Pictures on every main screen (16 Nov 2026)
 
 **What:** The same picture-first treatment as Insights/Live learning, now on the screens used every day, each with a one-line text caption beside it.
@@ -937,6 +946,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 4.5 / KB v0.22.1 | Fix: Live learning crash (missing import) blanked the window; crash guard per screen; polling skips while busy/hidden; 60 s read timeout. Added section 9ae. |
 | 16 Nov 2026 | Doc 4.4 / KB v0.22.0 | Pictures on Overview, Library, Topics and Learning (donuts, treemaps, rings, bars) with captions; shared viz.jsx; glance.py. Added section 9ad. |
 | 16 Nov 2026 | Doc 4.3 / KB v0.21.0 | Live learning screen: dot per file/page, embedding-based relations, arrival animation, replay, text feed. brain.py, schema v22. Added section 9ac. |
 | 16 Nov 2026 | Doc 4.2 / KB v0.20.0 | Insights screen: knowledge map, coverage heatmap, mistake trends, timeline with animations; /insights/all. No schema change (v21). Added section 9ab. |
