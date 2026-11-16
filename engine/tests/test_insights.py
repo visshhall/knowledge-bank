@@ -17,7 +17,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-ins-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import db, insights, taxonomy  # noqa: E402
 
-assert db.init_db() == 21
+assert db.init_db() == 22
 n = {"i": 0}
 
 

@@ -17,7 +17,7 @@
  * WHY:   The owner asked for the whole app to feel like a chat app, "not just models".
  *        Chat is the front door; the library is what the chat draws on.
  * WHEN:  Rendered once at launch by main.jsx; lives for the whole session.
- * CONNECTED TO: Sidebar.jsx, Chat.jsx, Learning.jsx (v0.16), Insights.jsx (v0.20), Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
+ * CONNECTED TO: Sidebar.jsx, Chat.jsx, Learning.jsx (v0.16), Insights.jsx (v0.20), Brain.jsx (v0.21), Overview.jsx, Library.jsx, Topics.jsx, SetupWizard.jsx,
  *        Updates.jsx, GpuCard.jsx, StorageCard.jsx, AppUpdate.jsx, ModelCard.jsx, QuickSearch.jsx,
  *        icons.jsx, bridge.js (engine status, /system), styles.css.
  */
@@ -28,6 +28,7 @@ import Answers from "./Answers.jsx";
 import Chat from "./Chat.jsx";
 import Learning from "./Learning.jsx";
 import Insights from "./Insights.jsx";
+import Brain from "./Brain.jsx";
 import Sidebar from "./Sidebar.jsx";
 import ModelCard from "./ModelCard.jsx";
 import Learn from "./Learn.jsx";
@@ -181,6 +182,7 @@ export default function App() {
             )}
             {screen === "learning" && <Learning />}
             {screen === "insights" && <Insights />}
+            {screen === "brain" && <Brain />}
             {screen === "answers" && (
               <Answers
                 initial={focus?.question ? focus : null}

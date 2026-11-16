@@ -23,7 +23,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-learn-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import crawler, db, importer, learner, websearch  # noqa: E402
 
-assert db.init_db() == 21
+assert db.init_db() == 22
 importer._ensure_worker = lambda: None
 crawler.ALLOW_PRIVATE = True
 crawler.MIN_DELAY = 0.0

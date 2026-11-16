@@ -701,6 +701,23 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9ac. v0.21.0 — Live learning: watch the app learn (16 Nov 2026)
+
+*Why:* the owner asked for a real visual of the AI being trained: a new dot appearing when it finds something new, related to the data already there, correlated with incoming data, and "more and more visual presentation" with text kept only as a companion. Agreed choices: every file and web page is a dot; relations by the embedding model; this live view first, then a visual pass on the other screens.
+
+*How (`brain.py`, schema v22: `source_vectors`, `source_links`, `brain_events`; `Brain.jsx`):*
+1. **A meaning-vector per file or page:** the average of up to 4 passages spread through it, made by the same embedding model as "Build topics" (nomic-embed-text; the passage vectors are stored on the passages, so Build topics reuses them). If the model is not available (AI engine off, not downloaded, or an answer is being written) a shared-key-words vector is used so the screen still works, and it is upgraded to a meaning-vector later without being announced as new again.
+2. **Links:** a new file is compared with all others after the direction every cybersecurity text shares is removed (otherwise everything looks about 0.7 alike) and joined to its closest matches, up to 4, if alike enough. Only files made by the same method are compared.
+3. **Events:** each first appearance is logged with who it linked to and written in plain words ("Read a web page: ‘X’ relates closely to ‘Y’, ‘Z’").
+4. **The screen** (Knowledge → Live learning): a canvas map. Dot = a file or page (colour = category, size = amount of text, dashed ring = read from the web). Lines = same subject (brighter and thicker = closer). A new dot pops in next to its closest relatives, a ripple spreads, and a bright pulse runs along each new line. Controls: All / My files / Read from the web, Pause live updates, **Replay growth** (the newest 40 dots disappear and come back one by one in the order they were learned), Link new files now. Click a dot to see, as text, which files it relates to and how closely; click a category to highlight it; drag to pan, scroll to zoom (the view keeps everything in sight until you do). The side panel has status, a text feed "What just happened", and the legend, so it reads without the picture too.
+5. **Rhythm:** the engine links up to 8 new files every 15 s while no answer is being written; the screen refreshes every 4 s. No new picture appears for something that has no text yet.
+
+*Limits:* shows up to 300 dots (newest first). Links are made when a file first appears and are not reworked when later files change the average direction. While old key-word dots are being upgraded, links between upgraded and not-yet-upgraded files are missing for a while. Reduced-motion settings turn off the ripples and pulses.
+
+*Next (agreed):* the same visual treatment for Overview, Library, Topics and Learning.
+
+*Tests:* `test_brain.py`.
+
 ## 9ab. v0.20.0 — Insights: the patterns, drawn and animated (16 Nov 2026)
 
 *Why:* the owner asked for "visualization animations everything" so that the patterns the app finds can be seen, not only listed. This completes the agreed list from the v0.17 request.
@@ -906,6 +923,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 16 Nov 2026 | Doc 4.3 / KB v0.21.0 | Live learning screen: dot per file/page, embedding-based relations, arrival animation, replay, text feed. brain.py, schema v22. Added section 9ac. |
 | 16 Nov 2026 | Doc 4.2 / KB v0.20.0 | Insights screen: knowledge map, coverage heatmap, mistake trends, timeline with animations; /insights/all. No schema change (v21). Added section 9ab. |
 | 16 Nov 2026 | Doc 4.1 / KB v0.19.0 | Categories and sub-categories grow from the data (AI or plain word groups), owner Rename/Merge/Delete, Library sub-category chips, coverage includes grown categories. Schema v21. Added section 9aa. |
 | 16 Nov 2026 | Doc 4.0 / KB v0.18.0 | Coverage per category, automatic topics for thin areas, usefulness of learned pages, junk-site blocking and owner Block/Allow. Schema v20. Added section 9z. |

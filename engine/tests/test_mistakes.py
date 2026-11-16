@@ -20,7 +20,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-mist-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import chat, db, mistakes, ollama_client, training  # noqa: E402
 
-assert db.init_db() == 21
+assert db.init_db() == 22
 real_maybe_run = mistakes.maybe_run
 mistakes.maybe_run = lambda: None          # logging must not start background work during these checks
 ollama_client.is_running = lambda: True

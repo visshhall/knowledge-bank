@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, insights, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
+from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, insights, brain, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -125,6 +125,7 @@ async def lifespan(_app: FastAPI):
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
     importer.start()  # resume interrupted imports + start watched-folder scanner
+    brain.start()  # v0.21: links new files to related ones (idle when nothing is new)
     taxonomy.start()  # v0.19: categories that grow (idle until files fit no category)
     learner.start()  # v0.16: web learning loop (does nothing until the owner turns it on in Learning)
     # v0.8: spreadsheets imported before data topics existed get their charts,
@@ -789,6 +790,27 @@ def coverage_site(body: SiteRequest) -> dict:
 @app.post("/coverage/prune-unused", dependencies=[Depends(require_token)])
 def coverage_prune(body: PruneRequest) -> dict:
     return coverage.prune_unused(body.days)
+
+
+# --- v0.21: live learning view (brain.py) -----------------------------------------------------
+
+class BrainRunRequest(BaseModel):
+    limit: int = 60
+
+
+@app.get("/brain/graph", dependencies=[Depends(require_token)])
+def brain_graph(limit: int = 300, since: str | None = None) -> dict:
+    return brain.graph(limit, since)
+
+
+@app.get("/brain/related", dependencies=[Depends(require_token)])
+def brain_related(id: int) -> dict:
+    return brain.related(id)
+
+
+@app.post("/brain/run", dependencies=[Depends(require_token)])
+def brain_run(body: BrainRunRequest) -> dict:
+    return brain.process_pending(max(1, min(200, body.limit)))
 
 
 # --- v0.20: insights (insights.py) ---------------------------------------------------------------

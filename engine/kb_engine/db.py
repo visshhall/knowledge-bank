@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -907,6 +907,39 @@ def _migrate_v21() -> None:
         )
 
 
+def _migrate_v22() -> None:
+    """
+    Schema v22 (KB v0.21). The live learning view (brain.py). Idempotent, every start:
+      source_vectors  one meaning-vector per file or web page (average of a few of its passages), with the `method`
+                      that made it: 'embed' (the embedding model) or 'terms' (shared key words, used when the model is
+                      not available; replaced by 'embed' later).
+      source_links    the closest related files for each file (a < b, `sim` = how alike, 0–1 after centring).
+      brain_events    one row each time a file or page first appears in the brain, with who it linked to — the
+                      "new dot lights up and connects" moments the Brain screen animates and lists.
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_vectors ("
+            "source_id INTEGER PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE, method TEXT NOT NULL, "
+            "vec BLOB NOT NULL, n_passages INTEGER NOT NULL DEFAULT 0, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_links ("
+            "a INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE, b INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE, "
+            "sim REAL NOT NULL, PRIMARY KEY (a, b))")
+        conn.execute("CREATE INDEX IF NOT EXISTS source_links_b ON source_links(b)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS brain_events ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE, "
+            "kind TEXT NOT NULL DEFAULT 'new', detail_json TEXT NOT NULL DEFAULT '{}', "
+            "at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute("CREATE INDEX IF NOT EXISTS brain_events_at ON brain_events(at)")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '22') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -991,7 +1024,8 @@ def init_db() -> int:
     _migrate_v19()  # idempotent (v0.17: mistake log and lessons)
     _migrate_v20()  # idempotent (v0.18: per-site learning)
     _migrate_v21()  # idempotent (v0.19: categories that grow)
-    return 21
+    _migrate_v22()  # idempotent (v0.21: live learning view)
+    return 22
 
 
 def stats() -> dict:
