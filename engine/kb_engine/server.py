@@ -93,7 +93,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from . import (__version__, answers, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, insights, brain, glance, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
+from . import (__version__, answers, libtrain, backup, chat, config, crawler, datapages, coverage, db, distill, gpu, storage, topicedit, importer, learn, learner, lessons, taxonomy, insights, brain, glance, mistakes, meaning, memory, modelpick, personas, search, setup_manager, system_check, tools, training, updates, websearch, writer)
 
 # Secret shared with the Electron app for this launch only.
 _TOKEN = os.environ.get("KB_ENGINE_TOKEN", "")
@@ -125,6 +125,7 @@ async def lifespan(_app: FastAPI):
     version = db.init_db()
     print(f"[engine] database ready at {config.DB_PATH} (schema v{version})", flush=True)
     importer.start()  # resume interrupted imports + start watched-folder scanner
+    libtrain.start()  # v0.23: reads every page of the owner's files into checked Q&A (pauses while Chat answers)
     brain.start()  # v0.21: links new files to related ones (idle when nothing is new)
     taxonomy.start()  # v0.19: categories that grow (idle until files fit no category)
     learner.start()  # v0.16: web learning loop (does nothing until the owner turns it on in Learning)
@@ -828,6 +829,57 @@ def insights_all(weeks: int = 12) -> dict:
 
 
 # --- v0.19: categories that grow (taxonomy.py) -------------------------------------------------
+
+# --- v0.23: learn from every page of the owner's files (libtrain.py) ----------------------------------------------
+class LibOnRequest(BaseModel):
+    """Body of POST /libtrain/on: switch page reading on or off."""
+    on: bool
+
+
+class LibIdRequest(BaseModel):
+    """Body of POST /libtrain/reject: a question-and-answer pair the owner thinks is wrong."""
+    id: int
+
+
+class LibImportRequest(BaseModel):
+    """Body of POST /libtrain/import: the kb-model.gguf file chosen in the window's file dialog."""
+    path: str
+
+
+class LibUseRequest(BaseModel):
+    """Body of POST /libtrain/use: 'tuned' (the trained model) or 'previous' (the model used before it)."""
+    which: str
+
+
+@app.get("/libtrain/status", dependencies=[Depends(require_token)])
+def libtrain_status() -> dict:
+    return libtrain.status()
+
+
+@app.post("/libtrain/on", dependencies=[Depends(require_token)])
+def libtrain_on(body: LibOnRequest) -> dict:
+    return libtrain.set_on(body.on)
+
+
+@app.post("/libtrain/reject", dependencies=[Depends(require_token)])
+def libtrain_reject(body: LibIdRequest) -> dict:
+    return libtrain.reject(body.id)
+
+
+@app.post("/libtrain/package", dependencies=[Depends(require_token)])
+def libtrain_package() -> dict:
+    return libtrain.build_package()
+
+
+@app.post("/libtrain/import", dependencies=[Depends(require_token)])
+def libtrain_import(body: LibImportRequest) -> dict:
+    return libtrain.start_import(body.path)
+
+
+@app.post("/libtrain/use", dependencies=[Depends(require_token)])
+def libtrain_use(body: LibUseRequest) -> dict:
+    return libtrain.use_model("tuned" if body.which == "tuned" else "previous")
+
 
 class CategoryRename(BaseModel):
     name: str

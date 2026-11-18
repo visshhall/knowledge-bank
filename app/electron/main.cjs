@@ -95,6 +95,13 @@ const ALLOWED_ENGINE_CALLS = new Set([
   "GET /training/examples",
   "POST /training/example/status",
   "POST /training/export",
+  // v0.23 learning from every page (libtrain.py)
+  "GET /libtrain/status",
+  "POST /libtrain/on",
+  "POST /libtrain/reject",
+  "POST /libtrain/package",
+  "POST /libtrain/import",
+  "POST /libtrain/use",
   "GET /glance/all",
   "GET /brain/graph",
   "GET /brain/related",
@@ -485,6 +492,7 @@ const WEB_LOOKUPS = {
   mitre: (v) => `https://attack.mitre.org/techniques/${encodeURIComponent(v).replace(".", "/")}/`,
   virustotal: (v) => `https://www.virustotal.com/gui/search/${encodeURIComponent(v)}`,
   cve: (v) => `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(v)}`,
+  colab: () => "https://colab.research.google.com/", // v0.23: where the owner trains his model (fixed address, value unused)
 };
 ipcMain.handle("web:open", async (_event, kind, value) => {
   const make = WEB_LOOKUPS[kind];
@@ -512,6 +520,29 @@ ipcMain.handle("update:download", () =>
 );
 ipcMain.handle("update:install", (_event, installerPath) => updater.install(String(installerPath || "")));
 ipcMain.handle("update:settings", (_event, next) => updater.settings(next));
+
+/**
+ * v0.23 training package + trained model (libtrain.py).
+ * shell:openTraining(folder) opens a training package folder in File Explorer. Only folders inside
+ * <data folder>/training are opened, so the page cannot ask main.cjs to open anything else.
+ * dialog:pickModel lets the owner choose the kb-model.gguf the Colab notebook saved; the engine checks the file again.
+ */
+const TRAINING_DIR = path.join(path.dirname(REPORTS_DIR), "training");
+ipcMain.handle("shell:openTraining", async (_event, folder) => {
+  const target = path.resolve(String(folder || TRAINING_DIR));
+  if (target !== TRAINING_DIR && !target.startsWith(TRAINING_DIR + path.sep)) return { error: "Not a training folder." };
+  fs.mkdirSync(target, { recursive: true });
+  const err = await shell.openPath(target);
+  return err ? { error: err } : { ok: true };
+});
+ipcMain.handle("dialog:pickModel", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose the trained model (kb-model.gguf)",
+    properties: ["openFile"],
+    filters: [{ name: "Trained model", extensions: ["gguf"] }],
+  });
+  return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
+});
 
 ipcMain.handle("shell:openReports", async () => {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });

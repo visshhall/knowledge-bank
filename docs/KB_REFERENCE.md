@@ -701,6 +701,25 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9af. v0.23.0 — Learn from every page of your files, then a real trained model (18 Nov 2026)
+
+**Why:** Owner: "I want the model to read all the pdf and learn directly instead of half knowledge"; the training count was stuck because v0.16 only collected rated Free-chat answers and nothing was ever trained. He chose (18 Nov): every page as checked question-and-answer pairs **plus the raw text**, trained on a **free cloud GPU** (his ~4 GB laptop GPU cannot train a 4B model; Unsloth's Qwen3.5-4B 16-bit LoRA needs about 10 GB).
+
+**What:**
+1. **Every page is read** (`libtrain.py`, background loop every 20 s, 2 pages a round). Own files only (web-learned pages and replaced versions are not used), file by file in page order. The chat model writes 2–6 Q&A pairs per page (more text, more pairs). Pages under 250 characters are marked done as skipped.
+2. **Every answer is checked.** A pair is kept only if every number/ID/IP/event ID/query line is on the page (`lessons.Checker`, the same checker as Chat), at least 70% of its content words are on the page, and it reads on its own (no "this page"). Dropped pairs are counted with their reason; nothing is "fixed" by guessing.
+3. **Pauses** while Chat or the Answers screen is writing, when Ollama is not running, or when the owner presses Pause.
+4. **Training package** (Learning → "Make training package"): folder + zip in `<data>/training/package-<date>/` with `kb_text.jsonl` (the text of EVERY page in ≤2,000-character pieces, labelled with file and page — covers 100% at once), `kb_qa.jsonl` (kept pairs; the same pair from several pages once; a pair rejected anywhere left out everywhere), `kb_chat.jsonl` (Free-chat examples, `training.chat_lines()`), `manifest.json`, `README.txt` and `KB_finetune.ipynb`.
+5. **Notebook** (Google Colab, free T4): install cell copied from Unsloth's official Qwen3.5 notebooks; text-only loading as in their Qwen3.5 text notebook; 16-bit LoRA r=16 (Unsloth: 4-bit not recommended for Qwen3.5); one pass over raw text (×TEXT_PASSES) + Q&A + chat examples; stops at MAX_MINUTES (150) so the model is always saved; one test question; saves q4_k_m as `kb-model.gguf` to Google Drive/KnowledgeBank and as a download.
+6. **Bring it back** (Learning → "Bring in the trained model"): checks the file (GGUF header, ≥50 MB), takes the base model's own Modelfile (`ollama show qwen3.5:4b --modelfile`, so the chat format matches), points FROM at the file, runs `ollama create kb-tuned`, switches Chat to it and remembers the previous model ("Switch back" button).
+7. **Learning screen** card "Learn from your files": ring (pages read, time left from the measured seconds per page), bars per day, donut of kept vs dropped with reasons, bar per subject, newest pairs with Reject, three-step line (package → Colab → bring in), and a plain note on what training does and does not do.
+
+**Honest limits:** a fine-tuned 4B model learns the subjects, terms and explanations far better but does not recall every exact number of 200 PDFs; "My files" answers still read the pages. Reading speed depends on the laptop (measured and shown); roughly 30–45 s a page on a 4 GB GPU means a large library takes days in the background. Chat-model families other than Qwen3.5 4B/2B are trained as Qwen3.5-4B (the owner is told).
+
+**Data:** schema v23: `lib_pages_done` (one row per read page: kept, dropped, skipped, seconds, reasons), `lib_qa` (pairs, status kept/rejected). Both cascade when a file is deleted. Settings: `libtrain_on`, `libtrain_last_package`, `chat_model_before_tuned`, `tuned_base`.
+**Connected to:** server.py `/libtrain/status|on|reject|package|import|use`; main.cjs (`shell:openTraining` limited to the training folder, `dialog:pickModel`, web lookup `colab`); `LibraryTraining.jsx`; viz.jsx; training.py; lessons.py; setup_manager.find_ollama_exe.
+**Tested:** `tests/test_libtrain.py` (fake model and fake `ollama` program). Not tested here: the notebook on a real Colab GPU, the real model's question writing, `ollama create` on Windows.
+
 ## 9ae. v0.22.1 — Screens no longer freeze or go blank (16 Nov 2026)
 
 **What / why:** Owner reported the screen "stopped loading after a few minutes".
@@ -946,6 +965,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 18 Nov 2026 | Doc 4.6 / KB v0.23.0 | Learn from every page: checked Q&A + raw text, training package with Colab notebook, import of the trained model; schema v23. Added section 9af. |
 | 16 Nov 2026 | Doc 4.5 / KB v0.22.1 | Fix: Live learning crash (missing import) blanked the window; crash guard per screen; polling skips while busy/hidden; 60 s read timeout. Added section 9ae. |
 | 16 Nov 2026 | Doc 4.4 / KB v0.22.0 | Pictures on Overview, Library, Topics and Learning (donuts, treemaps, rings, bars) with captions; shared viz.jsx; glance.py. Added section 9ad. |
 | 16 Nov 2026 | Doc 4.3 / KB v0.21.0 | Live learning screen: dot per file/page, embedding-based relations, arrival animation, replay, text feed. brain.py, schema v22. Added section 9ac. |

@@ -19,6 +19,7 @@
  *           turns them into short lessons it follows in every reply. Lessons apply automatically; each shows its
  *           evidence, whether it is working ("working" / "not helping — switched off") and can be turned off or
  *           deleted. "Find patterns now" runs the search at once.
+ *        0b. (v0.23) "Learn from your files": every page read into checked Q&A, then package → Colab → bring in (LibraryTraining.jsx)
  *        0. (v0.22) "Learning at a glance" pictures at the top: today's reading, pages per day, topic queue, lessons, sites (Glance.jsx)
  *        4. (v0.18) WHAT IT KNOWS AND WHAT'S MISSING — a bar per category (how well the library covers it, with a flag
  *           on weak ones and how often answers cited it), "Fill the gaps now" (adds web topics for the weakest
@@ -37,6 +38,7 @@
 import { useState } from "react";
 import Icon from "./icons.jsx";
 import { LearningGlance } from "./Glance.jsx";
+import LibraryTraining from "./LibraryTraining.jsx";
 import { kb, usePoll } from "./bridge.js";
 
 export default function Learning() {
@@ -50,6 +52,7 @@ export default function Learning() {
         </p>
       </header>
       <LearningGlance />
+      <LibraryTraining />
       <WebLearning />
       <Lessons />
       <Coverage />
@@ -225,7 +228,7 @@ function TrainingData() {
   return (
     <section className="card learn-card" aria-label="Training data">
       <div className="learn-head">
-        <h2>Learn from how you use it</h2>
+        <h2>Learn from how you chat</h2>
       </div>
       <p className="muted">
         In Free chat, a thumbs-up or Copy marks an answer as good; thumbs-down or Regenerate marks it as not good; and “Correct”
@@ -248,7 +251,7 @@ function TrainingData() {
         >
           <Icon name="upload" size={16} /> Export dataset
         </button>
-        <span className="muted small">Only Free-chat answers are used (library answers depend on your files, so they would teach the model to invent).</span>
+        <span className="muted small">These Free-chat examples are also added to the training package in “Learn from your files” above, together with every page of your files.</span>
       </div>
       {out && (out.ok ? (
         <p className="notice ok">

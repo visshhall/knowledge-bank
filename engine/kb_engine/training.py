@@ -232,6 +232,26 @@ cloud graphics card; your 4 GB laptop card cannot do it.
 """
 
 
+def chat_lines() -> list[str]:
+    """
+    The Free-chat examples as JSONL lines ({"messages": [...]}), duplicates (same question and answer) once.
+    Shared by export() and libtrain.build_package() (v0.23), so both write the same chat examples.
+    """
+    with db.connect() as conn:
+        rows = conn.execute("SELECT kind, system, prompt, response FROM training_examples WHERE status = 'new' "
+                            "ORDER BY id").fetchall()
+    seen, lines = set(), []
+    for r in rows:
+        key = hashlib.sha256((r["prompt"] + "\x00" + r["response"]).encode()).hexdigest()
+        if key in seen:
+            continue
+        seen.add(key)
+        msgs = ([{"role": "system", "content": r["system"]}] if r["system"] else []) + [
+            {"role": "user", "content": r["prompt"]}, {"role": "assistant", "content": r["response"]}]
+        lines.append(json.dumps({"messages": msgs}, ensure_ascii=False))
+    return lines
+
+
 def export() -> dict:
     """
     Write the dataset (JSONL) and the recipe into <data folder>/training/. Duplicates (same question and

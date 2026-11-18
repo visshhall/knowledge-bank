@@ -19,7 +19,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-train-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import chat, config, db, training  # noqa: E402
 
-assert db.init_db() == 22
+assert db.init_db() == 23
 LONG = "A fluted planter reads as quiet craftsmanship, with soft vertical lines that catch the light. " * 2
 
 

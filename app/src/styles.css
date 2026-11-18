@@ -1461,3 +1461,21 @@ button.danger:hover { background: #983526; }
 .tb-n { text-align: right; }
 @keyframes ins-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @media (prefers-reduced-motion: reduce) { .tb-fill { animation: none; } }
+
+/* v0.23 Learn from your files (LibraryTraining.jsx) */
+.lt-recent { display: grid; gap: 8px; }
+.lt-recent h3, .lt-step h3 { margin: 0; font-size: 15px; }
+.lt-steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); position: relative; }
+.lt-steps::before { content: ""; position: absolute; top: 15px; left: 16.6%; right: 16.6%; height: 3px; background: var(--line); border-radius: 2px; }
+.lt-steps li { display: grid; justify-items: center; gap: 6px; text-align: center; font-size: 13px; font-weight: 600; position: relative; }
+.lt-dot { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 3px solid var(--line); color: var(--muted); font-weight: 700; transition: background .4s, border-color .4s; }
+.lt-steps li.done .lt-dot { background: var(--teal); border-color: var(--teal); color: #fff; }
+.lt-step { display: grid; gap: 6px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); }
+.lt-note { margin: 0; padding: 10px 12px; border-left: 4px solid var(--mustard); background: var(--surface-2); border-radius: 8px; }
+.learn-bar.indeterminate { overflow: hidden; }
+.learn-bar.indeterminate > div { width: 30%; animation: lt-slide 1.4s ease-in-out infinite; }
+@keyframes lt-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .learn-bar.indeterminate > div { animation: none; width: 100%; opacity: .5; } .lt-dot { transition: none; } }
+/* v0.23: a legend that is not clickable is still fully readable (not faded like a disabled button), left-aligned */
+.viz-legend button { text-align: left; }
+.viz-legend button:disabled { opacity: 1; }

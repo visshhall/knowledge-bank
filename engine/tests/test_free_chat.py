@@ -20,7 +20,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-free-test-")  # a throw-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import answers, chat, db, ollama_client, personas  # noqa: E402
 
-assert db.init_db() == 22
+assert db.init_db() == 23
 
 SOURCES = [{"passage_id": 1, "point_id": 1, "source_id": 7, "file_name": "rdp.pdf", "page_number": 3,
             "section": None, "topic_id": None, "topic_title": "RDP",

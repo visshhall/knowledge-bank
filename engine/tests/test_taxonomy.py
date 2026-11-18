@@ -19,7 +19,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-tax-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import coverage, db, taxonomy, titles  # noqa: E402
 
-assert db.init_db() == 22
+assert db.init_db() == 23
 taxonomy._ask = lambda prompt: None               # no AI unless a test sets one
 n = {"i": 0}
 

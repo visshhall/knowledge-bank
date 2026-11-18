@@ -93,6 +93,8 @@ find "$PY_OUT" -name "__pycache__" -type d -prune -exec rm -rf {} +
 echo "==> Building interface and installer"
 cd "$APP"
 npm install --no-audit --no-fund
+# v0.23: make the uninstaller without running the installer under Wine (see the script for why)
+node "$ROOT/tools/patch-nsis-no-wine.cjs"
 npm run dist:win
 
 echo

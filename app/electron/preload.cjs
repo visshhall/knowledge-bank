@@ -64,6 +64,10 @@ contextBridge.exposeInMainWorld("kb", {
   /** Open a web look-up in the normal browser: kind = search|mitre|virustotal|cve. */
   webOpen: (kind, value) => ipcRenderer.invoke("web:open", kind, value),
 
+  /** v0.23: open a training package folder; choose the trained kb-model.gguf (main.cjs checks both). */
+  openTraining: (folder) => ipcRenderer.invoke("shell:openTraining", folder),
+  pickModel: () => ipcRenderer.invoke("dialog:pickModel"),
+
   /** Backup dialogs + restart (v0.7). */
   saveBackupDialog: () => ipcRenderer.invoke("dialog:saveBackup"),
   pickBackupDialog: () => ipcRenderer.invoke("dialog:pickBackup"),

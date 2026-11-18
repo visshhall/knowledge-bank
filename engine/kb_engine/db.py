@@ -47,7 +47,7 @@ from . import config
 # Increase this number whenever the schema changes, and add a matching
 # step in _MIGRATIONS. Existing databases are upgraded in place — the
 # owner never loses data because of an app update.
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 # Each entry: (version it upgrades TO, list of SQL statements).
 # Version 1 = the initial Phase 0 schema.
@@ -940,6 +940,36 @@ def _migrate_v22() -> None:
         )
 
 
+def _migrate_v23() -> None:
+    """
+    Schema v23 (KB v0.23). Learning from every page of the owner's files (libtrain.py). Idempotent, every start:
+      lib_pages_done  one row per page once it has been read: how many question-and-answer pairs were kept and dropped,
+                      whether the page was skipped (too short to teach anything), how long it took, why pairs were dropped.
+                      A page with no row has not been read yet; deleting a file deletes its rows (cascade).
+      lib_qa          the kept question-and-answer pairs (status 'kept', or 'rejected' by the owner — never trained on).
+    """
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS lib_pages_done ("
+            "page_id INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE, "
+            "source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE, "
+            "kept INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0, skipped INTEGER NOT NULL DEFAULT 0, "
+            "seconds REAL NOT NULL DEFAULT 0, reasons_json TEXT NOT NULL DEFAULT '{}', "
+            "done_at TEXT NOT NULL DEFAULT (datetime('now')))")
+        conn.execute("CREATE INDEX IF NOT EXISTS lib_pages_done_at ON lib_pages_done(done_at)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS lib_qa ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE, "
+            "source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE, question TEXT NOT NULL, "
+            "answer TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'kept', "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(page_id, question))")
+        conn.execute("CREATE INDEX IF NOT EXISTS lib_qa_source ON lib_qa(source_id)")
+        conn.execute(
+            "INSERT INTO schema_meta(key, value) VALUES('schema_version', '23') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+
 def _current_version(conn: sqlite3.Connection) -> int:
     """Return the schema version stored in the file (0 for a brand-new file)."""
     has_meta = conn.execute(
@@ -1025,7 +1055,8 @@ def init_db() -> int:
     _migrate_v20()  # idempotent (v0.18: per-site learning)
     _migrate_v21()  # idempotent (v0.19: categories that grow)
     _migrate_v22()  # idempotent (v0.21: live learning view)
-    return 22
+    _migrate_v23()  # idempotent (v0.23: learning from every page)
+    return 23
 
 
 def stats() -> dict:

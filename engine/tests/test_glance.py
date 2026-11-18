@@ -16,7 +16,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-glance-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import db, glance  # noqa: E402
 
-assert db.init_db() == 22
+assert db.init_db() == 23
 g = glance.all_glance()                                   # empty bank
 assert g["files"]["total"] == 0 and g["categories"] == [] and len(g["daily"]) == 30
 assert g["health"]["linked_pct"] == 0 and g["health"]["well_covered_pct"] == 0 and g["health"]["topics_pct"] == 0

@@ -20,7 +20,7 @@ os.environ["KB_DATA_DIR"] = tempfile.mkdtemp(prefix="kb-cov-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kb_engine import coverage, db, importer, learner, ollama_client  # noqa: E402
 
-assert db.init_db() == 22
+assert db.init_db() == 23
 ollama_client.is_running = lambda: False          # no AI: topic phrases use the plain fallback
 n = {"i": 0}
 
