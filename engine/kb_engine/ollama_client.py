@@ -191,6 +191,7 @@ def generate(
     num_gpu: int | None = None,
     fallback: bool = True,
     should_stop=None,
+    format=None,
 ) -> GenerationResult:
     """
     Ask a model to write a response (non-streaming: waits for the full answer).
@@ -201,9 +202,10 @@ def generate(
       system       — standing instructions (role, rules, output format)
       temperature  — low (0.2) = factual and consistent, which is what a
                      knowledge bank needs; high = more creative
-      num_ctx      — how many tokens of input+output the model can see at
-                     once. 8192 ≈ 6,000 words. Larger uses more video memory,
-                     which is the scarce resource on a 4 GB card.
+      num_ctx      — IGNORED since v0.23.1 (kept so callers need not change):
+                     every request uses config.NUM_CTX, see context_size().
+      format       — optional JSON schema (dict) or "json": the reply must
+                     match it (Ollama structured output). v0.23.1.
       think        — some models (Qwen 3.x) can "reason" privately before
                      answering. Off by default: much faster, and summaries
                      rarely need it. The benchmark measures both if useful.
@@ -231,23 +233,38 @@ def generate(
     RETURNS: GenerationResult with the text and timing figures.
     RAISES:  OllamaError with a readable message on any failure.
     """
+    # v0.23.1: the caller's num_ctx is only a hint. Every request uses the same window (config.NUM_CTX) so Ollama never
+    # reloads the model between features; a prompt too big for it gets config.NUM_CTX_LARGE (see context_size()).
+    num_ctx = context_size(prompt, system, num_predict)
     forced = num_gpu if num_gpu is not None else _layer_choice(model)
     try:
         result = _generate_once(model, prompt, system, temperature, num_ctx, think,
-                                num_predict, on_text, forced, should_stop)
+                                num_predict, on_text, forced, should_stop, format)
     except OllamaError:
         if forced is None or not fallback:
             raise
         if _layers is not None:
             _layers.pop(model, None)  # forced placement failed: stop forcing
         result = _generate_once(model, prompt, system, temperature, num_ctx, think,
-                                num_predict, on_text, None, should_stop)
+                                num_predict, on_text, None, should_stop, format)
     _record_speed(model, "tokens/s", result.tokens_per_second)
     return result
 
 
+def context_size(prompt: str, system: str | None, num_predict: int | None) -> int:
+    """
+    v0.23.1: the context window for one request. Always config.NUM_CTX (so the loaded model is reused), unless the
+    prompt plus the answer would not fit — then config.NUM_CTX_LARGE, because Ollama would otherwise silently cut the
+    START of the prompt (the instructions). Estimate: ~4 characters per token (measured on NIST text with Qwen3.5:
+    ~5.3; code and logs are denser, so 4 keeps a margin). With it Chat (≤ ~10,000 characters + 800 answer tokens),
+    lessons, articles and page reading all fit 4,096, so they share one loaded model.
+    """
+    need = (len(prompt or "") + len(system or "")) // 4 + (num_predict or 1024) + 64
+    return config.NUM_CTX if need <= config.NUM_CTX else config.NUM_CTX_LARGE
+
+
 def _generate_once(model, prompt, system, temperature, num_ctx, think, num_predict,
-                   on_text, num_gpu, should_stop=None) -> GenerationResult:
+                   on_text, num_gpu, should_stop=None, format=None) -> GenerationResult:
     """One request to Ollama (see generate() for the parameters)."""
     payload: dict = {
         "model": model,
@@ -262,6 +279,10 @@ def _generate_once(model, prompt, system, temperature, num_ctx, think, num_predi
         payload["options"]["num_gpu"] = num_gpu
     if system:
         payload["system"] = system
+    if format is not None:
+        # v0.23.1 structured output: Ollama constrains the reply to this JSON schema (or "json"), so a small model
+        # cannot answer in a different shape than the caller can read (libtrain lost every page to that).
+        payload["format"] = format
     if on_text is not None:
         return _generate_stream(model, payload, on_text, should_stop)
     try:

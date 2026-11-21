@@ -23,6 +23,8 @@ CONNECTED TO: db.py (source_vectors, source_links, brain_events — schema v22; 
        format, prefix and size limits, reused vectors), ollama_client.py (embed, is_running, has_model), config.py (EMBED_MODEL),
        chat.py (status: pauses while an answer is being written), importer.py/learner.py (create the files), taxonomy.py (tokens,
        categories), server.py (/brain/*, start()), Brain.jsx.
+v0.23.1: below CENTRE_MIN files links use the plain cosine with a high bar (centring a handful of files erased real
+relations); relink_lonely() gives files without links another look once the library has grown (stored vectors, no AI).
 """
 from __future__ import annotations
 
@@ -41,6 +43,12 @@ SAMPLE_PASSAGES = 4                  # passages averaged into one file vector
 TERM_DIMS = 256                      # size of the shared-key-words vector
 NEIGHBOURS = 4                       # links per new file
 MIN_SIM = {"embed": 0.30, "terms": 0.25}   # centred cosine needed for a link
+# v0.23.1: centring needs enough files to find the shared direction. With 2 files centring makes them exact opposites;
+# with a handful it erases real relations (4 NIST guides: raw 0.86-0.89, centred all below 0.30, so no links at all).
+# Below CENTRE_MIN files the plain cosine is used with a high bar instead.
+CENTRE_MIN = 12
+RAW_MIN_SIM = {"embed": 0.80, "terms": 0.30}
+RELINK_LIMIT = 40                           # files without links looked at again per round (no AI call: stored vectors)
 STRONG, CLOSE = 0.60, 0.42           # wording of a link: "closely" / "related" / "loosely"
 LOOP_SECONDS = 15
 ROUND_FILES = 8
@@ -154,12 +162,43 @@ def _neighbours(conn, sid: int, method: str, vec) -> list[tuple[int, float]]:
         return []
     ids = [r["source_id"] for r in rows]
     mat = _np().vstack([_from_blob(r["vec"]) for r in rows] + [vec])
-    mat = mat - mat.mean(axis=0)
+    centred = len(ids) + 1 >= CENTRE_MIN
+    if centred:
+        mat = mat - mat.mean(axis=0)
     norms = _np().linalg.norm(mat, axis=1, keepdims=True)
     mat = mat / _np().maximum(norms, 1e-9)
     sims = mat[:-1] @ mat[-1]
     order = _np().argsort(-sims)[:NEIGHBOURS]
-    return [(ids[i], float(sims[i])) for i in order if sims[i] >= MIN_SIM[method]]
+    bar = MIN_SIM[method] if centred else RAW_MIN_SIM[method]
+    return [(ids[i], float(sims[i])) for i in order if sims[i] >= bar]
+
+
+def relink_lonely(limit: int = RELINK_LIMIT) -> int:
+    """
+    v0.23.1: a file is linked when it arrives, against the files there at that moment, so the first files of a
+    library often stayed unlinked for good. Once the library has grown (by 5 files or 20%), every file without a link
+    is compared again with today's library, from its stored vector (no AI call). Existing links are kept.
+    RETURNS how many files gained links.
+    """
+    gained = 0
+    with db.connect() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM source_vectors").fetchone()[0]
+        last = int(db.get_setting("brain_relink_total") or 0)
+        if total < 2 or (total - last < 5 and total < last * 1.2):
+            return 0
+        rows = conn.execute(
+            "SELECT v.source_id, v.method, v.vec FROM source_vectors v JOIN sources s ON s.id = v.source_id "
+            "WHERE s.status = 'extracted' AND s.replaced_by IS NULL AND NOT EXISTS "
+            "(SELECT 1 FROM source_links l WHERE l.a = v.source_id OR l.b = v.source_id) LIMIT ?", (limit,)).fetchall()
+        for r in rows:
+            near = _neighbours(conn, r["source_id"], r["method"], _from_blob(r["vec"]))
+            for other, sim in near:
+                a, b = (r["source_id"], other) if r["source_id"] < other else (other, r["source_id"])
+                conn.execute("INSERT OR REPLACE INTO source_links(a, b, sim) VALUES (?, ?, ?)", (a, b, round(sim, 4)))
+            gained += bool(near)
+    if len(rows) < limit:  # every lonely file has been looked at for this library size
+        db.set_setting("brain_relink_total", total)
+    return gained
 
 
 def process_source(sid: int, allow_embed: bool) -> dict | None:
@@ -212,6 +251,8 @@ def process_pending(limit: int = ROUND_FILES) -> dict:
         for sid in ids:
             if process_source(sid, allow) is not None:
                 done += 1
+        if not ids:  # v0.23.1: when nothing new is waiting, give lonely files another look (cheap, no AI call)
+            relink_lonely()
         left = pending_count()
         _state.update(message=(f"Linking new files ({left} waiting)…" if left else "Everything is linked."),
                       last=time.strftime("%H:%M:%S"))

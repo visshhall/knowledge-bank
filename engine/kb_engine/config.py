@@ -96,6 +96,14 @@ BENCHMARK_MODELS = [
     if m.strip()
 ]
 
+# v0.23.1: ONE context window size for every writing request. Ollama reloads the whole model whenever a request asks
+# for a different num_ctx (measured: 6–13 s per reload on a small model, longer for 4B on a 4 GB GPU). Before this,
+# features asked for 1,536 / 2,048 / 3,072 / 4,096 / 5,120 / 8,192, so background jobs taking turns made the model
+# reload again and again — the main reason everything felt stuck. ollama_client.generate() now always uses NUM_CTX,
+# and NUM_CTX_LARGE only for the rare prompt that would not fit (then reloads once). Override: KB_NUM_CTX.
+NUM_CTX = int(os.environ.get("KB_NUM_CTX", "4096"))
+NUM_CTX_LARGE = max(NUM_CTX, 8192)
+
 # How long to wait for one AI response before giving up (seconds).
 # Generous because an 8B model partly running on RAM can be slow.
 OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("KB_OLLAMA_TIMEOUT", "600"))

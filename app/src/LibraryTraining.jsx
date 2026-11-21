@@ -31,8 +31,11 @@ const REASON_LABELS = {
   "too short": "Too short",
   "too long": "Too long",
   repeat: "Repeated",
+  // v0.23.1: made visible instead of disappearing silently
+  "no pairs written": "Page gave no pairs",
+  "the AI could not read it": "AI could not read the page",
 };
-const REASON_COLORS = ["#f08a68", "#c4567a", "#e8b840", "#7d7d7d", "#b5651d", "#d9a0c8"];
+const REASON_COLORS = ["#f08a68", "#c4567a", "#e8b840", "#7d7d7d", "#b5651d", "#d9a0c8", "#6a4ba8", "#3b7ea1"];
 
 function hours(h) {
   if (h === null || h === undefined) return "working out how long";

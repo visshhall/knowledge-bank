@@ -246,4 +246,99 @@ with db.connect() as conn:
     assert conn.execute("SELECT COUNT(*) FROM lib_qa WHERE source_id = ?", (a,)).fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM lib_pages_done WHERE source_id = ?", (a,)).fetchone()[0] == 0
 
+# --- v0.23.1 fixes ---------------------------------------------------------------------------------------------------------
+# 1. every reply shape a small model writes is understood (v0.23.0 lost pages answered with one object)
+one = '{"q": "What does Event ID 4625 record?", "a": "Event ID 4625 records a failed sign-in on Windows."}'
+assert len(libtrain.parse_pairs(one)) == 1
+assert len(libtrain.parse_pairs('{"pairs": [' + one + ', ' + one + ']}')) == 2
+assert len(libtrain.parse_pairs(one + "\n" + one)) == 2                        # several objects one after another
+assert len(libtrain.parse_pairs('{"data": {"items": [' + one + ']}}')) == 1      # nested
+assert libtrain.parse_pairs('{"pairs": []}') == [] and libtrain.parse_pairs("{broken") == []
+# 2. "this guide" is replaced by the title (after the check, so the title's numbers do not fail it)
+assert libtrain._name_document("What does this guide say about NTP?", "NIST SP 800-61r2") == "What does “NIST SP 800-61r2” say about NTP?"
+assert libtrain.check_pair("What does this guide say?", "The guide says analysts tune rules by adding watchlists of trusted IP ranges.", PAGE)[0]
+assert not libtrain.check_pair("What does this page say?", "Analysts tune rules by adding watchlists of trusted IP ranges.", PAGE)[0]
+
+state["chat"] = "idle"
+with db.connect() as conn:  # start the v0.23.1 checks with nothing else unread
+    conn.execute("DELETE FROM sources")
+f2 = add("NIST.SP.800-61r2.pdf", [PAGE, PAGE + " Second page.", PAGE + " Third page.", PAGE + " Fourth page."])
+p1, p2, p3, p4 = libtrain.next_pages(4)
+replies = {"mode": "guide"}
+
+
+def fake_ask2(prompt):
+    if replies["mode"] == "guide":
+        return json.dumps({"pairs": [{"q": "What does this guide say Event ID 4625 records?",
+                                       "a": "Event ID 4625 records a failed sign-in on Windows."}]})
+    if replies["mode"] == "none":
+        return '{"pairs": []}'
+    if replies["mode"] == "fail":
+        raise RuntimeError("Ollama did not respond")
+    if replies["mode"] == "interrupt":
+        raise libtrain.Interrupted()
+
+
+libtrain._ask = fake_ask2
+assert libtrain.run_round(1)["read"] == 1
+with db.connect() as conn:
+    q = conn.execute("SELECT question FROM lib_qa WHERE page_id = ?", (p1,)).fetchone()[0]
+assert q == "What does “NIST.SP.800-61r2” say Event ID 4625 records?", q                 # file extension removed too
+# 3. a page that gives nothing is counted, not silently lost
+replies["mode"] = "none"
+assert libtrain.run_round(1)["read"] == 1
+with db.connect() as conn:
+    assert json.loads(conn.execute("SELECT reasons_json FROM lib_pages_done WHERE page_id = ?", (p2,)).fetchone()[0]) == {"no pairs written": 1}
+# 4. a chat mid-page: the page is read again later, not counted as a failure
+replies["mode"] = "interrupt"
+r = libtrain.run_round(1)
+assert r == {"read": 0, "reason": "interrupted"} and libtrain.next_pages(1) == [p3] and p3 not in libtrain._fails
+# 5. a page the AI keeps failing on is set aside after MAX_TRIES, so it never blocks the pages after it
+replies["mode"] = "fail"
+assert libtrain.run_round(1)["read"] == 0 and libtrain.next_pages(1) == [p3]          # 1st failure: tried again
+assert libtrain.run_round(1)["read"] == 0 and libtrain.next_pages(1) == [p4]          # 2nd: set aside, moves on
+with db.connect() as conn:
+    row = conn.execute("SELECT skipped, reasons_json FROM lib_pages_done WHERE page_id = ?", (p3,)).fetchone()
+assert row[0] == 1 and json.loads(row[1]) == {"the AI could not read it": 1}
+assert "aside" in libtrain.status()["message"]
+# 6. an import running: reading waits (and says why)
+from kb_engine import importer  # noqa: E402
+real_imp = importer.status
+importer.status = lambda: {"state": "running"}
+assert libtrain.run_round(1)["reason"] == "Waiting for your files to finish importing."
+importer.status = real_imp
+# 7. pages v0.23.0 lost to the reply-shape bug are read again, once
+with db.connect() as conn:
+    conn.execute("INSERT INTO lib_pages_done(page_id, source_id, kept, dropped, skipped) VALUES (?, ?, 0, 0, 0)", (p4, f2))
+db.set_setting("libtrain_repaired_v0231", False)
+assert libtrain.repair_empty_pages() >= 1 and p4 in libtrain.next_pages(5)
+assert libtrain.repair_empty_pages() == 0
+# 8. one context size for every request (no model reloads), larger only when a prompt would not fit; schema is sent
+from kb_engine import config as kbconfig  # noqa: E402
+assert ollama_client.context_size("x" * 6000, "sys", 1400) == kbconfig.NUM_CTX
+assert ollama_client.context_size("x" * 30000, None, 1400) == kbconfig.NUM_CTX_LARGE
+sent = {}
+
+
+class FakeResp:
+    status_code = 200
+    text = ""
+
+    def json(self):
+        return {"response": '{"pairs": []}'}
+
+
+import httpx  # noqa: E402
+real_post = httpx.post
+httpx.post = lambda url, json=None, timeout=None: (sent.update(json), FakeResp())[1]
+ollama_client._layer_choice = lambda m: None
+ollama_client.generate("m", "hello", num_ctx=1536, format=libtrain.SCHEMA)
+httpx.post = real_post
+assert sent["options"]["num_ctx"] == kbconfig.NUM_CTX and sent["format"] == libtrain.SCHEMA
+# 9. no files at all: says so (v0.23.0 said "Every page has been read.")
+with db.connect() as conn:
+    conn.execute("DELETE FROM sources")
+libtrain.run_round(1)
+assert libtrain.status()["message"] == "Add files in Library to start."
+
 print("test_libtrain: all checks passed")

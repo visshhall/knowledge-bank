@@ -28,12 +28,15 @@ calls = {"embed": 0, "available": False}
 
 
 def fake_embed(texts):
-    """Strong shared direction (axis 0) + a subject axis + a little text-dependent noise."""
+    """
+    Shared direction (axis 0) + a subject axis + a little noise. v0.23.1: sized like real nomic-embed-text vectors
+    (measured on NIST guides vs unrelated texts: related ~0.87, unrelated ~0.52 before any centring).
+    """
     calls["embed"] += len(texts)
     out = []
     for t in texts:
         v = np.zeros(16, dtype=np.float32)
-        v[0] = 5.0
+        v[0] = 2.0
         for word, axis in AXES.items():
             if word in t.lower():
                 v[axis] = 2.0
@@ -85,7 +88,7 @@ calls["available"] = True
 brain.process_pending(20)
 methods, events, links = sub(0)
 assert set(methods[i] for i in kql + sk) == {"embed"} and events == 6 and calls["embed"] > 0
-assert links and all((a in kql and b in kql) or (a in sk and b in sk) for a, b in links), links    # shared direction removed
+assert links and all((a in kql and b in kql) or (a in sk and b in sk) for a, b in links), links    # by subject (small library: plain cosine, high bar)
 
 # --- a new file arrives and links to its subject; its event reads in plain words --------------------------------------------------------
 cut = brain.graph()["now"]
@@ -124,4 +127,38 @@ with db.connect() as conn:
     assert conn.execute("SELECT COUNT(*) FROM source_vectors WHERE source_id = ?", (sk[0],)).fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM source_links WHERE a = ? OR b = ?", (sk[0], sk[0])).fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM brain_events WHERE source_id = ?", (sk[0],)).fetchone()[0] == 0
+# --- v0.23.1: small libraries link; files that arrived alone get linked once the library grows ----------------------------------
+# (a fresh database, so the first file really arrives alone)
+import importlib, tempfile as _tf
+os.environ["KB_DATA_DIR"] = _tf.mkdtemp(prefix="kb-brain-relink-")
+from kb_engine import config as _cfg
+importlib.reload(_cfg); importlib.reload(db); db.init_db(); importlib.reload(brain)
+brain._embed_texts = fake_embed
+brain.embedding_available = lambda: True
+first = add("KQL basics", "kql where project sentinel table")
+assert brain.process_source(first, True)["links"] == []          # alone: nothing to link to
+db.set_setting("brain_relink_total", 1)
+for i in range(5):
+    brain.process_source(add(f"Sanskrit sandhi {i}", f"sandhi vowel rules {i}"), True)
+assert brain.relink_lonely() == 0                                  # no other KQL file yet: still alone, honestly
+brain.process_source(add("KQL joins", "kql join summarize sentinel"), True)
+with db.connect() as conn:
+    assert conn.execute("SELECT COUNT(*) FROM source_links WHERE a = ? OR b = ?", (first, first)).fetchone()[0] == 1
+# 12+ files: centred (library-wide shared direction removed), still by subject
+for i in range(6):
+    brain.process_source(add(f"KQL more {i}", f"kql summarize extend sentinel {i}"), True)
+assert brain.relink_lonely() >= 0
+with db.connect() as conn:
+    titles = {r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM sources")}
+    for r in conn.execute("SELECT a, b FROM source_links"):
+        assert ("KQL" in titles[r["a"]]) == ("KQL" in titles[r["b"]]), (titles[r["a"]], titles[r["b"]])
+
+with db.connect() as conn:  # an early file whose links were never made (the v0.23.0 situation) ...
+    conn.execute("DELETE FROM source_links WHERE a = ? OR b = ?", (first, first))
+db.set_setting("brain_relink_total", 1)
+assert brain.relink_lonely() >= 1                                  # ... gets them once the library has grown
+with db.connect() as conn:
+    assert conn.execute("SELECT COUNT(*) FROM source_links WHERE a = ? OR b = ?", (first, first)).fetchone()[0] >= 1
+assert brain.relink_lonely() == 0                                  # and is not looked at again until the library grows
+
 print("test_brain: all checks passed")

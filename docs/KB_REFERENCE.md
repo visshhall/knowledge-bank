@@ -701,6 +701,23 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 
 *Planned next:* v0.14 memory about the owner; v0.15 training kit (see section 9t).
 
+## 9ag. v0.23.1 — Training and "stuck" problems found with a real model and fixed (21 Nov 2026)
+
+**How they were found:** owner: "training is not working properly, the data from the file is getting stuck, and there are multiple other problems". Reproduced in the workspace with real Ollama (0.40.17), the real Qwen3.5 family (qwen3.5:2b on CPU) and nomic-embed-text, on four real NIST PDFs (SP 800-53r5 492 pages, 800-61r2, 800-83r1, CSF 2.0; 651 pages), with every background job running.
+
+| # | Problem (measured) | Fix |
+|---|---|---|
+| 1 | **Pages read, nothing learned.** The model answered with one `{"q","a"}` object instead of a list; the reader expected `[...]`, found nothing, and marked the page read with 0 kept / 0 dropped — silently. Every page in the test run. | Ollama structured output (`format` = JSON schema `{"pairs":[{q,a}]}`) — measured 5/5, 6/6, 6/6 pairs; the reader also accepts any shape (list, `{"pairs"}`, one object, several objects, nested); a page that gives nothing is counted ("Page gave no pairs"). On start, pages lost to the bug are made unread once (`repair_empty_pages`). |
+| 2 | **Model reloads.** Features asked Ollama for six different context sizes (1,536–8,192). Ollama reloads the model on every change: 6–13 s each here (longer for 4B on a 4 GB GPU); 13 reloads in 25 min. | `ollama_client.context_size()`: every request uses `config.NUM_CTX` (4,096); only a prompt that would not fit gets 8,192. After the fix: 1 load in 7 min. |
+| 3 | **One bad page stops reading for good.** A model error/timeout left the page unread, and it was retried first every round. | After 2 failures the page is set aside ("AI could not read the page") and reading moves on. |
+| 4 | **Chat waits for page reading.** Reading only checked for a chat before starting a page (a page can take a minute). | The page is streamed and stops the moment Chat/Answers start; it is read again later (not a failure). Chat during reading: 17 s (was 45 s). |
+| 5 | Reading competed with an import, and said "Every page has been read." with no files. | Waits while an import runs ("Waiting for your files to finish importing."); "Add files in Library to start." when empty. |
+| 6 | Most pairs said "this guide". | "this guide/document/publication…" → the file's title (after the fact check, so title numbers cannot fail it). "the publication" is left alone (can mean another document). |
+| 7 | **Notebook**: learning rate 2e-4 for thousands of steps (Unsloth: lower it for long runs, or the model can lose its chat ability); a run cut off at the time limit never finished its schedule. | Times 6 no-change steps on the GPU, then sizes the run to finish in MAX_MINUTES (all Q&A + chat examples; page text fills the rest, each piece once before repeats; says what % of page text this run covered); lr 1e-4, cosine. Data prep verified with the real Qwen3.5-4B tokenizer (chat format correct; longest piece 919 of 2,048 tokens). |
+| 8 | **Live learning: no links in small libraries.** Centring with few files erased real relations (4 NIST guides: raw 0.86–0.89, unrelated texts 0.49–0.56; centred: none ≥ 0.30). Files were linked only on arrival, so a library's first files could stay unlinked forever. | Below 12 files: plain cosine with bar 0.80 (separates the measured values); 12+: centring as before. `relink_lonely()`: once the library grows (5 files or 20%), files without links are compared again from stored vectors (no AI call). |
+
+**Not reproducible here:** a 4 GB Windows GPU (speeds differ), the Colab run itself (no GPU here), `ollama create` on Windows.
+
 ## 9af. v0.23.0 — Learn from every page of your files, then a real trained model (18 Nov 2026)
 
 **Why:** Owner: "I want the model to read all the pdf and learn directly instead of half knowledge"; the training count was stuck because v0.16 only collected rated Free-chat answers and nothing was ever trained. He chose (18 Nov): every page as checked question-and-answer pairs **plus the raw text**, trained on a **free cloud GPU** (his ~4 GB laptop GPU cannot train a 4B model; Unsloth's Qwen3.5-4B 16-bit LoRA needs about 10 GB).
@@ -965,6 +982,7 @@ The owner picked these from three rounds of suggestions and said "go ahead".
 | 16 Nov 2026 | Doc 3.6 / KB v0.14.0 | Memory about the owner: editable facts, pin, suggestions from a chat approved one by one, used in Free chat only. Schema v17. Added section 9v. |
 | 16 Nov 2026 | Doc 3.7 / KB v0.15.0 | Chat-first app: opens on Chat, ChatGPT-style sidebar (chat history by day, Knowledge section), message box with attach / web page / mode, Copy, Regenerate, Edit; engine /chat/undo. Added section 9w. |
 | 16 Nov 2026 | Doc 3.8 / KB v0.16.0 | The app learns by itself: web learning loop (daily budget, switch, learned pages removable) and learning from use (signals, corrections, training examples, dataset export). Schema v18. Added section 9x. |
+| 21 Nov 2026 | Doc 4.7 / KB v0.23.1 | Eight problems found with a real model and fixed: reply shape lost every page; model reloads; bad page blocked reading; chat waited; import competition; 'this guide'; notebook learning rate/time; Live learning links. Added section 9ag. |
 | 18 Nov 2026 | Doc 4.6 / KB v0.23.0 | Learn from every page: checked Q&A + raw text, training package with Colab notebook, import of the trained model; schema v23. Added section 9af. |
 | 16 Nov 2026 | Doc 4.5 / KB v0.22.1 | Fix: Live learning crash (missing import) blanked the window; crash guard per screen; polling skips while busy/hidden; 60 s read timeout. Added section 9ae. |
 | 16 Nov 2026 | Doc 4.4 / KB v0.22.0 | Pictures on Overview, Library, Topics and Learning (donuts, treemaps, rings, bars) with captions; shared viz.jsx; glance.py. Added section 9ad. |

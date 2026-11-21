@@ -23,6 +23,11 @@ WHY:   Owner (18 Nov 2026): "I want the model to read all the pdf and learn dire
        plus the raw text, trained on a free cloud GPU (his ~4 GB laptop GPU cannot train a 4B model; Unsloth's Qwen3.5-4B
        LoRA needs about 10 GB). Honest limit, shown in the app: a fine-tuned model knows the subject far better but does not
        recall every exact fact; answers with page references still come from the library search.
+v0.23.1 (21 Nov 2026, found with a real model): replies are forced into a fixed JSON shape (SCHEMA) and read in any
+       shape — v0.23.0 lost every page to a reply-shape mismatch; pages lost that way are read again once
+       (repair_empty_pages); a page failing MAX_TRIES times is set aside instead of blocking reading; reading stops
+       mid-page when Chat/Answers start (Interrupted) and waits while an import runs; "this guide" → the file's title;
+       the notebook sizes its run to finish in time with a lower learning rate.
 WHEN:  start() (server.py lifespan) runs _loop: every LOOP_SECONDS it reads PAGES_PER_ROUND page(s) unless switched off
        (setting libtrain_on), Ollama is not running, or Chat / the Answers screen is writing (they always go first).
        build_package() on POST /libtrain/package; start_import() on POST /libtrain/import; status() for the Learning screen.
@@ -66,25 +71,41 @@ BASES = {
 }
 DEFAULT_BASE = "qwen3.5:4b"
 
-_SELF_REF = re.compile(r"\b(this|the|above|following)\s+(page|document|text|passage|excerpt|section|pdf|file)\b", re.I)
+# v0.23.1: only references to the page itself are dropped. "this guide / this document / this publication" is fixed
+# instead (replaced by the file's title, see _name_document), because the real model wrote it in most pairs. Only
+# "this …": "the publication" can mean another document (seen in a real run), so it is left as written.
+_SELF_REF = re.compile(r"\b(this|the|above|following)\s+(page|text|passage|excerpt|section|pdf|file)\b", re.I)
+_DOC_REF = re.compile(r"\b(this)\s+(guide|document|publication|report|book|manual|paper|standard|framework|"
+                      r"handbook|whitepaper|white paper|chapter)\b", re.I)
 _WORD = re.compile(r"[a-z0-9]+(?:[.\-_][a-z0-9]+)*")
 
 _state: dict = {"message": "", "current": None}
 _import: dict = {"state": "idle", "message": "", "step": ""}
+_fails: dict[int, int] = {}  # v0.23.1: page id -> failed attempts in this run (after MAX_TRIES the page is set aside)
 _lock = threading.Lock()
 _started = False
 _wake = threading.Event()
+MAX_TRIES = 2
+
+# v0.23.1: the reply MUST have this shape (Ollama structured output). In v0.23.0 the model often answered with a single
+# {"q","a"} object instead of a list; the reader found nothing and every such page was marked read with nothing learned.
+SCHEMA = {
+    "type": "object",
+    "properties": {"pairs": {"type": "array", "items": {
+        "type": "object", "properties": {"q": {"type": "string"}, "a": {"type": "string"}}, "required": ["q", "a"]}}},
+    "required": ["pairs"],
+}
 
 PROMPT = """Below is page {page} of "{title}".
 
 Write {n} question-and-answer pairs that this page fully answers. Rules:
 - Each question is one a security professional would really ask. Each answer is 1-4 sentences.
 - Use ONLY facts written on this page. Do not add anything you know from elsewhere.
-- Every answer must make sense on its own: name the subject (tool, technique, product, setting) instead of saying "this page", "the document" or "the text".
+- Every question and answer must make sense on its own: name the subject (tool, technique, product, setting) and, when needed, the document by its title "{title}". Never say "this page" or "the text".
 - Copy numbers, IDs, commands and names exactly as written.
-- If the page has fewer useful facts, write fewer pairs. If it has none (a cover, contents, index, blank), reply [].
+- If the page has fewer useful facts, write fewer pairs. If it has none (a cover, contents, index, blank), reply {{"pairs": []}}.
 
-Reply with JSON only, like: [{{"q": "...", "a": "..."}}]
+Reply with JSON only, like: {{"pairs": [{{"q": "...", "a": "..."}}]}}
 
 PAGE TEXT:
 {text}
@@ -113,32 +134,86 @@ def pairs_wanted(n_chars: int) -> int:
     return max(2, min(6, n_chars // 700 + 1))
 
 
+def _owner_busy() -> str | None:
+    """v0.23.1: Chat or the Answers screen is writing — the owner's question goes first, even mid-page."""
+    from . import answers, chat
+    if chat.status().get("state") == "running":
+        return "Paused while Chat is answering."
+    try:
+        if answers.status().get("state") == "running":
+            return "Paused while an answer is being written."
+    except Exception:
+        pass
+    return None
+
+
+class Interrupted(Exception):
+    """The owner started a chat while a page was being read: the page is read again later (not a failure)."""
+
+
 def _ask(prompt: str) -> str:
-    """Ask the chat model (replaceable in tests). Low temperature: we want faithful copying, not creativity."""
+    """
+    Ask the chat model (replaceable in tests). Low temperature: faithful copying, not creativity. v0.23.1: the reply is
+    forced into SCHEMA, and it is streamed so it can stop the moment the owner asks something (raises Interrupted).
+    """
     from . import chat, ollama_client
-    r = ollama_client.generate(chat.chat_model(), prompt, system=SYSTEM, temperature=0.2, num_ctx=8192,
-                               think=False, num_predict=1400)
+    r = ollama_client.generate(chat.chat_model(), prompt, system=SYSTEM, temperature=0.2, think=False,
+                               num_predict=1400, format=SCHEMA, on_text=lambda _t: None,
+                               should_stop=lambda: _owner_busy() is not None)
+    if _owner_busy():
+        raise Interrupted()
     return r.text
 
 
 def parse_pairs(text: str) -> list[tuple[str, str]]:
-    """Pull [{"q","a"}] out of the model's reply, tolerating code fences and text around the JSON."""
+    """
+    Pull question-and-answer pairs out of the model's reply. v0.23.1: accepts every shape a small model produces —
+    {"pairs": [...]}, a bare list, one {"q","a"} object, or several objects one after another — with code fences or
+    words around them. Keys "q"/"question" and "a"/"answer".
+    """
     text = (text or "").strip()
-    start, end = text.find("["), text.rfind("]")
-    if start < 0 or end <= start:
-        return []
-    try:
-        data = json.loads(text[start:end + 1])
-    except ValueError:
-        return []
+    dec = json.JSONDecoder()
+    found: list = []
+    i = 0
+    while i < len(text):
+        j = min([k for k in (text.find("{", i), text.find("[", i)) if k >= 0], default=-1)
+        if j < 0:
+            break
+        try:
+            obj, end = dec.raw_decode(text, j)
+        except ValueError:
+            i = j + 1
+            continue
+        found.append(obj)
+        i = end
+    items: list = []
+
+    def walk(o):
+        if isinstance(o, list):
+            for x in o:
+                walk(x)
+        elif isinstance(o, dict):
+            if any(k in o for k in ("q", "question")):
+                items.append(o)
+            else:
+                for v in o.values():
+                    if isinstance(v, (list, dict)):
+                        walk(v)
+
+    for o in found:
+        walk(o)
     out = []
-    for item in data if isinstance(data, list) else []:
-        if isinstance(item, dict):
-            q = str(item.get("q") or item.get("question") or "").strip()
-            a = str(item.get("a") or item.get("answer") or "").strip()
-            if q and a:
-                out.append((q, a))
+    for item in items:
+        q = str(item.get("q") or item.get("question") or "").strip()
+        a = str(item.get("a") or item.get("answer") or "").strip()
+        if q and a:
+            out.append((q, a))
     return out
+
+
+def _name_document(text: str, title: str) -> str:
+    """'this guide' / 'the document' → the file's title, so the pair reads on its own (v0.23.1)."""
+    return _DOC_REF.sub(f"“{title}”", text)
 
 
 def _content_words(text: str) -> list[str]:
@@ -171,7 +246,11 @@ def check_pair(q: str, a: str, page: str) -> tuple[bool, str]:
 
 
 def process_page(page_id: int) -> dict:
-    """Read one page, write its pairs, keep the checked ones. RETURNS {kept, dropped, skipped, seconds}."""
+    """
+    Read one page, write its pairs, keep the checked ones. RETURNS {kept, dropped, skipped, seconds}.
+    RAISES Interrupted when the owner starts a chat mid-page (nothing is saved; the page is read again later).
+    v0.23.1: a reply with no usable pairs is counted ("no pairs written") instead of disappearing silently.
+    """
     started = time.time()
     with db.connect() as conn:
         row = conn.execute("SELECT p.id, p.page_number, p.source_id, COALESCE(s.title, s.file_name) AS title "
@@ -179,33 +258,54 @@ def process_page(page_id: int) -> dict:
         if not row:
             return {"kept": 0, "dropped": 0, "skipped": True, "seconds": 0}
         text = page_text(conn, page_id)
+    title = re.sub(r"\.(pdf|docx?|pptx?|txt|md|html?)$", "", row["title"] or "", flags=re.I).strip() or "the file"
     kept, dropped, reasons, skipped = [], 0, {}, False
     if len(text) < MIN_PAGE_CHARS:
         skipped = True
     else:
         n = pairs_wanted(len(text))
-        reply = _ask(PROMPT.format(page=row["page_number"], title=row["title"], n=n, text=text[:MAX_PROMPT_CHARS]))
+        reply = _ask(PROMPT.format(page=row["page_number"], title=title, n=n, text=text[:MAX_PROMPT_CHARS]))
+        pairs = parse_pairs(reply)
+        if not pairs:
+            reasons["no pairs written"] = 1
         seen = set()
-        for q, a in parse_pairs(reply)[:n + 2]:
-            ok, why = check_pair(q, a, text)
+        for q, a in pairs[:n + 2]:
+            ok, why = check_pair(q, a, text)  # checked as written (the title may hold numbers that are not on the page)
             key = q.lower()
             if ok and key not in seen:
                 seen.add(key)
-                kept.append((q, a))
+                kept.append((_name_document(q, title), _name_document(a, title)))
             else:
                 dropped += 1
                 reasons[why or "repeat"] = reasons.get(why or "repeat", 0) + 1
     seconds = round(time.time() - started, 1)
+    _save_page(page_id, row["source_id"], kept, dropped, skipped, seconds, reasons)
+    return {"kept": len(kept), "dropped": dropped, "skipped": skipped, "seconds": seconds}
+
+
+def _save_page(page_id, source_id, kept, dropped, skipped, seconds, reasons) -> None:
     with db.connect() as conn:
         for q, a in kept:
             conn.execute("INSERT OR IGNORE INTO lib_qa(page_id, source_id, question, answer) VALUES (?, ?, ?, ?)",
-                         (page_id, row["source_id"], q, a))
+                         (page_id, source_id, q, a))
         conn.execute("INSERT INTO lib_pages_done(page_id, source_id, kept, dropped, skipped, seconds, reasons_json) "
                      "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(page_id) DO UPDATE SET kept = excluded.kept, "
                      "dropped = excluded.dropped, skipped = excluded.skipped, seconds = excluded.seconds, "
                      "reasons_json = excluded.reasons_json, done_at = datetime('now')",
-                     (page_id, row["source_id"], len(kept), dropped, int(skipped), seconds, json.dumps(reasons)))
-    return {"kept": len(kept), "dropped": dropped, "skipped": skipped, "seconds": seconds}
+                     (page_id, source_id, len(kept), dropped, int(skipped), seconds, json.dumps(reasons)))
+
+
+def repair_empty_pages() -> int:
+    """
+    v0.23.1, once: pages v0.23.0 marked read with nothing kept, nothing dropped and not skipped are the pages lost to
+    the reply-shape bug. They are made unread again so they are read properly. RETURNS how many.
+    """
+    if db.get_setting("libtrain_repaired_v0231"):
+        return 0
+    with db.connect() as conn:
+        n = conn.execute("DELETE FROM lib_pages_done WHERE kept = 0 AND dropped = 0 AND skipped = 0").rowcount
+    db.set_setting("libtrain_repaired_v0231", True)
+    return n
 
 
 def next_pages(limit: int) -> list[int]:
@@ -227,22 +327,27 @@ def set_on(on: bool) -> dict:
 
 
 def _machine_busy() -> str | None:
-    """Why reading should wait right now, or None. The owner's own questions always go first."""
-    from . import answers, chat, ollama_client
+    """Why reading should wait right now, or None. The owner's own questions and imports always go first."""
+    from . import importer, ollama_client
     if not ollama_client.is_running():
         return "Waiting for the AI engine (Ollama) to start."
-    if chat.status().get("state") == "running":
-        return "Paused while Chat is answering."
+    owner = _owner_busy()
+    if owner:
+        return owner
     try:
-        if answers.status().get("state") == "running":
-            return "Paused while an answer is being written."
+        if importer.status().get("state") == "running":
+            return "Waiting for your files to finish importing."
     except Exception:
         pass
     return None
 
 
 def run_round(n: int = PAGES_PER_ROUND) -> dict:
-    """One round: read up to n pages if allowed. Used by the loop and by tests."""
+    """
+    One round: read up to n pages if allowed. Used by the loop and by tests.
+    v0.23.1: a page that fails MAX_TRIES times (model error, timeout) is set aside as "the AI could not read it" so it
+    can never block the pages after it; a page interrupted by a chat is simply read again next round.
+    """
     if not is_on():
         _state.update(message="Switched off.", current=None)
         return {"read": 0, "reason": "off"}
@@ -250,16 +355,35 @@ def run_round(n: int = PAGES_PER_ROUND) -> dict:
     if busy:
         _state.update(message=busy, current=None)
         return {"read": 0, "reason": busy}
-    read = 0
-    for pid in next_pages(n):
+    pages = next_pages(n)
+    if not pages:
+        with db.connect() as conn:
+            total = conn.execute(f"SELECT COUNT(*) FROM pages p JOIN sources s ON s.id = p.source_id WHERE {_LIVE}").fetchone()[0]
+        _state.update(current=None, message="Every page has been read." if total else "Add files in Library to start.")
+        return {"read": 0, "reason": ""}
+    read, note = 0, ""
+    for pid in pages:
         _state.update(current=pid, message="Reading your files page by page.")
         try:
             process_page(pid)
             read += 1
-        except Exception as exc:  # a page that fails (model error, timeout) is retried next round, not marked done
-            _state.update(message=f"Reading paused: {exc}", current=None)
+            _fails.pop(pid, None)
+        except Interrupted:
+            _state.update(current=None, message="Paused while Chat is answering.")
+            return {"read": read, "reason": "interrupted"}
+        except Exception as exc:
+            _fails[pid] = _fails.get(pid, 0) + 1
+            if _fails[pid] >= MAX_TRIES:
+                with db.connect() as conn:
+                    sid = conn.execute("SELECT source_id FROM pages WHERE id = ?", (pid,)).fetchone()
+                if sid:
+                    _save_page(pid, sid[0], [], 0, True, 0, {"the AI could not read it": 1})
+                _fails.pop(pid, None)
+                note = f"Set one page aside after {MAX_TRIES} tries ({str(exc)[:120]})."
+                continue
+            _state.update(current=None, message=f"Reading paused, will try again: {str(exc)[:160]}")
             return {"read": read, "reason": str(exc)}
-    _state.update(current=None, message="Reading your files page by page." if read else "Every page has been read.")
+    _state.update(current=None, message=note or "Reading your files page by page.")
     return {"read": read, "reason": ""}
 
 
@@ -280,6 +404,12 @@ def start() -> None:
     if _started:
         return
     _started = True
+    try:
+        n = repair_empty_pages()
+        if n:
+            print(f"[libtrain] {n} pages lost to the v0.23.0 reply-shape bug will be read again", flush=True)
+    except Exception as exc:
+        print(f"[libtrain] repair skipped: {exc}", flush=True)
     threading.Thread(target=_loop, name="libtrain", daemon=True).start()
 
 
@@ -511,8 +641,10 @@ def notebook(manifest: dict) -> dict:
     """
     The Google Colab notebook. Install cell copied from Unsloth's official Qwen3.5 notebooks (Nov 2026); text-only loading
     pattern from their Qwen3.5 text notebook (FastLanguageModel returns a processor; its .tokenizer is used). Trains a
-    16-bit LoRA (Unsloth: 4-bit is not recommended for Qwen3.5) on raw text + Q&A + chat examples for one pass, stops
-    early at MAX_MINUTES so a free session does not end before the model is saved, then saves q4_k_m GGUF.
+    16-bit LoRA (Unsloth: 4-bit is not recommended for Qwen3.5). v0.23.1: first times six no-change steps on this GPU,
+    then sizes the run to finish inside MAX_MINUTES (all Q&A + chat examples; page text fills the rest, every piece once
+    before repeats), learning rate 1e-4 with a cosine schedule (2e-4 for thousands of steps risks the model losing its
+    chat ability), then saves q4_k_m GGUF.
     """
     hf = manifest["hf_base"]
     cells = [
@@ -577,8 +709,8 @@ model = FastLanguageModel.get_peft_model(
 )
 """),
         _cell("code", """
-# One training set: the text of every page (read TEXT_PASSES times) + Q&A pairs + chat examples, shuffled.
-import random
+# The training material: the text of every page, the checked question-and-answer pairs and the chat examples.
+import random, time
 from datasets import Dataset
 def read_jsonl(path):
     if not os.path.exists(path): return []
@@ -590,20 +722,48 @@ def chat_text(messages):
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
 raw = [r["text"] + tokenizer.eos_token for r in read_jsonl("kb_data/kb_text.jsonl")]
 qa = [chat_text(r["messages"]) for r in read_jsonl("kb_data/kb_qa.jsonl") + read_jsonl("kb_data/kb_chat.jsonl")]
-texts = raw * max(1, TEXT_PASSES) + qa
-random.Random(3407).shuffle(texts)
-dataset = Dataset.from_dict({"text": texts})
-print(f"{len(raw)} page pieces x{TEXT_PASSES}, {len(qa)} question-answer examples, {len(texts)} total")
+print(f"{len(raw)} page pieces, {len(qa)} question-answer examples")
 """),
         _cell("code", """
-import time
+# Measure this GPU's speed with a few steps that change nothing (learning rate 0), then size the run so it FINISHES
+# inside MAX_MINUTES: every question-answer example is used; page text fills the rest of the time, each piece once
+# before any piece is read again. A run that finishes completes its learning-rate schedule (better than being cut off).
 from trl import SFTTrainer, SFTConfig
 from transformers import TrainerCallback
+BATCH, ACCUM = 2, 4
+probe = Dataset.from_dict({"text": random.Random(1).sample(raw + qa, min(80, len(raw + qa)))})
+probe_trainer = SFTTrainer(model = model, tokenizer = tokenizer, train_dataset = probe,
+    args = SFTConfig(dataset_text_field = "text", max_length = 2048, per_device_train_batch_size = BATCH,
+                     gradient_accumulation_steps = ACCUM, max_steps = 6, learning_rate = 0.0, optim = "adamw_8bit",
+                     output_dir = "probe", report_to = "none", logging_steps = 100, save_strategy = "no"))
+t0 = time.time(); probe_trainer.train(); sec_per_step = (time.time() - t0) / 6
+del probe_trainer
+budget = max(1, int(MAX_MINUTES * 60 * 0.9 / sec_per_step)) * BATCH * ACCUM   # examples that fit the time
+rng = random.Random(3407)
+if len(qa) >= budget:
+    print(f"Warning: only {budget} of {len(qa)} question-answer examples fit in {MAX_MINUTES} minutes.")
+    chosen_qa, chosen_raw = rng.sample(qa, budget), []
+else:
+    chosen_qa, chosen_raw, left = list(qa), [], budget - len(qa)
+    for _ in range(max(1, TEXT_PASSES)):
+        piece = raw[:]; rng.shuffle(piece)
+        chosen_raw += piece[:left - len(chosen_raw)]
+        if len(chosen_raw) >= left: break
+texts = chosen_qa + chosen_raw
+rng.shuffle(texts)
+dataset = Dataset.from_dict({"text": texts})
+covered = min(100, round(100 * len(chosen_raw) / max(1, len(raw))))
+print(f"{sec_per_step:.1f} s per step. This run: all {len(chosen_qa)} question-answer examples and "
+      f"{covered}% of the page text ({len(chosen_raw)} of {len(raw)} pieces).")
+if covered < 100:
+    print("To read every page: raise MAX_MINUTES if your session allows, or run the notebook again later.")
+"""),
+        _cell("code", """
 class StopInTime(TrainerCallback):
-    # Free Colab sessions end after a few hours; stop early so the model is always saved.
+    # Safety net only (the run is sized to finish in time): stop and save before Colab ends the session.
     def on_train_begin(self, args, state, control, **kw): self.t0 = time.time()
     def on_step_end(self, args, state, control, **kw):
-        if time.time() - self.t0 > MAX_MINUTES * 60:
+        if time.time() - self.t0 > MAX_MINUTES * 60 * 1.15:
             print("Time limit reached; saving what has been learned so far.")
             control.should_training_stop = True
 trainer = SFTTrainer(
@@ -614,18 +774,19 @@ trainer = SFTTrainer(
     args = SFTConfig(
         dataset_text_field = "text",
         max_length = 2048,
-        per_device_train_batch_size = 2,
-        gradient_accumulation_steps = 4,
-        warmup_steps = 10,
+        per_device_train_batch_size = BATCH,
+        gradient_accumulation_steps = ACCUM,
+        warmup_steps = 20,
         num_train_epochs = 1,
-        learning_rate = 2e-4,
+        learning_rate = 1e-4,   # Unsloth: lower than 2e-4 for long runs, so the model keeps its chat ability
         logging_steps = 10,
         optim = "adamw_8bit",
         weight_decay = 0.001,
-        lr_scheduler_type = "linear",
+        lr_scheduler_type = "cosine",
         seed = 3407,
         output_dir = "outputs",
         report_to = "none",
+        save_strategy = "no",
     ),
 )
 stats = trainer.train()
